@@ -1,0 +1,18 @@
+# 上游 Synapse 源码（独立仓库，不纳入 GuDuu 仓库）
+synapse/
+
+# 部署运维记录（含服务器拓扑，本地保留、不托管）
+DEPLOY.md
+
+# 本地运行产物，不提交
+.venv/
+run/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# 临时/日志
+*.log
