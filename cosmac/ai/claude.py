@@ -12,9 +12,9 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from guduu.ai.base import LLMProvider, Message
+from cosmac.ai.base import LLMProvider, Message
 
-logger = logging.getLogger("guduu.ai.claude")
+logger = logging.getLogger("cosmac.ai.claude")
 
 # 默认模型：Claude Opus 4.8（最强；如需更便宜可在配置里换成 claude-sonnet-4-6）
 DEFAULT_CLAUDE_MODEL = "claude-opus-4-8"

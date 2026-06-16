@@ -60,7 +60,7 @@
 └────────────────────────┬────────────────────────────┘
                          │ Appservice 协议
 ┌────────────────────────▼────────────────────────────┐
-│  CosMac Star AI 服务 (独立进程)  →  guduu/                   │
+│  CosMac Star AI 服务 (独立进程)  →  cosmac/                   │
 │  • 主AI Agent  • 多模型抽象层  • 群级记忆/知识库/Rule/Skill │
 │  • Bot/插件/工作流引擎                                  │
 └──────────────────────────────────────────────────────┘
@@ -68,17 +68,17 @@
 
 ### 目录约定（新代码放哪）
 - `synapse/` —— 上游 Synapse 仓库，**只读为主**。改动需登记（§8）。
-- `guduu/` —— **新建**，CosMac Star 自己的代码（AI 服务、Module、工作流引擎等）全部放这。与 `synapse/` 同级，独立 Python 包。
-  - `guduu/module/` —— Synapse Module（薄薄一层，转发到 AI 服务）
-  - `guduu/ai/` —— 主 AI Agent + 多模型抽象层
-  - `guduu/memory/` —— 群级记忆 / 知识库 / Rule / Skill
-  - `guduu/bots/`、`guduu/workflows/`、`guduu/trading/`、`guduu/profile/` —— 后续模块
-  - `guduu/tests/` —— CosMac Star 自己的测试
+- `cosmac/` —— **新建**，CosMac Star 自己的代码（AI 服务、Module、工作流引擎等）全部放这。与 `synapse/` 同级，独立 Python 包。
+  - `cosmac/module/` —— Synapse Module（薄薄一层，转发到 AI 服务）
+  - `cosmac/ai/` —— 主 AI Agent + 多模型抽象层
+  - `cosmac/memory/` —— 群级记忆 / 知识库 / Rule / Skill
+  - `cosmac/bots/`、`cosmac/workflows/`、`cosmac/trading/`、`cosmac/profile/` —— 后续模块
+  - `cosmac/tests/` —— CosMac Star 自己的测试
 
-> 注：`guduu/` 目录在对应模块开工时再创建，不提前建空壳。
+> 注：`cosmac/` 目录在对应模块开工时再创建，不提前建空壳。
 
 ### 多模型抽象层（AI 后端可配置）
-主 AI 背后的大模型**必须做成可插拔**：统一接口，支持 Claude / OpenAI / 本地模型等多后端，通过配置切换。不要把任何一家厂商的 SDK 调用散落在业务逻辑里——全部走 `guduu/ai/` 的统一抽象。
+主 AI 背后的大模型**必须做成可插拔**：统一接口，支持 Claude / OpenAI / 本地模型等多后端，通过配置切换。不要把任何一家厂商的 SDK 调用散落在业务逻辑里——全部走 `cosmac/ai/` 的统一抽象。
 
 ---
 
@@ -87,7 +87,7 @@
 | # | 模块 | 状态 | 说明 |
 |---|------|------|------|
 | 0 | 项目规范 (本文件) | ✅ 进行中 | — |
-| 1 | **主 AI 控制层** | 🟡 进行中 | ①骨架：appservice bot 看到每条消息+自动进群+回消息（`guduu/bots/`）②多模型已接入：echo/claude/openai 可配置（`guduu/ai/`，无 key 自动降级 echo）。待扩展：让 AI 调用创建群/查记录等全部 IM 能力（工具调用） |
+| 1 | **主 AI 控制层** | 🟡 进行中 | ①骨架：appservice bot 看到每条消息+自动进群+回消息（`cosmac/bots/`）②多模型已接入：echo/claude/openai 可配置（`cosmac/ai/`，无 key 自动降级 echo）。待扩展：让 AI 调用创建群/查记录等全部 IM 能力（工具调用） |
 | 2 | 群级 记忆/知识库/Rule/Skill | ⬜ | 挂在主 AI 上的群级智能 |
 | 3 | Bot / 插件 / 工作流引擎 | ⬜ | 可配置的 AI 工作流 + 扩展插件 |
 | 4 | 交易系统 | ⬜ | — |
@@ -101,15 +101,15 @@
 ## 5. 开发约定（来自本仓库真实配置，写代码必须遵守）
 
 - **语言**：Python（`^3.8`），热点路径有 Rust 扩展（`rust/`，PyO3）。
-- **Lint / 格式**：`ruff`，行宽 **88**。提交前跑 `poetry run ruff check synapse/ guduu/`。
+- **Lint / 格式**：`ruff`，行宽 **88**。提交前跑 `poetry run ruff check synapse/ cosmac/`。
 - **类型检查**：`mypy`（配置见 `synapse/mypy.ini`）。新代码要带类型注解。
-- **测试**：Synapse 用 trial。运行：`poetry run trial tests`（CosMac Star 测试放 `guduu/tests/`）。
+- **测试**：Synapse 用 trial。运行：`poetry run trial tests`（CosMac Star 测试放 `cosmac/tests/`）。
 - **Changelog（重要）**：Synapse 仓库每个改动都要在 `synapse/changelog.d/` 加一个文件，命名 `<PR号>.<类型>`，内容一句话（句号结尾）。类型：
   - `feature` 新功能 / `bugfix` 修复 / `doc` 文档 / `removal` 移除 / `misc` 内部改动 / `docker`
-  - CosMac Star 自己的代码（`guduu/`）是否沿用 towncrier 待定；定下来之前先在 commit message 写清。
+  - CosMac Star 自己的代码（`cosmac/`）是否沿用 towncrier 待定；定下来之前先在 commit message 写清。
 - **依赖**：用 Poetry 管理（`pyproject.toml` + `poetry.lock`）。
 - **中文注释（强制）**：写代码时必须加**详细的中文注释**，越细越好。
-  - CosMac Star 新代码（`guduu/`）：每个模块/类/函数都要有中文 docstring 说明"这是干嘛的、参数啥意思、返回啥"；关键逻辑行内也要中文注释解释"为什么这么写"。
+  - CosMac Star 新代码（`cosmac/`）：每个模块/类/函数都要有中文 docstring 说明"这是干嘛的、参数啥意思、返回啥"；关键逻辑行内也要中文注释解释"为什么这么写"。
   - 改/调用 `synapse/` 时：在改动处加中文注释说明意图（方便以后定位 CosMac Star 的改动）。
   - 注释解释**意图和原因**，不要只复述代码字面意思。专有名词（如 appservice、event）可保留英文。
 
@@ -158,11 +158,11 @@ export GUDUU_LLM_PROVIDER=claude
 export ANTHROPIC_API_KEY=sk-ant-...
 # 或 OpenAI（默认 gpt-4o）
 # export GUDUU_LLM_PROVIDER=openai ; export OPENAI_API_KEY=sk-...
-.venv/bin/python -m guduu
+.venv/bin/python -m cosmac
 ```
 没配 key 时会自动降级回 echo（bot 照常能跑）。可选：`GUDUU_LLM_MODEL` 换模型、`GUDUU_SYSTEM_PROMPT` 改人设。
 部署到 Google Cloud 时，把 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 配进服务的环境变量/Secret Manager 即可。
-CosMac Star 服务依赖见 `guduu/requirements.txt`。
+CosMac Star 服务依赖见 `cosmac/requirements.txt`。
 
 ---
 

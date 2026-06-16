@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class GuduuConfig:
+class CosmacConfig:
     """CosMac Star 主 AI Bot 的全部配置。
 
     字段说明：
@@ -53,10 +53,10 @@ class GuduuConfig:
     bot_displayname: str = "CosMac Star"
 
     @staticmethod
-    def from_env() -> "GuduuConfig":
+    def from_env() -> "CosmacConfig":
         """从环境变量读取配置，未设置的项用上面的开发默认值。"""
-        defaults = GuduuConfig()
-        return GuduuConfig(
+        defaults = CosmacConfig()
+        return CosmacConfig(
             homeserver_url=os.environ.get("GUDUU_HS_URL", defaults.homeserver_url),
             server_name=os.environ.get("GUDUU_SERVER_NAME", defaults.server_name),
             bot_user_id=os.environ.get("GUDUU_BOT_USER_ID", defaults.bot_user_id),

@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 import requests
 
-logger = logging.getLogger("guduu.matrix_client")
+logger = logging.getLogger("cosmac.matrix_client")
 
 
 class MatrixClient:

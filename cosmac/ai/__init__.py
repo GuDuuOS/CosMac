@@ -15,16 +15,16 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from guduu.ai.base import LLMProvider, Message
-from guduu.ai.echo import EchoProvider
+from cosmac.ai.base import LLMProvider, Message
+from cosmac.ai.echo import EchoProvider
 
 if TYPE_CHECKING:
-    from guduu.config import GuduuConfig
+    from cosmac.config import CosmacConfig
 
-logger = logging.getLogger("guduu.ai")
+logger = logging.getLogger("cosmac.ai")
 
 
-def get_provider(config: "GuduuConfig") -> LLMProvider:
+def get_provider(config: "CosmacConfig") -> LLMProvider:
     """按配置返回一个 LLM 后端实例。
 
     根据 config.llm_provider 选择后端；若所需 SDK 缺失或 API key 未配置，
@@ -40,7 +40,7 @@ def get_provider(config: "GuduuConfig") -> LLMProvider:
             logger.warning("未设置 ANTHROPIC_API_KEY，主 AI 暂时降级为 echo 占位。")
             return EchoProvider()
         try:
-            from guduu.ai.claude import ClaudeProvider
+            from cosmac.ai.claude import ClaudeProvider
         except ImportError:
             logger.warning("未安装 anthropic SDK，主 AI 暂时降级为 echo 占位。")
             return EchoProvider()
@@ -51,7 +51,7 @@ def get_provider(config: "GuduuConfig") -> LLMProvider:
             logger.warning("未设置 OPENAI_API_KEY，主 AI 暂时降级为 echo 占位。")
             return EchoProvider()
         try:
-            from guduu.ai.openai_provider import OpenAIProvider
+            from cosmac.ai.openai_provider import OpenAIProvider
         except ImportError:
             logger.warning("未安装 openai SDK，主 AI 暂时降级为 echo 占位。")
             return EchoProvider()

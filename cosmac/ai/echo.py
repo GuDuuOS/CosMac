@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List
 
-from guduu.ai.base import LLMProvider, Message
+from cosmac.ai.base import LLMProvider, Message
 
 
 class EchoProvider(LLMProvider):

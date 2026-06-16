@@ -21,18 +21,18 @@ from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Set
 
-from guduu.ai import Message, get_provider
-from guduu.ai.base import LLMProvider
-from guduu.bots.matrix_client import MatrixClient
-from guduu.config import GuduuConfig
+from cosmac.ai import Message, get_provider
+from cosmac.ai.base import LLMProvider
+from cosmac.bots.matrix_client import MatrixClient
+from cosmac.config import CosmacConfig
 
-logger = logging.getLogger("guduu.appservice_bot")
+logger = logging.getLogger("cosmac.appservice_bot")
 
 
-class GuduuBot:
+class CosmacBot:
     """主 AI 的事件处理核心：把 Synapse 推来的事件变成 AI 的反应。"""
 
-    def __init__(self, config: GuduuConfig):
+    def __init__(self, config: CosmacConfig):
         self.config = config
         # 主 AI 操作 IM 的"手"
         self.client = MatrixClient(
@@ -102,7 +102,7 @@ class _Handler(BaseHTTPRequestHandler):
     """
 
     # 由工厂注入的对象
-    bot: GuduuBot
+    bot: CosmacBot
     hs_token: str
 
     # 关掉默认那行嘈杂的访问日志，改用我们自己的 logger
@@ -170,9 +170,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"errcode": "M_UNRECOGNIZED"})
 
 
-def run(config: GuduuConfig) -> None:
+def run(config: CosmacConfig) -> None:
     """启动主 AI Bot 的 HTTP 服务，开始监听 Synapse 推来的事件。"""
-    bot = GuduuBot(config)
+    bot = CosmacBot(config)
     # 启动时把主 AI 的群内显示名设为品牌名（用户看到的是它，而非 @guduu 用户 id）
     bot.client.set_displayname(config.bot_displayname)
 
@@ -194,7 +194,7 @@ def run(config: GuduuConfig) -> None:
         server.shutdown()
 
 
-def _make_handler(*args: Any, bot: GuduuBot, hs_token: str, **kwargs: Any) -> _Handler:
+def _make_handler(*args: Any, bot: CosmacBot, hs_token: str, **kwargs: Any) -> _Handler:
     """构造一个带有 bot/hs_token 的请求处理器实例。"""
     handler = _Handler.__new__(_Handler)
     handler.bot = bot

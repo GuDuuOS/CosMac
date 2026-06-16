@@ -1,18 +1,18 @@
 """CosMac Star 主 AI Bot 的启动入口。
 
 用法（在项目根目录、且已激活/指定 .venv）：
-    python -m guduu
+    python -m cosmac
 
 环境变量可覆盖配置，例如换模型后端：
-    GUDUU_LLM_PROVIDER=echo python -m guduu
+    GUDUU_LLM_PROVIDER=echo python -m cosmac
 """
 
 from __future__ import annotations
 
 import logging
 
-from guduu.bots.appservice_bot import run
-from guduu.config import GuduuConfig
+from cosmac.bots.appservice_bot import run
+from cosmac.config import CosmacConfig
 
 
 def main() -> None:
@@ -21,7 +21,7 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    config = GuduuConfig.from_env()
+    config = CosmacConfig.from_env()
     run(config)
 
 

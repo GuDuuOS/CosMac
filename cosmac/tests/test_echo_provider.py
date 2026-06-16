@@ -10,25 +10,25 @@ import os
 import unittest
 from dataclasses import replace
 
-from guduu.ai import Message, get_provider
-from guduu.ai.echo import EchoProvider
-from guduu.config import GuduuConfig
+from cosmac.ai import Message, get_provider
+from cosmac.ai.echo import EchoProvider
+from cosmac.config import CosmacConfig
 
 
 class TestEchoProvider(unittest.TestCase):
     def test_get_provider_echo(self) -> None:
         # provider=echo 时拿到 EchoProvider
-        cfg = replace(GuduuConfig(), llm_provider="echo")
+        cfg = replace(CosmacConfig(), llm_provider="echo")
         self.assertIsInstance(get_provider(cfg), EchoProvider)
 
     def test_unknown_provider_raises(self) -> None:
-        cfg = replace(GuduuConfig(), llm_provider="不存在的模型")
+        cfg = replace(CosmacConfig(), llm_provider="不存在的模型")
         with self.assertRaises(ValueError):
             get_provider(cfg)
 
     def test_claude_without_key_falls_back_to_echo(self) -> None:
         # 没配 ANTHROPIC_API_KEY 时，claude 应优雅降级为 echo（保证 bot 能跑）
-        cfg = replace(GuduuConfig(), llm_provider="claude")
+        cfg = replace(CosmacConfig(), llm_provider="claude")
         saved = os.environ.pop("ANTHROPIC_API_KEY", None)
         try:
             self.assertIsInstance(get_provider(cfg), EchoProvider)
@@ -37,7 +37,7 @@ class TestEchoProvider(unittest.TestCase):
                 os.environ["ANTHROPIC_API_KEY"] = saved
 
     def test_openai_without_key_falls_back_to_echo(self) -> None:
-        cfg = replace(GuduuConfig(), llm_provider="openai")
+        cfg = replace(CosmacConfig(), llm_provider="openai")
         saved = os.environ.pop("OPENAI_API_KEY", None)
         try:
             self.assertIsInstance(get_provider(cfg), EchoProvider)
