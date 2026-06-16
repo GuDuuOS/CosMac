@@ -64,4 +64,19 @@ convert "$LOGO" -resize "64x64!" "$ELEMENT_DIR/favicon.ico"
 convert "$LANDING_LOGO" -resize "64x64!" "$LANDING_DIR/favicon.ico"
 echo "✅ 图标已全部替换"
 
+# 6) 应用内 logo（登录后首页/加载页/分享预览）换成 CosMac Star logo
+#    .svg 用矢量版覆盖（保持类型）；.png 用位图版缩到 512 保持轻量
+for t in \
+  "$ELEMENT_DIR/themes/element/img/logos/element-logo.svg" \
+  "$ELEMENT_DIR/mobile_guide/assets/element-logo.svg" \
+  "$ELEMENT_DIR"/img/element-desktop-logo.*.svg; do
+  [ -f "$t" ] && cp "$LANDING_LOGO_SVG" "$t"
+done
+for t in \
+  "$ELEMENT_DIR/themes/element/img/logos/element-app-logo.png" \
+  "$ELEMENT_DIR/themes/element/img/logos/opengraph.png"; do
+  [ -f "$t" ] && convert "$LOGO" -resize 512x512 "$t"
+done
+echo "✅ 应用内 logo 已替换"
+
 echo "🎉 网页层部署完成"
