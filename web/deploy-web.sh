@@ -35,9 +35,8 @@ echo "✅ 落地页已更新"
 
 # 2) Element 配置 + 登录页 logo（app.cosmac.cc）
 cp "$REPO_DIR/web/element-config.json" "$ELEMENT_DIR/config.json"
-cp "$LOGO" "$ELEMENT_DIR/guduu-logo.png"
+cp "$LOGO" "$ELEMENT_DIR/cosmac-logo.png"
 cp "$REPO_DIR/web/element-auth.css" "$ELEMENT_DIR/cosmac-auth.css"
-cp "$REPO_DIR/web/landing/star-main.jpeg" "$ELEMENT_DIR/auth-star-main.jpeg"
 echo "✅ Element 配置已更新"
 
 # 3) 注入注册/登录页品牌背景样式；Element 升级后重跑脚本即可恢复。
@@ -62,7 +61,11 @@ done
 # 浏览器默认请求的 /favicon.ico
 convert "$LOGO" -resize "64x64!" "$ELEMENT_DIR/favicon.ico"
 convert "$LANDING_LOGO" -resize "64x64!" "$LANDING_DIR/favicon.ico"
-echo "✅ 图标已全部替换"
+# 标签 favicon 缓存绕过：vector-icons 是 hash 命名、被浏览器永久缓存，
+# 改内容没用；另存一个新文件名并把 index.html 的图标链接指向它，强制刷新。
+convert "$LOGO" -resize "256x256!" "$ELEMENT_DIR/cosmac-icon.png"
+sed -i 's#href="vector-icons/[^"]*\.png"#href="/cosmac-icon.png"#g' "$ELEMENT_DIR/index.html"
+echo "✅ 图标已全部替换（标签图标已指向新文件名绕过缓存）"
 
 # 6) 应用内 logo（登录后首页/加载页/分享预览）换成 CosMac Star logo
 #    .svg 用矢量版覆盖（保持类型）；.png 用位图版缩到 512 保持轻量

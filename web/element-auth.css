@@ -39,26 +39,6 @@ body:has(.mx_AuthPage) {
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.42), transparent 68%) !important;
 }
 
-.mx_AuthPage::after {
-  content: "" !important;
-  position: fixed !important;
-  top: 9vh !important;
-  right: min(8vw, 96px) !important;
-  z-index: 0 !important;
-  width: min(42vw, 520px) !important;
-  height: min(76vh, 720px) !important;
-  pointer-events: none !important;
-  border: 1px solid rgba(21, 18, 15, 0.10) !important;
-  border-radius: 10px !important;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.42)),
-    url("/auth-star-main.jpeg") center / cover no-repeat !important;
-  box-shadow:
-    0 46px 120px rgba(21, 18, 15, 0.18),
-    0 0 0 12px rgba(255, 255, 255, 0.36) !important;
-  transform: rotate(1.4deg) !important;
-}
-
 .mx_AuthPage_modal,
 .mx_AuthPage_modalContent,
 .mx_AuthPage_centeredContent,
@@ -82,7 +62,7 @@ body:has(.mx_AuthPage) {
 }
 
 .mx_AuthPage .mx_AuthHeader img,
-.mx_AuthPage img[src*="guduu-logo"] {
+.mx_AuthPage img[src*="cosmac-logo"] {
   filter:
     saturate(1.18)
     contrast(1.04)
