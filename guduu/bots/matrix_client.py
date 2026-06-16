@@ -72,3 +72,21 @@ class MatrixClient:
             return event_id
         logger.warning("向房间 %s 发消息失败: %s %s", room_id, resp.status_code, resp.text)
         return None
+
+    def set_displayname(self, displayname: str) -> None:
+        """设置主 AI 在 IM 里的显示名（群里用户看到的就是它，而非用户 id）。
+
+        用 appservice 身份调用 Synapse 的 profile API。失败只记日志、不阻断启动
+        （比如品牌名改了、重启 bot 一次就会更新成新名字）。
+        """
+        url = self._url(
+            f"/_matrix/client/v3/profile/{quote(self.bot_user_id)}/displayname"
+        )
+        try:
+            resp = requests.put(url, json={"displayname": displayname}, timeout=10)
+            if resp.status_code == 200:
+                logger.info("已设置主 AI 显示名: %s", displayname)
+            else:
+                logger.warning("设置显示名失败: %s %s", resp.status_code, resp.text)
+        except requests.RequestException as exc:
+            logger.warning("设置显示名异常: %s", exc)

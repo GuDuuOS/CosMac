@@ -1,6 +1,6 @@
-# guduu/ —— GuDuu OS 自有扩展层
+# guduu/ —— CosMac OS 自有扩展层
 
-GuDuu 所有自己的业务代码都在这里，与上游 `synapse/` 源码分离（详见根目录 `CLAUDE.md`）。
+CosMac Star 所有自己的业务代码都在这里，与上游 `synapse/` 源码分离（详见根目录 `CLAUDE.md`）。
 
 ## 当前进度
 

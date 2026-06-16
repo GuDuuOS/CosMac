@@ -1,4 +1,4 @@
-"""GuDuu 运行配置。
+"""CosMac Star 运行配置。
 
 集中管理所有可配置项（连哪个 Synapse、用哪些 token、bot 监听哪里、用哪个 AI 模型）。
 所有值都可以用环境变量覆盖，方便在不同环境（本地/测试/生产）切换，
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class GuduuConfig:
-    """GuDuu 主 AI Bot 的全部配置。
+    """CosMac Star 主 AI Bot 的全部配置。
 
     字段说明：
         homeserver_url:  Synapse 的 HTTP 地址，bot 通过它发消息/加入房间。
@@ -45,10 +45,12 @@ class GuduuConfig:
     llm_provider: str = "echo"
     llm_model: str = ""  # 空 = 用 provider 默认模型
     system_prompt: str = (
-        "你是 GuDuu —— 一个内置在 IM 群聊里的主 AI 助手。"
+        "你是 CosMac Star —— 一个内置在 IM 群聊里的主 AI 助手。"
         "你能看到群里的消息并参与对话。"
         "回答要简洁、友好、直接、有帮助。用提问者使用的语言回复。"
     )
+    # 主 AI 在群里显示的名字（用户看到的品牌名；与内部用户 id @guduu 无关）
+    bot_displayname: str = "CosMac Star"
 
     @staticmethod
     def from_env() -> "GuduuConfig":
@@ -65,4 +67,7 @@ class GuduuConfig:
             llm_provider=os.environ.get("GUDUU_LLM_PROVIDER", defaults.llm_provider),
             llm_model=os.environ.get("GUDUU_LLM_MODEL", defaults.llm_model),
             system_prompt=os.environ.get("GUDUU_SYSTEM_PROMPT", defaults.system_prompt),
+            bot_displayname=os.environ.get(
+                "GUDUU_BOT_DISPLAYNAME", defaults.bot_displayname
+            ),
         )

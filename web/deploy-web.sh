@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# GuDuu 网页层部署脚本
+# CosMac Star 网页层部署脚本
 # 把本仓库的网页定制（落地页 / Element 配置 / 品牌 / logo / favicon）
 # 应用到服务器。可重复运行（幂等）；Element 升级后重跑即可重新套用品牌。
 #
@@ -16,7 +16,8 @@ set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ELEMENT_DIR=/var/www/element
 LANDING_DIR=/var/www/cosmac-landing
-LOGO="$REPO_DIR/LOGO/logo.png"
+# 统一品牌：Element 的 favicon/登录 logo 也用新版 CosMac Star logo（正方形 1080）
+LOGO="$REPO_DIR/web/landing/logo.png"
 LANDING_LOGO="$REPO_DIR/web/landing/logo.png"
 LANDING_LOGO_SVG="$REPO_DIR/web/landing/logo.svg"
 
@@ -39,12 +40,12 @@ echo "✅ Element 配置已更新"
 
 # 3) 去掉 Element 品牌字样：标签页标题 / meta / PWA 名称
 #    （只改给人看的文本，不动 themes/element 等路径）
-sed -i 's#<title>[^<]*</title>#<title>GuDuu</title>#' "$ELEMENT_DIR/index.html"
-sed -i 's/content="\([^"]*\)Element\([^"]*\)"/content="\1GuDuu\2"/g' "$ELEMENT_DIR/index.html"
-[ -f "$ELEMENT_DIR/manifest.json" ] && sed -i 's/"Element"/"GuDuu"/g' "$ELEMENT_DIR/manifest.json"
-echo "✅ Element 静态品牌已替换为 GuDuu"
+sed -i 's#<title>[^<]*</title>#<title>CosMac Star</title>#' "$ELEMENT_DIR/index.html"
+sed -i 's/content="\([^"]*\)Element\([^"]*\)"/content="\1CosMac Star\2"/g' "$ELEMENT_DIR/index.html"
+[ -f "$ELEMENT_DIR/manifest.json" ] && sed -i 's/"Element"/"CosMac Star"/g' "$ELEMENT_DIR/manifest.json"
+echo "✅ Element 静态品牌已替换为 CosMac Star"
 
-# 4) 所有图标（标签页 favicon + 添加到主屏图标）换成 GuDuu logo
+# 4) 所有图标（标签页 favicon + 添加到主屏图标）换成 CosMac Star logo
 for f in "$ELEMENT_DIR"/vector-icons/*.png; do
   [ -f "$f" ] || continue
   w=$(identify -format "%w" "$f" 2>/dev/null) || continue

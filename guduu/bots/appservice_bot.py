@@ -1,4 +1,4 @@
-"""GuDuu 主 AI —— Application Service Bot（最小骨架）。
+"""CosMac Star 主 AI —— Application Service Bot（最小骨架）。
 
 职责（第一步，主 AI 控制层的地基）：
   1. 启动一个 HTTP 服务，接收 Synapse 推送过来的事件（这是主 AI 的"眼睛"）。
@@ -173,13 +173,15 @@ class _Handler(BaseHTTPRequestHandler):
 def run(config: GuduuConfig) -> None:
     """启动主 AI Bot 的 HTTP 服务，开始监听 Synapse 推来的事件。"""
     bot = GuduuBot(config)
+    # 启动时把主 AI 的群内显示名设为品牌名（用户看到的是它，而非 @guduu 用户 id）
+    bot.client.set_displayname(config.bot_displayname)
 
     # 把 bot 和 hs_token 注入到 Handler 类上（http.server 用类、不便传参，用 partial 构造）
     handler_cls = partial(_make_handler, bot=bot, hs_token=config.hs_token)
 
     server = ThreadingHTTPServer((config.listen_host, config.listen_port), handler_cls)
     logger.info(
-        "GuDuu 主 AI Bot 已启动: 监听 http://%s:%d ，连接 Synapse %s ，模型后端=%s",
+        "CosMac Star 主 AI Bot 已启动: 监听 http://%s:%d ，连接 Synapse %s ，模型后端=%s",
         config.listen_host,
         config.listen_port,
         config.homeserver_url,
