@@ -28,6 +28,7 @@ import {
   createSpace,
   createChannelInSpace,
   updateSpace,
+  updateRoom,
   inviteToRoom,
   normalizeUserId,
   BOT_ID,
@@ -179,6 +180,34 @@ async function saveWsSettings() {
     toast('保存失败', e?.message || String(e))
   } finally {
     wsSetBusy.value = false
+  }
+}
+
+// ── 频道设置（点频道头标题打开，改名称 / 简介）──
+const chSetOpen = ref(false)
+const chSetName = ref('')
+const chSetTopic = ref('')
+const chSetBusy = ref(false)
+function openChannelSettings() {
+  if (!currentRoom.value) return
+  chSetName.value = currentName.value
+  chSetTopic.value = currentTopic.value
+  chSetOpen.value = true
+}
+async function saveChannelSettings() {
+  const id = currentRoom.value
+  const name = chSetName.value.trim()
+  if (!id || !name || chSetBusy.value) return
+  chSetBusy.value = true
+  try {
+    await updateRoom(id, { name, topic: chSetTopic.value.trim() })
+    toast('已保存', `频道改为「${name}」`)
+    chSetOpen.value = false
+    setTimeout(refresh, 700)
+  } catch (e: any) {
+    toast('保存失败', e?.message || String(e))
+  } finally {
+    chSetBusy.value = false
   }
 }
 
@@ -783,7 +812,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="fav ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
           </button>
           <span class="ch-av" :style="{ background: colorOf(currentName) }">{{ iconChar(currentName) }}</span>
-          <div class="title">{{ currentName }}</div>
+          <button class="title title-btn" :title="'频道设置'" @click="openChannelSettings">{{ currentName }}<svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg></button>
           <div v-if="currentTopic" class="ch-topic">{{ currentTopic }}</div>
           <div class="ch-actions">
             <button class="ch-members-btn" title="管理成员 · 技能 · 知识库 · 规则" @click="onMembers">
@@ -996,6 +1025,22 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <div class="nw-foot">
           <button class="nw-btn" :disabled="newChCreating" @click="newChOpen = false">取消</button>
           <button class="nw-btn primary" :disabled="!newChName.trim() || newChCreating" @click="createChannel">{{ newChCreating ? '创建中…' : '创建' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 频道设置：改名称 / 简介（真写进 Matrix 房间）-->
+    <div v-if="chSetOpen" class="nw-overlay" @click.self="chSetOpen = false">
+      <div class="nw-modal">
+        <div class="nw-title">频道设置</div>
+        <div class="nw-sub">改这个频道的名称和简介（实时写进后端）</div>
+        <div class="nw-field-label">频道名称</div>
+        <input v-model="chSetName" class="nw-input" placeholder="频道名称" @keyup.enter="saveChannelSettings" />
+        <div class="nw-field-label">简介</div>
+        <textarea v-model="chSetTopic" class="nw-input nw-textarea" rows="2" placeholder="一句话说明这个频道是干嘛的" />
+        <div class="nw-foot">
+          <button class="nw-btn" :disabled="chSetBusy" @click="chSetOpen = false">取消</button>
+          <button class="nw-btn primary" :disabled="!chSetName.trim() || chSetBusy" @click="saveChannelSettings">{{ chSetBusy ? '保存中…' : '保存' }}</button>
         </div>
       </div>
     </div>
@@ -1216,6 +1261,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .ch-fav.active { color: var(--warn); }
 .title { font-family: var(--font-heading); font-size: var(--fs-200); line-height: var(--lh-200); font-weight: var(--fw-bold); display: flex; align-items: center; gap: 6px; color: var(--text); flex-shrink: 0; }
 .title .hash { color: var(--text-3); font-weight: 400; }
+.title-btn { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 0; cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px; }
+.title-btn:hover { background: var(--bg-hover); }
+.title-btn .chev { color: var(--text-3); }
 .ch-av { width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; }
 .ch-topic { font-size: 13px; color: var(--text-3); border-left: 1px solid var(--border); padding-left: 12px; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .ch-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }

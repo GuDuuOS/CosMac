@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-18 — 客户端：频道设置（点频道头标题可编辑）
+- 点频道头标题（带 ⌄）→ 打开「频道设置」弹窗，改**名称**和**简介**，实时写进 Matrix 房间（`m.room.name` + `m.room.topic`）。工作区可编辑的频道版。
+- `client.ts` 加 `updateRoom(roomId,{name,topic})`。
+- 端到端验证：改《银河谣》制作专班简介→频道头实时更新→改回，round-trip 正常、无残留。
+
 ## 2026-06-18 — 客户端：工作区设置（点工作区名可编辑）
 - 点侧栏工作区名（"制作中心 ⌄"）→ 打开「工作区设置」弹窗，可改**名称**和**左栏简称**，实时写进 Matrix Space（名称→`m.room.name`，简称→`cosmac.workspace`）。
 - `client.ts` 加 `updateSpace(spaceId,{name,label})`。

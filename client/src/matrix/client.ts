@@ -219,6 +219,20 @@ export async function updateSpace(
   }
 }
 
+/** 改频道的名称 / 简介。name→m.room.name；topic→m.room.topic。 */
+export async function updateRoom(
+  roomId: string,
+  opts: { name?: string; topic?: string } = {},
+): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  if (opts.name) {
+    await (mx as any).sendStateEvent(roomId, 'm.room.name', { name: opts.name }, '')
+  }
+  if (opts.topic !== undefined) {
+    await (mx as any).sendStateEvent(roomId, 'm.room.topic', { topic: opts.topic }, '')
+  }
+}
+
 /** 在某工作区(Space)下真建一个频道：建房间 + 邀请主 AI + 挂到 Space 下。返回 room_id。 */
 export async function createChannelInSpace(
   spaceId: string,
