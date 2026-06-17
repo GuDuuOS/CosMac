@@ -124,6 +124,7 @@
 5. **保持本文件最新**：架构/路线图/核心改动一旦变化，先更新 CLAUDE.md。
 6. 不确定的产品决策，问负责人，不要自己拍板大方向。
 7. **每完成一个可用版本就自动「提交 → 推送 → 给部署命令」，不用等催。** 客户端（`client/`）功能做好且本地 preview 验证通过后，依次：
+   - ⓪ **更新 `DEVLOG.md`**：在顶部加一条（日期 + 模块 + 做了什么 + 关键决策与为什么）。任何 commit（含纯后端操作）都先记这一条；不记敏感信息（key/IP 进 `DEPLOY.md`）。
    - ① 重建产物：`cd client && npm run build`（`client/dist` 被 .gitignore，提交用 `git add -f client/dist`）；
    - ② `git commit` + `git push origin main`（commit message 写清这次做了什么）；
    - ③ 给负责人一段 **GCP 浏览器 SSH 一键部署命令**：拉代码 → `cp` dist 到 `/var/www/cosmac-app` → `nginx -t && reload` → 自检线上 JS hash。完整命令与踩坑见本机 `DEPLOY.md`（已 gitignore）。
