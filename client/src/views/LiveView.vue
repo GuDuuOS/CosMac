@@ -234,6 +234,23 @@ const filteredRooms = computed(() =>
   ),
 )
 
+// ── 频道彩色图标：按名字确定性取色 + 取代表字（无需后端，所有频道立即生效）──
+const CHAN_PALETTE = ['#c96442', '#6b8e4e', '#4a7a8c', '#b58932', '#8a6a8a', '#5a7a8a', '#b94a4a', '#7a8a5a']
+function colorOf(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return CHAN_PALETTE[h % CHAN_PALETTE.length]
+}
+/** 取频道代表字：优先「·」后一段 / 《》内首字，否则去掉前缀符号取首字 */
+function iconChar(name: string): string {
+  const s = name.trim()
+  const dot = s.lastIndexOf('·')
+  if (dot >= 0 && dot < s.length - 1) return [...s.slice(dot + 1)][0]
+  const m = s.match(/《(.)/)
+  if (m) return m[1]
+  return [...s.replace(/^[#\s]+/, '')][0] || '#'
+}
+
 function isBot(s: string) {
   return s === BOT_ID
 }
@@ -597,9 +614,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 :class="{ active: r.id === currentRoom }"
                 @click="openRoom(r.id)"
               >
-                <span class="cs-ic">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10" /></svg>
-                </span>
+                <span class="cs-chan-av" :style="{ background: colorOf(r.name) }">{{ iconChar(r.name) }}</span>
                 <span class="cs-label">{{ r.name }}</span>
               </div>
               <p v-if="!filteredRooms.length" class="cs-empty">还没有频道</p>
@@ -706,7 +721,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <button class="ch-fav" :class="{ active: fav }" :title="fav ? '取消收藏' : '收藏'" @click="fav = !fav">
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="fav ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
           </button>
-          <div class="title"><span class="hash">#</span>{{ currentName }}</div>
+          <span class="ch-av" :style="{ background: colorOf(currentName) }">{{ iconChar(currentName) }}</span>
+          <div class="title">{{ currentName }}</div>
           <div v-if="currentTopic" class="ch-topic">{{ currentTopic }}</div>
           <div class="ch-actions">
             <button class="ch-members-btn" title="管理成员 · 技能 · 知识库 · 规则" @click="onMembers">
@@ -1045,6 +1061,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .cs-item.active { background: var(--bg-panel); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
 .cs-item.active::before { content: ""; position: absolute; left: -4px; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--accent); }
 .cs-ic { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-3); flex-shrink: 0; }
+/* 频道彩色图标（按名字取色 + 代表字）*/
+.cs-chan-av { width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; line-height: 1; }
+.cs-item.active .cs-chan-av { box-shadow: 0 0 0 1.5px rgba(255,255,255,.5); }
 .cs-item.active .cs-ic { color: var(--text); }
 .cs-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cs-empty { font-size: 12px; color: var(--text-3); padding: 6px 10px; }
@@ -1093,6 +1112,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .ch-fav.active { color: var(--warn); }
 .title { font-family: var(--font-heading); font-size: var(--fs-200); line-height: var(--lh-200); font-weight: var(--fw-bold); display: flex; align-items: center; gap: 6px; color: var(--text); flex-shrink: 0; }
 .title .hash { color: var(--text-3); font-weight: 400; }
+.ch-av { width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; line-height: 1; }
 .ch-topic { font-size: 13px; color: var(--text-3); border-left: 1px solid var(--border); padding-left: 12px; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .ch-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .ch-members-btn { display: inline-flex; align-items: center; background: transparent; border: none; cursor: pointer; padding: 3px 6px; border-radius: 6px; transition: background .12s ease; }
