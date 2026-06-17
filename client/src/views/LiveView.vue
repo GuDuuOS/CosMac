@@ -26,6 +26,7 @@ import {
   listSpaces,
   roomIdsInSpace,
   createSpace,
+  createChannelInSpace,
   BOT_ID,
   type LiveRoom,
   type LiveMsg,
@@ -133,8 +134,6 @@ const currentName = computed(
 const spaces = ref<LiveSpace[]>([])
 const activeSpace = ref('')                       // 当前工作区 id
 const spaceChildIds = ref<Set<string>>(new Set()) // 当前工作区下的频道 id
-const newWsOpen = ref(false)                       // 新建工作区弹窗
-const newWsName = ref('')
 const activeSpaceName = computed(
   () => spaces.value.find((s) => s.id === activeSpace.value)?.name || tenant.hqTitle,
 )
@@ -147,22 +146,50 @@ function selectSpace(id: string) {
   // 切了工作区，若当前频道不属于它，回到频道空态
   if (currentRoom.value && !spaceChildIds.value.has(currentRoom.value)) currentRoom.value = ''
 }
-function openNewWorkspace() { newWsName.value = ''; newWsOpen.value = true }
+
+// ── 新建工作区（完整表单：类型 / 名称 / 简称 / 可见性 / 按类型建默认频道）──
+interface WsType { key: string; title: string; nameLabel: string; namePh: string; spaceName: (n: string) => string; chans: (n: string) => string[] }
+const WS_TYPES: WsType[] = [
+  { key: '制作', title: '制作', nameLabel: '项目/部门名', namePh: '如：新剧《潮汐》', spaceName: (n) => `制作·${n}`, chans: (n) => [`${n} 制作专班`] },
+  { key: '运营', title: '运营营销', nameLabel: '工作区名称', namePh: '如：海外发行', spaceName: (n) => n, chans: (n) => [`${n} · 运营`] },
+  { key: '明星', title: '明星·粉丝', nameLabel: '虚拟明星名', namePh: '如：墨白', spaceName: (n) => `明星·${n}`, chans: (n) => [`虚拟明星·${n}`, `${n}后援会`] },
+  { key: '外部', title: '外部', nameLabel: '工作区名称', namePh: '如：某品牌合作', spaceName: (n) => n, chans: (n) => [`${n} · 对外洽谈`] },
+]
+const newWsOpen = ref(false)
+const newWsType = ref('制作')
+const newWsName = ref('')
+const newWsLabel = ref('')
+const newWsPublic = ref(false)
+const newWsCreating = ref(false)
+const curWsType = computed(() => WS_TYPES.find((t) => t.key === newWsType.value) || WS_TYPES[0])
+const newWsSpaceName = computed(() => (newWsName.value.trim() ? curWsType.value.spaceName(newWsName.value.trim()) : ''))
+const newWsChannels = computed(() => (newWsName.value.trim() ? curWsType.value.chans(newWsName.value.trim()) : []))
+function openNewWorkspace() {
+  newWsType.value = '制作'; newWsName.value = ''; newWsLabel.value = ''; newWsPublic.value = false; newWsOpen.value = true
+}
 async function createWorkspace() {
   const n = newWsName.value.trim()
-  if (!n) return
-  newWsOpen.value = false
+  if (!n || newWsCreating.value) return
+  const t = curWsType.value
+  const spaceName = t.spaceName(n)
+  const label = newWsLabel.value.trim() || wsLabel(spaceName)
+  const pub = newWsPublic.value
+  newWsCreating.value = true
   try {
-    const id = await createSpace(n)
-    toast('已创建工作区', n)
+    const sid = await createSpace(spaceName, { public: pub, label })
+    for (const cn of t.chans(n)) await createChannelInSpace(sid, cn, { public: pub })
+    toast('已创建工作区', `${spaceName}（${t.chans(n).length} 个频道）`)
+    newWsOpen.value = false
     setTimeout(() => {
       refresh()
-      activeSpace.value = id
-      spaceChildIds.value = roomIdsInSpace(id)
+      activeSpace.value = sid
+      spaceChildIds.value = roomIdsInSpace(sid)
       board.value = false; tasks.value = false; currentRoom.value = ''
-    }, 600)
+    }, 900)
   } catch (e: any) {
     toast('创建失败', e?.message || String(e))
+  } finally {
+    newWsCreating.value = false
   }
 }
 
@@ -476,7 +503,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           :class="{ active: s.id === activeSpace }"
           :title="s.name"
           @click="selectSpace(s.id)"
-        >{{ wsLabel(s.name) }}</div>
+        >{{ s.label || wsLabel(s.name) }}</div>
         <div class="ws-icon plus" title="新建工作区" @click="openNewWorkspace">+</div>
         <div class="ws-sep" />
         <div class="ws-icon ws-tool" title="AI Agent 商城" @click="onMarket">
@@ -787,20 +814,53 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     <CliConsole />
     <ChannelAdminModal />
 
-    <!-- 新建工作区（真建 Matrix Space）-->
+    <!-- 新建工作区（完整表单 · 真建 Matrix Space + 默认频道）-->
     <div v-if="newWsOpen" class="nw-overlay" @click.self="newWsOpen = false">
       <div class="nw-modal">
         <div class="nw-title">新建工作区</div>
         <div class="nw-sub">工作区 = 一个独立空间（Space），底下挂自己的频道、成员独立</div>
-        <input
-          v-model="newWsName"
-          class="nw-input"
-          placeholder="工作区名称，如：综艺组 / 海外发行"
-          @keyup.enter="createWorkspace"
-        />
+
+        <!-- 类型 -->
+        <div class="nw-field-label">类型</div>
+        <div class="nw-types">
+          <button
+            v-for="t in WS_TYPES"
+            :key="t.key"
+            class="nw-type"
+            :class="{ on: newWsType === t.key }"
+            @click="newWsType = t.key"
+          >{{ t.title }}</button>
+        </div>
+
+        <!-- 名称 -->
+        <div class="nw-field-label">{{ curWsType.nameLabel }}</div>
+        <input v-model="newWsName" class="nw-input" :placeholder="curWsType.namePh" @keyup.enter="createWorkspace" />
+
+        <!-- 简称 + 可见性 -->
+        <div class="nw-row2">
+          <div class="nw-col">
+            <div class="nw-field-label">简称（左栏图标，留空自动取）</div>
+            <input v-model="newWsLabel" class="nw-input" maxlength="3" :placeholder="newWsSpaceName ? wsLabel(newWsSpaceName) : '如 制作'" />
+          </div>
+          <div class="nw-col">
+            <div class="nw-field-label">可见性</div>
+            <div class="nw-vis">
+              <button class="nw-vis-btn" :class="{ on: !newWsPublic }" @click="newWsPublic = false">私密 · 邀请制</button>
+              <button class="nw-vis-btn" :class="{ on: newWsPublic }" @click="newWsPublic = true">公开 · 可加入</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 预览：将创建什么 -->
+        <div v-if="newWsName.trim()" class="nw-preview">
+          <div class="nw-prev-h">将创建</div>
+          <div class="nw-prev-ws"><span class="nw-prev-ic">{{ newWsLabel.trim() || wsLabel(newWsSpaceName) }}</span>工作区「{{ newWsSpaceName }}」</div>
+          <div v-for="c in newWsChannels" :key="c" class="nw-prev-ch"># {{ c }}<span class="nw-prev-tip">含主 AI</span></div>
+        </div>
+
         <div class="nw-foot">
-          <button class="nw-btn" @click="newWsOpen = false">取消</button>
-          <button class="nw-btn primary" :disabled="!newWsName.trim()" @click="createWorkspace">创建</button>
+          <button class="nw-btn" :disabled="newWsCreating" @click="newWsOpen = false">取消</button>
+          <button class="nw-btn primary" :disabled="!newWsName.trim() || newWsCreating" @click="createWorkspace">{{ newWsCreating ? '创建中…' : '创建' }}</button>
         </div>
       </div>
     </div>
@@ -1077,11 +1137,28 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 /* ──── 新建工作区弹窗 ──── */
 .nw-overlay { position: fixed; inset: 0; z-index: 120; background: rgba(20,18,15,.35); display: flex; align-items: center; justify-content: center; animation: toast-in .12s ease; }
-.nw-modal { width: 380px; max-width: 92vw; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 24px 64px rgba(0,0,0,.22); }
+.nw-modal { width: 440px; max-width: 92vw; max-height: 88vh; overflow-y: auto; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 24px 64px rgba(0,0,0,.22); }
 .nw-title { font-family: var(--font-heading); font-size: 18px; font-weight: 700; color: var(--text); }
-.nw-sub { font-size: 12px; color: var(--text-3); margin: 6px 0 16px; line-height: 1.5; }
+.nw-sub { font-size: 12px; color: var(--text-3); margin: 6px 0 14px; line-height: 1.5; }
+.nw-field-label { font-size: 12px; color: var(--text-3); margin: 12px 0 6px; }
+.nw-types { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.nw-type { height: 34px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text-2); font-size: 13px; cursor: pointer; }
+.nw-type:hover { background: var(--bg-hover); }
+.nw-type.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .nw-input { width: 100%; height: 40px; padding: 0 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-size: 14px; color: var(--text); outline: none; }
 .nw-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.nw-row2 { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+.nw-col { min-width: 0; }
+.nw-vis { display: flex; gap: 6px; }
+.nw-vis-btn { flex: 1; height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-2); font-size: 12px; cursor: pointer; }
+.nw-vis-btn:hover { background: var(--bg-hover); }
+.nw-vis-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.nw-preview { margin-top: 14px; background: var(--bg-soft); border: 1px solid var(--border-soft); border-radius: 10px; padding: 12px 14px; }
+.nw-prev-h { font-size: 11px; color: var(--text-3); font-family: var(--mono); letter-spacing: .08em; margin-bottom: 8px; }
+.nw-prev-ws { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.nw-prev-ic { width: 24px; height: 24px; border-radius: 7px; background: var(--action); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+.nw-prev-ch { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); padding: 3px 0 3px 6px; }
+.nw-prev-tip { font-size: 10px; color: var(--text-3); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
 .nw-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .nw-btn { height: 36px; padding: 0 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-panel); color: var(--text-2); font-size: 14px; cursor: pointer; }
 .nw-btn:hover { background: var(--bg-hover); color: var(--text); }

@@ -141,6 +141,14 @@ export function listRooms(): LiveRoom[] {
 export interface LiveSpace {
   id: string
   name: string
+  /** 左栏图标的自定义简称（存在 cosmac.workspace 状态事件里；没有就由 UI 取名字前 2 字） */
+  label?: string
+}
+
+/** 读某个 Space 的自定义简称（cosmac.workspace 状态事件 → label）。 */
+function spaceLabel(room: any): string | undefined {
+  const ev = room?.currentState?.getStateEvents?.('cosmac.workspace', '')
+  return ev?.getContent?.()?.label || undefined
 }
 
 /** 列出我加入的工作区（Space），按名称排序。 */
@@ -149,7 +157,7 @@ export function listSpaces(): LiveSpace[] {
   return mx
     .getRooms()
     .filter((r) => (r as any).isSpaceRoom?.())
-    .map((r) => ({ id: r.roomId, name: r.name || r.roomId }))
+    .map((r) => ({ id: r.roomId, name: r.name || r.roomId, label: spaceLabel(r) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 }
 
@@ -168,15 +176,46 @@ export function roomIdsInSpace(spaceId: string): Set<string> {
   return ids
 }
 
-/** 真建一个工作区（Matrix Space）；返回 room_id。 */
-export async function createSpace(name: string): Promise<string> {
+/** 真建一个工作区（Matrix Space）。opts.public=公开可加入；opts.label=左栏简称。返回 room_id。 */
+export async function createSpace(
+  name: string,
+  opts: { public?: boolean; label?: string } = {},
+): Promise<string> {
   if (!mx) throw new Error('未登录')
   const res: any = await mx.createRoom({
     name,
-    preset: 'private_chat' as any,
+    preset: (opts.public ? 'public_chat' : 'private_chat') as any,
     creation_content: { type: 'm.space' } as any,
   })
-  return res.room_id
+  const sid = res.room_id
+  // 自定义简称存进 Space 的状态事件，listSpaces 会读出来
+  if (opts.label) {
+    try {
+      await (mx as any).sendStateEvent(sid, 'cosmac.workspace', { label: opts.label }, '')
+    } catch { /* 存简称失败不影响主流程 */ }
+  }
+  return sid
+}
+
+/** 在某工作区(Space)下真建一个频道：建房间 + 邀请主 AI + 挂到 Space 下。返回 room_id。 */
+export async function createChannelInSpace(
+  spaceId: string,
+  name: string,
+  opts: { public?: boolean } = {},
+): Promise<string> {
+  if (!mx) throw new Error('未登录')
+  const res: any = await mx.createRoom({
+    name,
+    preset: (opts.public ? 'public_chat' : 'private_chat') as any,
+    invite: [BOT_ID], // 拉主 AI 进群，频道里 AI 能回
+  })
+  const cid = res.room_id
+  // 双向挂接：Space 记子频道，子频道指回父 Space
+  try {
+    await (mx as any).sendStateEvent(spaceId, 'm.space.child', { via: ['cosmac.cc'] }, cid)
+    await (mx as any).sendStateEvent(cid, 'm.space.parent', { via: ['cosmac.cc'], canonical: true }, spaceId)
+  } catch { /* 挂接失败也已建好房间 */ }
+  return cid
 }
 
 /** 读某个频道当前时间线的消息（含发送者昵称与 cosmac.card 富卡）。 */
