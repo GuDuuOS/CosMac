@@ -1085,23 +1085,20 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <div class="nw-prev-ws"><span class="nw-prev-ic">{{ wsSetLabel.trim() || wsLabel(wsSetName) }}</span>{{ wsSetName }}</div>
         </div>
 
-        <!-- 危险区：删除工作区 -->
-        <div class="nw-danger">
-          <template v-if="!wsDeleteArm">
-            <button class="nw-del-link" :disabled="wsSetBusy" @click="wsDeleteArm = true">删除工作区</button>
-          </template>
-          <template v-else>
-            <div class="nw-del-warn">确定删除「{{ wsSetName }}」及其 {{ wsChildCount }} 个频道？此操作不可撤销。</div>
-            <div class="nw-del-row">
-              <button class="nw-btn" :disabled="wsSetBusy" @click="wsDeleteArm = false">取消</button>
-              <button class="nw-btn danger" :disabled="wsSetBusy" @click="deleteWorkspace">{{ wsSetBusy ? '删除中…' : '确认删除' }}</button>
-            </div>
-          </template>
-        </div>
-
-        <div class="nw-foot">
-          <button class="nw-btn" :disabled="wsSetBusy" @click="wsSetOpen = false">取消</button>
-          <button class="nw-btn primary" :disabled="!wsSetName.trim() || wsSetBusy" @click="saveWsSettings">{{ wsSetBusy ? '保存中…' : '保存' }}</button>
+        <div class="nw-foot nw-foot-split">
+          <!-- 左：删除工作区（红色按钮 → 点一下变二次确认）-->
+          <div class="nw-foot-left">
+            <button v-if="!wsDeleteArm" class="nw-btn danger-outline" :disabled="wsSetBusy" @click="wsDeleteArm = true">删除工作区</button>
+            <template v-else>
+              <button class="nw-btn danger" :disabled="wsSetBusy" :title="`删除「${wsSetName}」及其 ${wsChildCount} 个频道，不可撤销`" @click="deleteWorkspace">{{ wsSetBusy ? '删除中…' : `确认删除（含 ${wsChildCount} 频道）` }}</button>
+              <button class="nw-btn" :disabled="wsSetBusy" title="取消删除" @click="wsDeleteArm = false">×</button>
+            </template>
+          </div>
+          <!-- 右：取消 / 保存 -->
+          <div class="nw-foot-right">
+            <button class="nw-btn" :disabled="wsSetBusy" @click="wsSetOpen = false">取消</button>
+            <button class="nw-btn primary" :disabled="!wsSetName.trim() || wsSetBusy" @click="saveWsSettings">{{ wsSetBusy ? '保存中…' : '保存' }}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1449,11 +1446,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .nw-btn.primary:disabled { background: var(--border); border-color: var(--border); color: var(--text-dim); cursor: not-allowed; }
 .nw-btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 700; }
 .nw-btn.danger:hover { filter: brightness(1.05); }
-.nw-danger { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
-.nw-del-link { background: transparent; border: 0; color: var(--danger); font-size: 13px; cursor: pointer; padding: 0; }
-.nw-del-link:hover { text-decoration: underline; }
-.nw-del-warn { font-size: 13px; color: var(--danger); line-height: 1.5; margin-bottom: 10px; }
-.nw-del-row { display: flex; gap: 10px; }
+.nw-btn.danger-outline { background: transparent; border-color: var(--danger); color: var(--danger); }
+.nw-btn.danger-outline:hover { background: #fdecec; }
+.nw-foot-split { justify-content: space-between; }
+.nw-foot-left, .nw-foot-right { display: flex; gap: 10px; }
 
 /* ──── toast ──── */
 .toast-host { position: fixed; right: 18px; bottom: 18px; z-index: 200; display: flex; flex-direction: column; gap: 10px; }
