@@ -10,6 +10,8 @@ import { createClient, type MatrixClient } from 'matrix-js-sdk'
 export interface LiveRoom {
   id: string
   name: string
+  /** 频道简介（Matrix m.room.topic），频道头展示用 */
+  topic?: string
 }
 
 /** 给 UI 用的精简消息结构；card 为 cosmac.card 自定义富卡（可能没有） */
@@ -125,13 +127,19 @@ export function onUpdate(cb: () => void): void {
 }
 
 /** 列出我加入的群频道（排除 Space 空间本身、"中枢 AI"私聊和无名 DM；按名称排序）。 */
+/** 读房间简介（m.room.topic 状态事件 → topic）。 */
+function roomTopic(room: any): string | undefined {
+  const ev = room?.currentState?.getStateEvents?.('m.room.topic', '')
+  return ev?.getContent?.()?.topic || undefined
+}
+
 export function listRooms(): LiveRoom[] {
   if (!mx) return []
   return mx
     .getRooms()
     // Space（工作区）本身不是频道，不进频道列表
     .filter((r) => !(r as any).isSpaceRoom?.())
-    .map((r) => ({ id: r.roomId, name: r.name || r.roomId }))
+    .map((r) => ({ id: r.roomId, name: r.name || r.roomId, topic: roomTopic(r) }))
     // 中枢 AI 在右侧单独显示；无名 DM 的 name 会回退成对方 mxid（以 @ 开头），都不进频道列表
     .filter((r) => r.name !== '中枢 AI' && !r.name.startsWith('@'))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
@@ -201,11 +209,12 @@ export async function createSpace(
 export async function createChannelInSpace(
   spaceId: string,
   name: string,
-  opts: { public?: boolean } = {},
+  opts: { public?: boolean; topic?: string } = {},
 ): Promise<string> {
   if (!mx) throw new Error('未登录')
   const res: any = await mx.createRoom({
     name,
+    topic: opts.topic || undefined, // 频道简介
     preset: (opts.public ? 'public_chat' : 'private_chat') as any,
     invite: [BOT_ID], // 拉主 AI 进群，频道里 AI 能回
   })

@@ -129,6 +129,9 @@ const rootEl = ref<HTMLElement | null>(null)
 const currentName = computed(
   () => rooms.value.find((r) => r.id === currentRoom.value)?.name || '',
 )
+const currentTopic = computed(
+  () => rooms.value.find((r) => r.id === currentRoom.value)?.topic || '',
+)
 
 // ── 工作区（Matrix Space）──────────────────────────────
 const spaces = ref<LiveSpace[]>([])
@@ -196,18 +199,19 @@ async function createWorkspace() {
 // ── 新建频道（在当前工作区下真建）──
 const newChOpen = ref(false)
 const newChName = ref('')
+const newChTopic = ref('')
 const newChPublic = ref(false)
 const newChCreating = ref(false)
 function openNewChannel() {
   if (!activeSpace.value) { toast('请先选一个工作区', '频道需要归属到某个工作区'); return }
-  newChName.value = ''; newChPublic.value = false; newChOpen.value = true
+  newChName.value = ''; newChTopic.value = ''; newChPublic.value = false; newChOpen.value = true
 }
 async function createChannel() {
   const n = newChName.value.trim()
   if (!n || newChCreating.value || !activeSpace.value) return
   newChCreating.value = true
   try {
-    const cid = await createChannelInSpace(activeSpace.value, n, { public: newChPublic.value })
+    const cid = await createChannelInSpace(activeSpace.value, n, { public: newChPublic.value, topic: newChTopic.value.trim() })
     toast('已创建频道', `# ${n} → ${activeSpaceName.value}`)
     newChOpen.value = false
     setTimeout(() => {
@@ -703,6 +707,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="fav ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
           </button>
           <div class="title"><span class="hash">#</span>{{ currentName }}</div>
+          <div v-if="currentTopic" class="ch-topic">{{ currentTopic }}</div>
           <div class="ch-actions">
             <button class="ch-members-btn" title="管理成员 · 技能 · 知识库 · 规则" @click="onMembers">
               <div class="ava-stack"><div class="a">{{ initials(me) }}</div><div class="a bot">智</div></div>
@@ -900,6 +905,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <div class="nw-sub">将建在「{{ activeSpaceName }}」工作区下，并自动拉主 AI 进群</div>
         <div class="nw-field-label">频道名称</div>
         <input v-model="newChName" class="nw-input" placeholder="如：第二季筹备 / 海报评审" @keyup.enter="createChannel" />
+        <div class="nw-field-label">简介（可选，显示在频道头）</div>
+        <textarea v-model="newChTopic" class="nw-input nw-textarea" rows="2" placeholder="一句话说明这个频道是干嘛的" />
         <div class="nw-field-label">可见性</div>
         <div class="nw-vis">
           <button class="nw-vis-btn" :class="{ on: !newChPublic }" @click="newChPublic = false">私密 · 邀请制</button>
@@ -1086,6 +1093,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .ch-fav.active { color: var(--warn); }
 .title { font-family: var(--font-heading); font-size: var(--fs-200); line-height: var(--lh-200); font-weight: var(--fw-bold); display: flex; align-items: center; gap: 6px; color: var(--text); flex-shrink: 0; }
 .title .hash { color: var(--text-3); font-weight: 400; }
+.ch-topic { font-size: 13px; color: var(--text-3); border-left: 1px solid var(--border); padding-left: 12px; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .ch-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .ch-members-btn { display: inline-flex; align-items: center; background: transparent; border: none; cursor: pointer; padding: 3px 6px; border-radius: 6px; transition: background .12s ease; }
 .ch-members-btn:hover { background: var(--bg-hover); }
@@ -1198,6 +1206,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .nw-type.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .nw-input { width: 100%; height: 40px; padding: 0 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-size: 14px; color: var(--text); outline: none; }
 .nw-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.nw-textarea { height: auto; padding: 10px 13px; resize: vertical; font-family: var(--font-body); line-height: 1.5; }
 .nw-row2 { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
 .nw-col { min-width: 0; }
 .nw-vis { display: flex; gap: 6px; }
