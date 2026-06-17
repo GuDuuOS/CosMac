@@ -147,3 +147,18 @@ class MatrixClient:
             return resp.json().get("event_id")
         logger.warning("发送富卡失败: %s %s", resp.status_code, resp.text)
         return None
+
+    def joined_member_count(self, room_id: str) -> int:
+        """查房间当前已加入的成员数（用于区分"私聊"和"群聊"）。
+
+        私聊（只有用户 + 主 AI，共 2 人）里，主 AI 对每句话都回；
+        群聊里则只在被 @ 时才回。查不到就保守按群聊处理。
+        """
+        url = self._url(f"/_matrix/client/v3/rooms/{quote(room_id)}/joined_members")
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                return len(resp.json().get("joined", {}))
+        except requests.RequestException:
+            pass
+        return 99

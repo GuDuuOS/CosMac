@@ -87,11 +87,15 @@ class CosmacBot:
                 return  # 第一步只处理纯文本，图片/文件等以后再说
             user_text = content.get("body", "")
 
-            # 只在被 @ 提及主 AI 时才响应：
-            # 避免群里别人正常聊天误触发命令、或主 AI 对每条消息都刷屏。
-            if not self._is_bot_mentioned(content):
+            # 私聊（仅用户+主AI，≤2人）里对每句话都回；
+            # 群聊里只在被 @ 提及时才回（避免误触发/刷屏）。
+            is_dm = self.client.joined_member_count(room_id) <= 2
+            if not is_dm and not self._is_bot_mentioned(content):
                 return
-            logger.info("[房间 %s] %s @我: %s", room_id, sender, user_text)
+            logger.info(
+                "[房间 %s|%s] %s: %s",
+                room_id, "私聊" if is_dm else "群@", sender, user_text,
+            )
 
             # 去掉开头的 @提及，拿到真正的指令/内容
             text = self._strip_mention(user_text)

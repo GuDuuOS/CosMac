@@ -149,3 +149,28 @@ export async function sendText(roomId: string, body: string): Promise<void> {
   if (!mx) return
   await mx.sendTextMessage(roomId, body)
 }
+
+/** 主 AI 的用户 id（私聊它 = 右侧"中枢 AI"面板）。 */
+export const BOT_ID = '@guduu:cosmac.cc'
+
+/** 找到我和主 AI 的私聊房间（仅两人）；没有返回 null。 */
+export function findBotDm(): string | null {
+  if (!mx) return null
+  for (const r of mx.getRooms()) {
+    const ids = r.getJoinedMembers().map((m) => m.userId)
+    if (ids.length <= 2 && ids.includes(BOT_ID)) return r.roomId
+  }
+  return null
+}
+
+/** 确保存在一个和主 AI 的私聊房间：有就返回，没有就新建一个。 */
+export async function ensureBotDm(): Promise<string> {
+  const found = findBotDm()
+  if (found) return found
+  const res: any = await mx!.createRoom({
+    preset: 'trusted_private_chat' as any,
+    invite: [BOT_ID],
+    is_direct: true,
+  })
+  return res.room_id
+}
