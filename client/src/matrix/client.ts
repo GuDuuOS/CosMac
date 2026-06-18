@@ -22,6 +22,20 @@ export interface LiveMsg {
   body: string
   ts: number
   card?: any
+  /** 是否被编辑过（m.replace），显示"已编辑" */
+  edited?: boolean
+  /** 回复的目标消息（m.in_reply_to）：对方名 + 正文预览 */
+  replyToId?: string
+  replyToName?: string
+  replyToBody?: string
+}
+
+/** 一条消息上某个 emoji 的聚合反应 */
+export interface ReactionAgg {
+  key: string
+  count: number
+  mine: boolean
+  myId?: string // 我那条 reaction 的 eventId（取消时 redact 用）
 }
 
 const SESSION_KEY = 'cosmac.session'
@@ -381,17 +395,90 @@ export function listMessages(roomId: string): LiveMsg[] {
     // 已撤回(redacted)的消息 content 为空，跳过 → 不再显示空气泡
     .filter((e) => !(e as any).isRedacted?.() && Object.keys(e.getContent() || {}).length > 0)
     .map((e) => {
-      const c: any = e.getContent()
       const sender = e.getSender() || ''
+      // 编辑：若有替换事件，取最新内容并标记 edited
+      const replacing = (e as any).replacingEvent?.()
+      const c: any = replacing
+        ? (replacing.getContent()['m.new_content'] || replacing.getContent())
+        : e.getContent()
+      // 回复：读 m.in_reply_to → 解析被回复消息的名字/正文预览
+      const inReplyTo = e.getContent()?.['m.relates_to']?.['m.in_reply_to']?.event_id
+      let replyToName: string | undefined
+      let replyToBody: string | undefined
+      if (inReplyTo) {
+        const re = room.findEventById?.(inReplyTo)
+        if (re) {
+          const rs = re.getSender() || ''
+          replyToName = room.getMember(rs)?.name || rs
+          replyToBody = stripReplyFallback(re.getContent()?.body || '').slice(0, 80)
+        }
+      }
       return {
         id: e.getId() || '',
         sender,
         senderName: room.getMember(sender)?.name || sender,
-        body: c.body || '',
+        body: stripReplyFallback(c.body || ''),
         ts: e.getTs(),
         card: c['cosmac.card'],
+        edited: !!replacing,
+        replyToId: inReplyTo,
+        replyToName,
+        replyToBody,
       }
     })
+}
+
+/** 去掉富回复正文里 "> <@x> 引用..." 的 fallback 前缀，只留用户真正打的内容。 */
+function stripReplyFallback(body: string): string {
+  // fallback 形如：连续若干 "> ..." 行 + 一个空行，之后才是正文
+  const m = body.match(/^(> .*\n)+\n?/)
+  return m ? body.slice(m[0].length) : body
+}
+
+/** 读某频道所有消息的反应聚合：{ 目标eventId: [{key,count,mine,myId}] }。 */
+export function listReactions(roomId: string): Record<string, ReactionAgg[]> {
+  const room = mx?.getRoom(roomId)
+  if (!room) return {}
+  const me = mx?.getUserId()
+  const grouped: Record<string, Record<string, ReactionAgg>> = {}
+  for (const e of room.getLiveTimeline().getEvents()) {
+    if (e.getType() !== 'm.reaction' || (e as any).isRedacted?.()) continue
+    const rel = e.getContent()?.['m.relates_to']
+    if (!rel || rel.rel_type !== 'm.annotation' || !rel.event_id || !rel.key) continue
+    const tgt = rel.event_id as string
+    const key = rel.key as string
+    grouped[tgt] ||= {}
+    const agg = (grouped[tgt][key] ||= { key, count: 0, mine: false })
+    agg.count++
+    if (e.getSender() === me) { agg.mine = true; agg.myId = e.getId() || undefined }
+  }
+  const out: Record<string, ReactionAgg[]> = {}
+  for (const tgt in grouped) out[tgt] = Object.values(grouped[tgt])
+  return out
+}
+
+/** 给某条消息加一个 emoji 反应（m.reaction 注解）。 */
+export async function react(roomId: string, targetEventId: string, key: string): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  await (mx as any).sendEvent(roomId, 'm.reaction', {
+    'm.relates_to': { rel_type: 'm.annotation', event_id: targetEventId, key },
+  })
+}
+
+/** 取消我的某条反应（redact 那条 reaction 事件）。 */
+export async function unreact(roomId: string, reactionEventId: string): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  await mx.redactEvent(roomId, reactionEventId)
+}
+
+/** 回复某条消息（m.in_reply_to）。 */
+export async function sendReply(roomId: string, body: string, replyToEventId: string): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  await (mx as any).sendEvent(roomId, 'm.room.message', {
+    msgtype: 'm.text',
+    body,
+    'm.relates_to': { 'm.in_reply_to': { event_id: replyToEventId } },
+  })
 }
 
 /** 往频道发一条纯文本消息（真发到 Synapse）。 */

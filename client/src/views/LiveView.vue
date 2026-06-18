@@ -21,6 +21,10 @@ import {
   onUpdate,
   listRooms,
   listMessages,
+  listReactions,
+  react,
+  unreact,
+  sendReply,
   sendText,
   ensureBotDm,
   listSpaces,
@@ -447,6 +451,8 @@ function renderMd(raw: string): string {
   // 链接 [文字](url)，仅允许 http/https/mailto
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+  // @提及高亮（@用户 或 @用户:服务器）
+  s = s.replace(/(^|[\s(])@([a-zA-Z0-9_.\-]+(?::[a-zA-Z0-9_.\-]+)?)/g, '$1<span class="mention">@$2</span>')
   // 换行
   s = s.replace(/\n/g, '<br>')
   // 还原代码占位
@@ -485,6 +491,7 @@ function refresh() {
   if (currentRoom.value) {
     msgs.value = listMessages(currentRoom.value)
     channelMembers.value = listRoomMembers(currentRoom.value)
+    reactions.value = listReactions(currentRoom.value)
   }
   if (aiRoom.value) aiMsgs.value = listMessages(aiRoom.value)
 }
@@ -515,6 +522,46 @@ async function doLogin() {
   }
 }
 
+// ── Discord 化：反应 / 回复 / 消息分组 ──
+import type { ReactionAgg } from '@/matrix/client'
+const reactions = ref<Record<string, ReactionAgg[]>>({})
+const replyTo = ref<{ id: string; name: string; body: string } | null>(null)
+function loadReactions() {
+  if (currentRoom.value) reactions.value = listReactions(currentRoom.value)
+}
+// 消息分组：同一发送者、5 分钟内、非回复 → 折叠头像/名字
+const groupedMsgs = computed(() =>
+  msgs.value.map((m, i) => {
+    const prev = msgs.value[i - 1]
+    const showHeader = !prev || prev.sender !== m.sender || m.ts - prev.ts > 5 * 60 * 1000 || !!m.replyToId
+    return { ...m, showHeader }
+  }),
+)
+async function toggleReaction(msgId: string, key: string) {
+  if (!currentRoom.value) return
+  const mine = reactions.value[msgId]?.find((r) => r.key === key && r.mine)
+  try {
+    if (mine?.myId) await unreact(currentRoom.value, mine.myId)
+    else await react(currentRoom.value, msgId, key)
+    setTimeout(loadReactions, 500)
+  } catch (e: any) { toast('操作失败', e?.message || String(e)) }
+}
+async function quickReact(msgId: string, key: string) {
+  if (!currentRoom.value) return
+  // 已经有我的同款反应 → 取消，否则添加
+  const mine = reactions.value[msgId]?.find((r) => r.key === key && r.mine)
+  try {
+    if (mine?.myId) await unreact(currentRoom.value, mine.myId)
+    else await react(currentRoom.value, msgId, key)
+    setTimeout(loadReactions, 500)
+  } catch (e: any) { toast('操作失败', e?.message || String(e)) }
+}
+function startReply(m: { id: string; senderName: string; body: string }) {
+  replyTo.value = { id: m.id, name: m.senderName, body: m.body }
+  nextTick(() => taRef.value?.focus())
+}
+function cancelReply() { replyTo.value = null }
+
 // 当前频道的真实成员（频道头显示数量+头像）
 const channelMembers = ref<{ id: string; name: string; isBot: boolean }[]>([])
 function openRoom(id: string) {
@@ -524,6 +571,8 @@ function openRoom(id: string) {
   msgs.value = listMessages(id)
   channelMembers.value = listRoomMembers(id)
   fav.value = isFavourite(id)
+  reactions.value = listReactions(id)
+  replyTo.value = null
 }
 // 收藏当前频道（真实 Matrix m.favourite 标签，按频道独立、跨设备同步）
 async function toggleFav() {
@@ -538,7 +587,10 @@ async function send() {
   const t = draft.value.trim()
   if (!t || !currentRoom.value) return
   draft.value = ''
-  await sendText(currentRoom.value, t)
+  const rep = replyTo.value
+  replyTo.value = null
+  if (rep) await sendReply(currentRoom.value, t, rep.id)
+  else await sendText(currentRoom.value, t)
   setTimeout(refresh, 400)
 }
 
@@ -949,17 +1001,23 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           </div>
         </div>
 
-        <!-- 消息流（演示版扁平 Slack 风）-->
+        <!-- 消息流（Discord 风：分组 / 回复 / 反应 / 悬停工具条）-->
         <div class="stream">
-          <div v-for="m in msgs" :key="m.id" class="msg" :class="{ bot: isBot(m.sender), me: isMe(m.sender) }">
-            <div class="ava">{{ isBot(m.sender) ? '智' : initials(m.senderName) }}</div>
+          <div v-for="m in groupedMsgs" :key="m.id" class="msg" :class="{ bot: isBot(m.sender), me: isMe(m.sender), grouped: !m.showHeader }">
+            <!-- 左槽：首条显头像，分组内显悬停时间 -->
+            <div class="msg-gutter">
+              <div v-if="m.showHeader" class="ava">{{ isBot(m.sender) ? '智' : initials(m.senderName) }}</div>
+              <span v-else class="gutter-time">{{ fmtTime(m.ts) }}</span>
+            </div>
             <div class="msg-body">
-              <div class="head">
+              <!-- 回复预览 -->
+              <div v-if="m.replyToId" class="msg-reply">↳ <b>{{ m.replyToName }}</b><span class="msg-reply-body">{{ m.replyToBody }}</span></div>
+              <div v-if="m.showHeader" class="head">
                 <span class="name">{{ m.senderName }}</span>
                 <span class="role" :class="isBot(m.sender) ? 'bot' : 'human'">{{ isBot(m.sender) ? 'AI' : '成员' }}</span>
                 <span class="time">{{ fmtTime(m.ts) }}</span>
               </div>
-              <div v-if="!m.card" class="text" v-html="renderMd(m.body)"></div>
+              <div v-if="!m.card" class="text"><span v-html="renderMd(m.body)"></span><span v-if="m.edited" class="edited">（已编辑）</span></div>
               <div v-else class="rich info">
                 <div class="r-head"><span class="t">🗂 {{ m.card.title }}</span></div>
                 <p v-if="m.card.subtitle">{{ m.card.subtitle }}</p>
@@ -970,6 +1028,20 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                   </template>
                 </div>
               </div>
+              <!-- 反应条 -->
+              <div v-if="reactions[m.id]?.length" class="reactions">
+                <button v-for="r in reactions[m.id]" :key="r.key" class="rxn" :class="{ mine: r.mine }" @click="toggleReaction(m.id, r.key)">{{ r.key }} <b>{{ r.count }}</b></button>
+                <button class="rxn add" title="加表情" @click="quickReact(m.id, '👍')">＋</button>
+              </div>
+            </div>
+            <!-- 悬停工具条 -->
+            <div class="msg-tools">
+              <button title="👍" @click="quickReact(m.id, '👍')">👍</button>
+              <button title="❤️" @click="quickReact(m.id, '❤️')">❤️</button>
+              <button title="😂" @click="quickReact(m.id, '😂')">😂</button>
+              <button title="回复" @click="startReply(m)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>
+              </button>
             </div>
           </div>
           <p v-if="currentRoom && !msgs.length" class="hint pad">这个频道还没有消息</p>
@@ -978,6 +1050,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
         <!-- Composer -->
         <div v-if="currentRoom" class="composer">
+          <!-- 回复横幅 -->
+          <div v-if="replyTo" class="reply-bar">
+            <span class="reply-bar-txt">↩ 回复 <b>{{ replyTo.name }}</b>：{{ replyTo.body.slice(0, 40) }}</span>
+            <button class="reply-bar-x" title="取消回复" @click="cancelReply">×</button>
+          </div>
           <div class="composer-box">
             <textarea
               ref="taRef"
@@ -1443,16 +1520,20 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .ch-ic-btn:hover { background: var(--bg-hover); color: var(--text); }
 .ch-ic-btn.active { background: var(--accent-soft); color: var(--accent); }
 
-/* 消息流（扁平 Slack 风）*/
-.stream { flex: 1; overflow-y: auto; padding: 16px var(--content-pad-x) 20px; }
-.msg { display: flex; gap: 12px; padding: 8px 0; border-radius: 6px; }
-/* 平时不铺底色（保持干净白底）；只有未读 / 选中时才出现底色 */
-.msg.unread { background: var(--accent-soft); margin: 0 -10px; padding: 8px 10px; box-shadow: inset 3px 0 0 var(--accent); }
-.msg.selected { background: var(--bg-soft); margin: 0 -10px; padding: 8px 10px; }
-.msg .ava { width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; color: #fff; background: var(--text-3); position: relative; }
+/* 消息流（Discord 风：分组 / 悬停高亮 / 工具条 / 反应 / 回复）*/
+.stream { flex: 1; overflow-y: auto; padding: 8px var(--content-pad-x) 20px; }
+.msg { display: flex; gap: 12px; padding: 4px 10px; margin: 0 -10px; border-radius: 4px; position: relative; }
+.msg:not(.grouped) { margin-top: 8px; }
+.msg:hover { background: var(--bg-soft); }
+.msg.unread { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+/* 左槽：固定头像宽度；分组内放悬停才显的时间 */
+.msg-gutter { width: 36px; flex-shrink: 0; display: flex; justify-content: center; }
+.msg .ava { width: 36px; height: 36px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; color: #fff; background: var(--text-3); position: relative; }
 .msg.me .ava { background: var(--accent); color: #1a1300; }
 .msg.bot .ava { background: var(--text); }
 .msg.bot .ava::after { content: ""; position: absolute; bottom: -1px; right: -1px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+.gutter-time { font-size: 10px; color: var(--text-dim); font-family: var(--mono); line-height: 22px; opacity: 0; }
+.msg.grouped:hover .gutter-time { opacity: 1; }
 .msg .msg-body { flex: 1; min-width: 0; }
 .msg .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
 .msg .name { font-weight: var(--fw-bold); font-size: var(--fs-100); color: var(--text); }
@@ -1461,6 +1542,31 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .msg .role.human { background: var(--accent-soft); color: var(--accent); }
 .msg .time { font-size: var(--fs-75); color: var(--text-3); }
 .msg .text { color: var(--text); font-size: var(--fs-100); line-height: var(--lh-200); word-break: break-word; }
+.edited { font-size: 11px; color: var(--text-dim); margin-left: 6px; }
+/* @提及高亮 */
+.text :deep(.mention), .ai-bubble :deep(.mention) { background: var(--accent-soft); color: var(--warn); border-radius: 4px; padding: 0 3px; font-weight: 600; }
+/* 回复预览 */
+.msg-reply { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); margin-bottom: 2px; }
+.msg-reply b { color: var(--text-2); font-weight: 600; }
+.msg-reply-body { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+/* 反应条 */
+.reactions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.rxn { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-panel); cursor: pointer; font-size: 13px; color: var(--text-2); }
+.rxn b { font-size: 12px; }
+.rxn:hover { border-color: var(--accent); }
+.rxn.mine { background: var(--accent-soft); border-color: var(--accent); color: var(--warn); }
+.rxn.add { padding: 0 7px; color: var(--text-3); }
+/* 悬停工具条 */
+.msg-tools { position: absolute; top: -12px; right: 12px; display: none; gap: 2px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); padding: 2px; }
+.msg:hover .msg-tools { display: flex; }
+.msg-tools button { width: 28px; height: 26px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); }
+.msg-tools button:hover { background: var(--bg-hover); }
+/* 回复横幅 */
+.reply-bar { display: flex; align-items: center; gap: 8px; background: var(--bg-soft); border: 1px solid var(--border); border-bottom: 0; border-radius: 10px 10px 0 0; padding: 6px 12px; font-size: 12px; color: var(--text-3); }
+.reply-bar-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply-bar-txt b { color: var(--accent); }
+.reply-bar-x { width: 22px; height: 22px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; color: var(--text-3); font-size: 16px; line-height: 1; }
+.reply-bar-x:hover { background: var(--bg-hover); color: var(--text); }
 /* 消息里渲染出的 Markdown 元素 */
 .text :deep(a), .ai-bubble :deep(a) { color: var(--info); text-decoration: underline; }
 .text :deep(code.md-code), .ai-bubble :deep(code.md-code) { background: var(--bg-code); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; }
