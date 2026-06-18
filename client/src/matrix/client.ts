@@ -471,6 +471,17 @@ export async function unreact(roomId: string, reactionEventId: string): Promise<
   await mx.redactEvent(roomId, reactionEventId)
 }
 
+/** 编辑自己的某条消息（m.replace），消息会显示"已编辑"。 */
+export async function editMessage(roomId: string, eventId: string, body: string): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  await (mx as any).sendEvent(roomId, 'm.room.message', {
+    msgtype: 'm.text',
+    body: `* ${body}`, // 旧客户端 fallback
+    'm.new_content': { msgtype: 'm.text', body },
+    'm.relates_to': { rel_type: 'm.replace', event_id: eventId },
+  })
+}
+
 /** 回复某条消息（m.in_reply_to）。 */
 export async function sendReply(roomId: string, body: string, replyToEventId: string): Promise<void> {
   if (!mx) throw new Error('未登录')

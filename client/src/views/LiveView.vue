@@ -25,6 +25,7 @@ import {
   react,
   unreact,
   sendReply,
+  editMessage,
   sendText,
   ensureBotDm,
   listSpaces,
@@ -465,6 +466,25 @@ function fmtTime(ts: number) {
   const m = String(d.getMinutes()).padStart(2, '0')
   return `${h}:${m}`
 }
+// 日期分隔线标签：今天 / 昨天 / X月X日
+function dayKey(ts: number) {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+function dayLabel(ts: number) {
+  const d = new Date(ts)
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const diff = Math.round((today - that) / 86400000)
+  if (diff === 0) return '今天'
+  if (diff === 1) return '昨天'
+  return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
+}
+// 发送者名字配色（沿用频道调色板做确定性取色）
+function nameColor(name: string) {
+  return colorOf(name)
+}
 
 // ── 轻量 toast ──────────────────────────────────────────
 interface Toast { id: number; title: string; msg?: string }
@@ -533,10 +553,35 @@ function loadReactions() {
 const groupedMsgs = computed(() =>
   msgs.value.map((m, i) => {
     const prev = msgs.value[i - 1]
-    const showHeader = !prev || prev.sender !== m.sender || m.ts - prev.ts > 5 * 60 * 1000 || !!m.replyToId
-    return { ...m, showHeader }
+    const showDay = !prev || dayKey(prev.ts) !== dayKey(m.ts)
+    // 跨天必定显头像；否则同人+5分钟内+非回复才折叠
+    const showHeader = showDay || !prev || prev.sender !== m.sender || m.ts - prev.ts > 5 * 60 * 1000 || !!m.replyToId
+    return { ...m, showHeader, showDay }
   }),
 )
+// emoji 选择器（点工具条表情/反应＋时弹出）
+const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '😡', '🎉', '🔥', '👏', '🙏', '💯', '✅', '😄', '😍', '🤔', '😎', '😅', '🥳', '😭', '👀', '💪', '🚀', '⭐', '💡', '🎬', '🎵', '📌', '🤝', '😬', '🫡', '🤩', '😇']
+const emojiPicker = ref<{ msgId: string; x: number; y: number } | null>(null)
+function openEmojiPicker(msgId: string, e: MouseEvent) {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  emojiPicker.value = { msgId, x: Math.min(r.left, window.innerWidth - 250), y: r.bottom + 4 }
+}
+function pickEmoji(key: string) {
+  if (emojiPicker.value) quickReact(emojiPicker.value.msgId, key)
+  emojiPicker.value = null
+}
+// 编辑自己的消息
+const editingId = ref<string | null>(null)
+function startEdit(m: { id: string; body: string }) {
+  editingId.value = m.id
+  replyTo.value = null
+  draft.value = m.body
+  nextTick(() => taRef.value?.focus())
+}
+function cancelEdit() { editingId.value = null; draft.value = '' }
+async function copyMsg(body: string) {
+  try { await navigator.clipboard.writeText(body); toast('已复制') } catch { toast('复制失败') }
+}
 async function toggleReaction(msgId: string, key: string) {
   if (!currentRoom.value) return
   const mine = reactions.value[msgId]?.find((r) => r.key === key && r.mine)
@@ -573,6 +618,7 @@ function openRoom(id: string) {
   fav.value = isFavourite(id)
   reactions.value = listReactions(id)
   replyTo.value = null
+  editingId.value = null
 }
 // 收藏当前频道（真实 Matrix m.favourite 标签，按频道独立、跨设备同步）
 async function toggleFav() {
@@ -588,8 +634,11 @@ async function send() {
   if (!t || !currentRoom.value) return
   draft.value = ''
   const rep = replyTo.value
+  const ed = editingId.value
   replyTo.value = null
-  if (rep) await sendReply(currentRoom.value, t, rep.id)
+  editingId.value = null
+  if (ed) await editMessage(currentRoom.value, ed, t)
+  else if (rep) await sendReply(currentRoom.value, t, rep.id)
   else await sendText(currentRoom.value, t)
   setTimeout(refresh, 400)
 }
@@ -698,6 +747,7 @@ function onDocClick(e: MouseEvent) {
   if (!rootEl.value) return
   if (!(e.target as HTMLElement)?.closest?.('.tas-wrap')) appMenuOpen.value = false
   if (!(e.target as HTMLElement)?.closest?.('.um-wrap')) userMenuOpen.value = false
+  if (!(e.target as HTMLElement)?.closest?.('.emoji-pop, .msg-tools, .rxn.add')) emojiPicker.value = null
 }
 
 onMounted(async () => {
@@ -1001,9 +1051,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           </div>
         </div>
 
-        <!-- 消息流（Discord 风：分组 / 回复 / 反应 / 悬停工具条）-->
+        <!-- 消息流（Discord 风：分组 / 日期线 / 回复 / 反应 / 悬停工具条）-->
         <div class="stream">
-          <div v-for="m in groupedMsgs" :key="m.id" class="msg" :class="{ bot: isBot(m.sender), me: isMe(m.sender), grouped: !m.showHeader }">
+          <template v-for="m in groupedMsgs" :key="m.id">
+          <!-- 日期分隔线 -->
+          <div v-if="m.showDay" class="day-sep"><span>{{ dayLabel(m.ts) }}</span></div>
+          <div class="msg" :class="{ bot: isBot(m.sender), me: isMe(m.sender), grouped: !m.showHeader }">
             <!-- 左槽：首条显头像，分组内显悬停时间 -->
             <div class="msg-gutter">
               <div v-if="m.showHeader" class="ava">{{ isBot(m.sender) ? '智' : initials(m.senderName) }}</div>
@@ -1013,8 +1066,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               <!-- 回复预览 -->
               <div v-if="m.replyToId" class="msg-reply">↳ <b>{{ m.replyToName }}</b><span class="msg-reply-body">{{ m.replyToBody }}</span></div>
               <div v-if="m.showHeader" class="head">
-                <span class="name">{{ m.senderName }}</span>
-                <span class="role" :class="isBot(m.sender) ? 'bot' : 'human'">{{ isBot(m.sender) ? 'AI' : '成员' }}</span>
+                <span class="name" :style="{ color: nameColor(m.senderName) }">{{ m.senderName }}</span>
+                <span v-if="isBot(m.sender)" class="app-tag">APP</span>
                 <span class="time">{{ fmtTime(m.ts) }}</span>
               </div>
               <div v-if="!m.card" class="text"><span v-html="renderMd(m.body)"></span><span v-if="m.edited" class="edited">（已编辑）</span></div>
@@ -1031,21 +1084,35 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               <!-- 反应条 -->
               <div v-if="reactions[m.id]?.length" class="reactions">
                 <button v-for="r in reactions[m.id]" :key="r.key" class="rxn" :class="{ mine: r.mine }" @click="toggleReaction(m.id, r.key)">{{ r.key }} <b>{{ r.count }}</b></button>
-                <button class="rxn add" title="加表情" @click="quickReact(m.id, '👍')">＋</button>
+                <button class="rxn add" title="加表情" @click="openEmojiPicker(m.id, $event)">＋</button>
               </div>
             </div>
-            <!-- 悬停工具条 -->
+            <!-- 悬停工具条（表情 / 回复 / 编辑(自己) / 复制）-->
             <div class="msg-tools">
-              <button title="👍" @click="quickReact(m.id, '👍')">👍</button>
-              <button title="❤️" @click="quickReact(m.id, '❤️')">❤️</button>
-              <button title="😂" @click="quickReact(m.id, '😂')">😂</button>
+              <button title="表情" @click="openEmojiPicker(m.id, $event)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" /></svg>
+              </button>
               <button title="回复" @click="startReply(m)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>
               </button>
+              <button v-if="isMe(m.sender) && !m.card" title="编辑" @click="startEdit(m)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+              </button>
+              <button title="复制" @click="copyMsg(m.body)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+              </button>
             </div>
           </div>
+          </template>
           <p v-if="currentRoom && !msgs.length" class="hint pad">这个频道还没有消息</p>
           <p v-if="!currentRoom" class="hint pad">← 选一个频道开始</p>
+        </div>
+
+        <!-- emoji 选择器面板 -->
+        <div v-if="emojiPicker" class="emoji-pop" :style="{ left: emojiPicker.x + 'px', top: emojiPicker.y + 'px' }" @click.stop>
+          <div class="emoji-grid">
+            <button v-for="e in EMOJIS" :key="e" class="emoji-cell" @click="pickEmoji(e)">{{ e }}</button>
+          </div>
         </div>
 
         <!-- Composer -->
@@ -1055,12 +1122,18 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             <span class="reply-bar-txt">↩ 回复 <b>{{ replyTo.name }}</b>：{{ replyTo.body.slice(0, 40) }}</span>
             <button class="reply-bar-x" title="取消回复" @click="cancelReply">×</button>
           </div>
+          <!-- 编辑横幅 -->
+          <div v-if="editingId" class="reply-bar">
+            <span class="reply-bar-txt">✏️ 正在<b>编辑</b>消息 · Enter 保存，Esc 取消</span>
+            <button class="reply-bar-x" title="取消编辑" @click="cancelEdit">×</button>
+          </div>
           <div class="composer-box">
             <textarea
               ref="taRef"
               v-model="draft"
               :placeholder="`发送到 #${currentName}；叫主 AI 试：CosMac 建专班 测试专班`"
               @keydown.enter.exact.prevent="send"
+              @keydown.esc="editingId ? cancelEdit() : cancelReply()"
             />
             <div class="composer-toolbar">
               <div class="tb-left">
@@ -1528,7 +1601,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .msg.unread { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 /* 左槽：固定头像宽度；分组内放悬停才显的时间 */
 .msg-gutter { width: 36px; flex-shrink: 0; display: flex; justify-content: center; }
-.msg .ava { width: 36px; height: 36px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; color: #fff; background: var(--text-3); position: relative; }
+.msg .ava { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; color: #fff; background: var(--text-3); position: relative; }
+.msg-gutter { width: 40px; }
 .msg.me .ava { background: var(--accent); color: #1a1300; }
 .msg.bot .ava { background: var(--text); }
 .msg.bot .ava::after { content: ""; position: absolute; bottom: -1px; right: -1px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
@@ -1537,10 +1611,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .msg .msg-body { flex: 1; min-width: 0; }
 .msg .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
 .msg .name { font-weight: var(--fw-bold); font-size: var(--fs-100); color: var(--text); }
-.msg .role { font-size: var(--fs-50); padding: 1px 6px; border-radius: 3px; background: var(--bg-code); color: var(--text-3); letter-spacing: .3px; }
-.msg .role.bot { color: var(--text-2); }
-.msg .role.human { background: var(--accent-soft); color: var(--accent); }
+.app-tag { font-size: 9px; font-weight: 700; letter-spacing: .5px; color: #fff; background: var(--accent); border-radius: 3px; padding: 1px 4px; line-height: 1.2; }
 .msg .time { font-size: var(--fs-75); color: var(--text-3); }
+/* 日期分隔线 */
+.day-sep { display: flex; align-items: center; gap: 12px; margin: 14px 6px 6px; }
+.day-sep::before, .day-sep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.day-sep span { font-size: 11px; font-weight: 600; color: var(--text-3); font-family: var(--mono); }
 .msg .text { color: var(--text); font-size: var(--fs-100); line-height: var(--lh-200); word-break: break-word; }
 .edited { font-size: 11px; color: var(--text-dim); margin-left: 6px; }
 /* @提及高亮 */
@@ -1561,6 +1637,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .msg:hover .msg-tools { display: flex; }
 .msg-tools button { width: 28px; height: 26px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); }
 .msg-tools button:hover { background: var(--bg-hover); }
+/* emoji 选择器 */
+.emoji-pop { position: fixed; z-index: 120; width: 248px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,.16); padding: 8px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 200px; overflow-y: auto; }
+.emoji-cell { width: 28px; height: 28px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
+.emoji-cell:hover { background: var(--bg-hover); }
 /* 回复横幅 */
 .reply-bar { display: flex; align-items: center; gap: 8px; background: var(--bg-soft); border: 1px solid var(--border); border-bottom: 0; border-radius: 10px 10px 0 0; padding: 6px 12px; font-size: 12px; color: var(--text-3); }
 .reply-bar-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
