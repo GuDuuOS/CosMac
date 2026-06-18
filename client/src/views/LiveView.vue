@@ -105,12 +105,39 @@ function openTasks() { tasks.value = true; board.value = false; currentRoom.valu
 
 // 任务看板：剧集 Tab（每部剧一个），点击后看那部剧的制作流水线 + 任务
 // 每部剧带：当前在制项目 + 流水线阶段(current) + 进度% + 负责人 + 排期（demo 数据，后续接真实）
+// 每部剧：整部进度 series + 多集同时在制 episodes（每集一条流水线，可点开看甘特）
 const productionTabs = [
-  { key: 'ep-night', name: '夜航星', avatar: '夜', color: '#7a5cad', project: '《夜航星》第 6 集', percent: 72, current: 2, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天', series: { done: 5, total: 12, unit: '集', pct: 48 } },
-  { key: 'ep-galaxy', name: '银河谣', avatar: '银', color: '#5a8a6a', project: '《银河谣》第 12 集', percent: 35, current: 1, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天', series: { done: 11, total: 12, unit: '集', pct: 95 } },
-  { key: 'mobai', name: '墨白', avatar: '墨', color: '#b5793a', project: '墨白 · 新单曲 MV', percent: 55, current: 3, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天', series: { done: 4, total: 8, unit: '首单曲', pct: 58 } },
+  {
+    key: 'ep-night', name: '夜航星', avatar: '夜', color: '#7a5cad',
+    series: { done: 5, total: 12, unit: '集', pct: 48 },
+    episodes: [
+      { name: '《夜航星》第 6 集', percent: 72, current: 2, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天' },
+      { name: '《夜航星》第 7 集', percent: 15, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#9b8bd0', dateRange: '6/22 → 6/30', daysLeft: '还剩 10 天' },
+    ],
+  },
+  {
+    key: 'ep-galaxy', name: '银河谣', avatar: '银', color: '#5a8a6a',
+    series: { done: 11, total: 12, unit: '集', pct: 95 },
+    episodes: [
+      { name: '《银河谣》第 12 集', percent: 35, current: 1, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天' },
+    ],
+  },
+  {
+    key: 'mobai', name: '墨白', avatar: '墨', color: '#b5793a',
+    series: { done: 4, total: 8, unit: '首单曲', pct: 58 },
+    episodes: [
+      { name: '墨白 · 新单曲 MV', percent: 55, current: 3, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天' },
+      { name: '墨白 · 新专辑企划', percent: 10, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#c9a05a', dateRange: '6/25 → 7/20', daysLeft: '还剩 1 月' },
+    ],
+  },
 ]
 const activeShow = ref(productionTabs[0].key)   // 当前选中的剧集
+
+// 甘特弹窗：点开某一集看它的甘特图
+type Episode = (typeof productionTabs)[number]['episodes'][number]
+const ganttEp = ref<Episode | null>(null)
+function openGantt(ep: Episode) { ganttEp.value = ep }
+const GANTT_DATES = ['6/10', '6/14', '6/18', '6/22', '6/26', '6/30']
 // 制作流水线阶段；由 current 下标生成 done/current/todo
 const PROD_STAGES = ['剧本', '分镜', '配音', '剪辑', '成片']
 function mkStages(currentIdx: number) {
@@ -1093,25 +1120,28 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 />
               </div>
             </div>
-            <div class="prod-card">
-              <div class="prod-head">
-                <span class="prod-av" :style="{ background: activeProd.color }">{{ activeProd.avatar }}</span>
-                <span class="prod-name">{{ activeProd.project }}</span>
-                <span class="prod-status">进行中 · {{ activeProd.percent }}%</span>
-              </div>
-              <div class="prod-pipe">
-                <template v-for="(s, i) in mkStages(activeProd.current)" :key="s.name">
-                  <div class="prod-step" :class="s.state">
-                    <span class="prod-dot">{{ s.state === 'done' ? '✓' : s.state === 'current' ? '●' : i + 1 }}</span>
-                    <span class="prod-step-label">{{ s.name }}</span>
-                  </div>
-                  <span v-if="i < PROD_STAGES.length - 1" class="prod-conn" :class="{ on: s.state === 'done' }" />
-                </template>
-              </div>
-              <div class="prod-bar"><div class="prod-bar-fill" :style="{ width: activeProd.percent + '%', background: activeProd.color }" /></div>
-              <div class="prod-foot">
-                <span class="prod-assignee"><span class="prod-a-av" :style="{ background: activeProd.aColor }">{{ activeProd.aAvatar }}</span>{{ activeProd.assignee }}</span>
-                <span class="prod-date">{{ activeProd.dateRange }} · {{ activeProd.daysLeft }}</span>
+            <!-- 多集同时在制：每集一张流水线卡，点开看甘特 -->
+            <div class="prod-row">
+              <div v-for="ep in activeProd.episodes" :key="ep.name" class="prod-card clickable" title="点击查看甘特图" @click="openGantt(ep)">
+                <div class="prod-head">
+                  <span class="prod-av" :style="{ background: activeProd.color }">{{ activeProd.avatar }}</span>
+                  <span class="prod-name">{{ ep.name }}</span>
+                  <span class="prod-status">进行中 · {{ ep.percent }}%</span>
+                </div>
+                <div class="prod-pipe">
+                  <template v-for="(s, i) in mkStages(ep.current)" :key="s.name">
+                    <div class="prod-step" :class="s.state">
+                      <span class="prod-dot">{{ s.state === 'done' ? '✓' : s.state === 'current' ? '●' : i + 1 }}</span>
+                      <span class="prod-step-label">{{ s.name }}</span>
+                    </div>
+                    <span v-if="i < PROD_STAGES.length - 1" class="prod-conn" :class="{ on: s.state === 'done' }" />
+                  </template>
+                </div>
+                <div class="prod-bar"><div class="prod-bar-fill" :style="{ width: ep.percent + '%', background: activeProd.color }" /></div>
+                <div class="prod-foot">
+                  <span class="prod-assignee"><span class="prod-a-av" :style="{ background: ep.aColor }">{{ ep.aAvatar }}</span>{{ ep.assignee }}</span>
+                  <span class="prod-date">{{ ep.dateRange }} · {{ ep.daysLeft }}</span>
+                </div>
               </div>
             </div>
             <div class="show-tl">
@@ -1123,30 +1153,6 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             </div>
           </div>
 
-          <div class="kanban">
-            <div v-for="col in taskCols" :key="col.key" class="kb-col">
-              <div class="kb-col-head">
-                <span class="kb-dot" :class="col.key" />
-                <span class="kb-col-title">{{ col.title }}</span>
-                <span class="kb-count">{{ col.items.length }}</span>
-              </div>
-              <div class="kb-cards">
-                <div v-for="t in col.items" :key="t.id" class="kb-card" :class="{ done: t.status === 'done' }">
-                  <div class="kb-card-title">{{ t.title }}</div>
-                  <div class="kb-card-meta">
-                    <span class="kb-pri" :class="`pri-${t.priority}`">{{ priLabel(t.priority) }}</span>
-                    <span v-if="t.refNo" class="kb-ref">{{ t.refNo }}</span>
-                  </div>
-                  <div v-if="t.sourceLabel" class="kb-src">📁 {{ t.sourceLabel }}</div>
-                  <div class="kb-foot">
-                    <span v-if="t.assignee" class="kb-assignee">{{ t.assignee }}</span>
-                    <span v-if="t.due" class="kb-due">⏱ {{ t.due }}</span>
-                  </div>
-                </div>
-                <p v-if="!col.items.length" class="kb-empty">暂无</p>
-              </div>
-            </div>
-          </div>
         </template>
 
         <!-- ===== 频道 ===== -->
@@ -1359,6 +1365,35 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     <ProfileHome />
     <CliConsole />
     <ChannelAdminModal />
+
+    <!-- 单集甘特图弹窗（点在制单集卡打开）-->
+    <div v-if="ganttEp" class="gantt-overlay" @click.self="ganttEp = null">
+      <div class="gantt-modal">
+        <div class="gantt-head">
+          <span class="gantt-title">{{ ganttEp.name }} · 甘特图</span>
+          <span class="gantt-sub">{{ ganttEp.dateRange }} · {{ ganttEp.daysLeft }}</span>
+          <button class="gantt-close" title="关闭" @click="ganttEp = null">×</button>
+        </div>
+        <div class="gantt-axis">
+          <span v-for="d in GANTT_DATES" :key="d">{{ d }}</span>
+        </div>
+        <div class="gantt-rows">
+          <div v-for="(s, i) in mkStages(ganttEp.current)" :key="s.name" class="gantt-row">
+            <span class="gantt-stage" :class="s.state">{{ s.name }}</span>
+            <div class="gantt-track">
+              <div class="gantt-bar" :class="s.state" :style="{ left: i * 18 + '%', width: '22%' }">
+                <span v-if="s.state === 'done'">✓</span><span v-else-if="s.state === 'current'">●</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="gantt-foot">
+          <span class="prod-a-av" :style="{ background: ganttEp.aColor }">{{ ganttEp.aAvatar }}</span>
+          <span>{{ ganttEp.assignee }} · 当前进度 {{ ganttEp.percent }}%</span>
+          <span class="gantt-legend"><i class="gl done" />完成<i class="gl current" />进行中<i class="gl todo" />未开始</span>
+        </div>
+      </div>
+    </div>
 
     <!-- 新建工作区（完整表单 · 真建 Matrix Space + 默认频道）-->
     <div v-if="newWsOpen" class="nw-overlay" @click.self="newWsOpen = false">
@@ -1696,7 +1731,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .prod-tab-n { font-size: 10px; color: var(--text-3); background: var(--bg-hover); border-radius: 8px; padding: 0 5px; min-width: 14px; text-align: center; }
 .prod-tab.active .prod-tab-n { background: var(--accent); color: #fff; }
 /* 剧集制作流水线卡 + 时间线 */
-.show-band { flex-shrink: 0; padding: 12px var(--content-pad-x) 6px; }
+.show-band { flex: 1; min-height: 0; overflow-y: auto; padding: 12px var(--content-pad-x) 16px; }
+.prod-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
 /* 整部剧进度（分段条：每段一集，已完成绿 / 当前集橙 / 未做灰）*/
 .series-bar { margin-bottom: 12px; }
 .series-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -1707,7 +1743,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .series-seg { flex: 1; height: 8px; border-radius: 3px; background: var(--bg-hover); transition: background .3s; }
 .series-seg.done { background: #6b8e4e; }
 .series-seg.current { background: var(--accent); box-shadow: 0 0 0 2px rgba(217,105,47,.18); }
-.prod-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; box-shadow: 0 4px 14px rgba(0,0,0,.05); margin-bottom: 12px; }
+.prod-card { flex: 1 1 360px; min-width: 320px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; box-shadow: 0 4px 14px rgba(0,0,0,.05); }
+.prod-card.clickable { cursor: pointer; transition: box-shadow .15s, transform .15s, border-color .15s; }
+.prod-card.clickable:hover { box-shadow: 0 8px 22px rgba(0,0,0,.1); transform: translateY(-2px); border-color: var(--accent); }
 .prod-head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
 .prod-av { width: 28px; height: 28px; border-radius: 8px; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
 .prod-name { font-size: 15px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1738,6 +1776,31 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .tl-name { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-row.done .tl-name { color: var(--text-3); text-decoration: line-through; }
 .tl-meta { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+/* 单集甘特弹窗 */
+.gantt-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.32); display: flex; align-items: center; justify-content: center; }
+.gantt-modal { width: 640px; max-width: calc(100vw - 48px); background: var(--bg-panel); border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.22); padding: 18px 20px; }
+.gantt-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.gantt-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.gantt-sub { font-size: 12px; color: var(--text-3); }
+.gantt-close { margin-left: auto; width: 28px; height: 28px; border: none; background: transparent; color: var(--text-3); font-size: 20px; cursor: pointer; border-radius: 6px; }
+.gantt-close:hover { background: var(--bg-hover); color: var(--text); }
+.gantt-axis { display: flex; justify-content: space-between; padding-left: 64px; margin-bottom: 8px; font-size: 10px; color: var(--text-3); }
+.gantt-rows { display: flex; flex-direction: column; gap: 8px; }
+.gantt-row { display: flex; align-items: center; gap: 8px; }
+.gantt-stage { width: 56px; flex-shrink: 0; font-size: 12px; color: var(--text-3); text-align: right; }
+.gantt-stage.done { color: #6b8e4e; }
+.gantt-stage.current { color: var(--accent); font-weight: 600; }
+.gantt-track { position: relative; flex: 1; height: 22px; background: var(--bg-hover); border-radius: 6px; }
+.gantt-bar { position: absolute; top: 0; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; }
+.gantt-bar.done { background: #6b8e4e; }
+.gantt-bar.current { background: var(--accent); box-shadow: 0 0 0 3px rgba(217,105,47,.18); }
+.gantt-bar.todo { background: var(--border); }
+.gantt-foot { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+.gantt-legend { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-3); }
+.gantt-legend .gl { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-left: 8px; }
+.gantt-legend .gl.done { background: #6b8e4e; }
+.gantt-legend .gl.current { background: var(--accent); }
+.gantt-legend .gl.todo { background: var(--border); }
 .kanban { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 16px var(--content-pad-x); overflow: hidden; }
 .kb-col { display: flex; flex-direction: column; min-height: 0; background: var(--bg-soft); border-radius: 12px; overflow: hidden; }
 .kb-col-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; flex-shrink: 0; }
