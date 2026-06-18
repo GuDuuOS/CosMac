@@ -315,6 +315,17 @@ export function normalizeUserId(input: string): string {
   return `@${s.replace(/^@/, '')}:${serverName()}`
 }
 
+/** 读某个房间的真实成员（已加入的）。返回 {id, name, isBot}。 */
+export function listRoomMembers(roomId: string): { id: string; name: string; isBot: boolean }[] {
+  const room = mx?.getRoom(roomId)
+  if (!room) return []
+  return room.getJoinedMembers().map((m: any) => ({
+    id: m.userId,
+    name: m.name || m.userId,
+    isBot: m.userId === BOT_ID,
+  }))
+}
+
 /** 邀请一个已有用户进某频道（标准 Matrix 邀请）。 */
 export async function inviteToRoom(roomId: string, userId: string): Promise<void> {
   if (!mx) throw new Error('未登录')

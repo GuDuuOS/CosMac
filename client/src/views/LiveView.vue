@@ -33,6 +33,7 @@ import {
   uploadMedia,
   mxcToHttp,
   inviteToRoom,
+  listRoomMembers,
   normalizeUserId,
   BOT_ID,
   type LiveRoom,
@@ -250,11 +251,29 @@ const chSetOpen = ref(false)
 const chSetName = ref('')
 const chSetTopic = ref('')
 const chSetBusy = ref(false)
+const chDeleteArm = ref(false)
 function openChannelSettings() {
   if (!currentRoom.value) return
   chSetName.value = currentName.value
   chSetTopic.value = currentTopic.value
+  chDeleteArm.value = false
   chSetOpen.value = true
+}
+async function deleteChannel() {
+  const id = currentRoom.value
+  if (!id || chSetBusy.value) return
+  chSetBusy.value = true
+  try {
+    await leaveAndForget(id)
+    toast('已删除频道', chSetName.value)
+    chSetOpen.value = false
+    currentRoom.value = ''
+    setTimeout(refresh, 800)
+  } catch (e: any) {
+    toast('删除失败', e?.message || String(e))
+  } finally {
+    chSetBusy.value = false
+  }
 }
 async function saveChannelSettings() {
   const id = currentRoom.value
@@ -355,6 +374,7 @@ async function createChannel() {
 const memberOpen = ref(false)
 const inviteUserInput = ref('')
 const memberBusy = ref(false)
+const memberList = ref<{ id: string; name: string; isBot: boolean }[]>([])
 // 邀请目标：优先当前打开的频道，否则当前工作区(Space)
 const memberTarget = computed(() => {
   if (currentRoom.value) return { id: currentRoom.value, name: `#${currentName.value}` }
@@ -362,7 +382,9 @@ const memberTarget = computed(() => {
   return null
 })
 function openMembers() {
-  inviteUserInput.value = ''; memberOpen.value = true
+  inviteUserInput.value = ''
+  memberList.value = memberTarget.value ? listRoomMembers(memberTarget.value.id) : []
+  memberOpen.value = true
 }
 async function doInvite() {
   const t = memberTarget.value
@@ -373,6 +395,7 @@ async function doInvite() {
     await inviteToRoom(t.id, uid)
     toast('已邀请', `${uid} → ${t.name}`)
     inviteUserInput.value = ''
+    setTimeout(() => { memberList.value = listRoomMembers(t.id) }, 600)
   } catch (e: any) {
     toast('邀请失败', e?.message || String(e))
   } finally { memberBusy.value = false }
@@ -436,7 +459,10 @@ function refresh() {
   }
   spaceChildIds.value = activeSpace.value ? roomIdsInSpace(activeSpace.value) : new Set()
   rooms.value = listRooms().filter((r) => r.id !== aiRoom.value)
-  if (currentRoom.value) msgs.value = listMessages(currentRoom.value)
+  if (currentRoom.value) {
+    msgs.value = listMessages(currentRoom.value)
+    channelMembers.value = listRoomMembers(currentRoom.value)
+  }
   if (aiRoom.value) aiMsgs.value = listMessages(aiRoom.value)
 }
 
@@ -466,11 +492,14 @@ async function doLogin() {
   }
 }
 
+// 当前频道的真实成员（频道头显示数量+头像）
+const channelMembers = ref<{ id: string; name: string; isBot: boolean }[]>([])
 function openRoom(id: string) {
   board.value = false
   tasks.value = false
   currentRoom.value = id
   msgs.value = listMessages(id)
+  channelMembers.value = listRoomMembers(id)
 }
 
 async function send() {
@@ -577,10 +606,7 @@ function onProfile() { openProfileHome(); appMenuOpen.value = false; userMenuOpe
 function onAddWorkspace() { openCreateDept() }
 function onPluginStore() { openPluginStore() }
 function onCustomAssets() { openAssets() }
-function onMembers() { setCurrent(currentName.value || '当前频道'); openAdmin(currentName.value || '当前频道') }
 // ↓↓↓ 这些 DEMO 本身也只是 toast 提示（无独立弹窗），保持一致 ↓↓↓
-function onAddChannel() { toast('＋ 新建频道', '在当前工作区创建频道（演示）') }
-function onInvite() { toast('＋ 邀请成员', '通过链接或 @ 邀请成员加入（演示）') }
 function onFilter() { toast('筛选频道', '按未读 / 私密过滤（演示，可直接在右侧输入框查找）') }
 function onAttach() { toast('📎 附件', '支持图片 / 视频 / 文档（演示）') }
 function onEmoji() { toast('😊 表情') }
@@ -876,9 +902,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <button class="title title-btn" :title="'频道设置'" @click="openChannelSettings">{{ currentName }}<svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg></button>
           <div v-if="currentTopic" class="ch-topic">{{ currentTopic }}</div>
           <div class="ch-actions">
-            <button class="ch-members-btn" title="管理成员 · 技能 · 知识库 · 规则" @click="onMembers">
-              <div class="ava-stack"><div class="a">{{ initials(me) }}</div><div class="a bot">智</div></div>
-              <span class="ch-members-count">2</span>
+            <button class="ch-members-btn" title="成员 · 邀请" @click="openMembers">
+              <div class="ava-stack">
+                <div v-for="m in channelMembers.slice(0, 3)" :key="m.id" class="a" :class="{ bot: m.isBot }">{{ m.isBot ? '智' : initials(m.name) }}</div>
+              </div>
+              <span class="ch-members-count">{{ channelMembers.length }}</span>
             </button>
             <button class="ch-ic-btn" :class="{ active: focused }" :title="focused ? '退出专注' : '专注模式'" @click="focused = !focused">
               <svg v-if="focused" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V3h4M21 7V3h-4M3 17v4h4M21 17v4h-4" /></svg>
@@ -1095,9 +1123,18 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <input v-model="chSetName" class="nw-input" placeholder="频道名称" @keyup.enter="saveChannelSettings" />
         <div class="nw-field-label">简介</div>
         <textarea v-model="chSetTopic" class="nw-input nw-textarea" rows="2" placeholder="一句话说明这个频道是干嘛的" />
-        <div class="nw-foot">
-          <button class="nw-btn" :disabled="chSetBusy" @click="chSetOpen = false">取消</button>
-          <button class="nw-btn primary" :disabled="!chSetName.trim() || chSetBusy" @click="saveChannelSettings">{{ chSetBusy ? '保存中…' : '保存' }}</button>
+        <div class="nw-foot nw-foot-split">
+          <div class="nw-foot-left">
+            <button v-if="!chDeleteArm" class="nw-btn danger-outline" :disabled="chSetBusy" @click="chDeleteArm = true">删除频道</button>
+            <template v-else>
+              <button class="nw-btn danger" :disabled="chSetBusy" @click="deleteChannel">{{ chSetBusy ? '删除中…' : '确认删除' }}</button>
+              <button class="nw-btn" :disabled="chSetBusy" title="取消删除" @click="chDeleteArm = false">×</button>
+            </template>
+          </div>
+          <div class="nw-foot-right">
+            <button class="nw-btn" :disabled="chSetBusy" @click="chSetOpen = false">取消</button>
+            <button class="nw-btn primary" :disabled="!chSetName.trim() || chSetBusy" @click="saveChannelSettings">{{ chSetBusy ? '保存中…' : '保存' }}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1158,10 +1195,21 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           邀请进：<b v-if="memberTarget">{{ memberTarget.name }}</b><span v-else class="nw-warn">请先打开一个频道</span>
         </div>
 
-        <div class="nw-field-label">用户名</div>
+        <div class="nw-field-label">邀请用户名</div>
         <div class="nw-inline">
           <input v-model="inviteUserInput" class="nw-input" placeholder="用户名 或 @用户:cosmac.cc" @keyup.enter="doInvite" />
           <button class="nw-btn primary" :disabled="!inviteUserInput.trim() || !memberTarget || memberBusy" @click="doInvite">{{ memberBusy ? '邀请中…' : '邀请' }}</button>
+        </div>
+
+        <!-- 当前真实成员 -->
+        <div class="nw-field-label">当前成员 <span class="nw-hint">{{ memberList.length }} 人</span></div>
+        <div class="nw-mem-list">
+          <div v-for="m in memberList" :key="m.id" class="nw-mem">
+            <span class="nw-mem-av" :class="{ bot: m.isBot }">{{ m.isBot ? '智' : initials(m.name) }}</span>
+            <span class="nw-mem-name">{{ m.name }}</span>
+            <span v-if="m.isBot" class="nw-mem-tag">AI</span>
+          </div>
+          <p v-if="!memberList.length" class="nw-mem-empty">还没有成员</p>
         </div>
 
         <div class="nw-note">
@@ -1488,6 +1536,14 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .nw-check input { width: 15px; height: 15px; accent-color: var(--accent); }
 .nw-warn { color: var(--warn); }
 .nw-note { margin-top: 14px; background: var(--accent-soft); border: 1px solid #f4e0bd; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
+.nw-mem-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.nw-mem { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
+.nw-mem:last-child { border-bottom: 0; }
+.nw-mem-av { width: 24px; height: 24px; border-radius: 7px; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.nw-mem-av.bot { background: var(--text); }
+.nw-mem-name { flex: 1; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nw-mem-tag { font-size: 10px; font-family: var(--mono); color: var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 1px 7px; }
+.nw-mem-empty { font-size: 13px; color: var(--text-3); padding: 14px; text-align: center; }
 .nw-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .nw-btn { height: 36px; padding: 0 16px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-panel); color: var(--text-2); font-size: 14px; cursor: pointer; }
 .nw-btn:hover { background: var(--bg-hover); color: var(--text); }
