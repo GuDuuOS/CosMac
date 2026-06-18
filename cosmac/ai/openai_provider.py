@@ -15,7 +15,7 @@ from cosmac.ai.base import LLMProvider, Message
 
 logger = logging.getLogger("cosmac.ai.openai")
 
-# 默认模型；可在配置里用 GUDUU_LLM_MODEL 覆盖
+# 默认模型；可在配置里用 COSMAC_LLM_MODEL 覆盖
 DEFAULT_OPENAI_MODEL = "gpt-4o"
 
 

@@ -44,7 +44,7 @@ class MatrixClient:
     def _txn_id(self) -> str:
         """生成一个唯一的事务 id（Matrix 要求发送类请求带上，用于去重）。"""
         # 用纳秒时间戳即可保证单进程内唯一
-        return f"guduu{time.time_ns()}"
+        return f"cosmac{time.time_ns()}"
 
     def join_room(self, room_id: str) -> None:
         """让主 AI 加入指定房间（通常是被邀请后调用）。"""

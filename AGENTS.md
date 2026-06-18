@@ -98,7 +98,7 @@
 
 **基建决策**：CosMac Star 的 DB **复用生产现成的 PostgreSQL**，给 cosmac 服务**单开一个 database/schema**，按需装 **pgvector**。走 §2 的第 3 条路径，与 Synapse 核心解耦、不碰它。
 
-**实现约定**（`cosmac/db/`）：用 **SQLAlchemy（同步）**（bot 是同步的，别引入 async）；连接由 `GUDUU_DATABASE_URL` 配置，生产指向 Postgres、本地默认回退 SQLite（`run/cosmac.db`）；pgvector 是 Postgres 专属，本地缺它时相关功能要优雅降级。
+**实现约定**（`cosmac/db/`）：用 **SQLAlchemy（同步）**（bot 是同步的，别引入 async）；连接由 `COSMAC_DATABASE_URL`（旧 `GUDUU_DATABASE_URL` 仍兼容） 配置，生产指向 Postgres、本地默认回退 SQLite（`run/cosmac.db`）；pgvector 是 Postgres 专属，本地缺它时相关功能要优雅降级。
 
 ---
 
@@ -187,21 +187,22 @@
 - ⚠️ `run/`、`.venv/` 是本地运行产物，不要提交进 git（应加进 `.gitignore`）。
 
 ### 启用真实 AI 模型（多模型可配置）
-默认 `echo`（占位）。要用真模型，设环境变量再启动 bot（**key 绝不写进代码**，SDK 从环境变量读）：
+默认 `echo`（占位）。要用真模型，设环境变量再启动 bot（**key 绝不写进代码**，SDK 从环境变量读）。
+> 环境变量前缀统一用 **`COSMAC_*`**；为不破存量部署，旧前缀 **`GUDUU_*`** 仍兼容（代码 `_env` 先查 `COSMAC_` 再回退 `GUDUU_`），迁移到 `COSMAC_*` 后可删旧的。
 ```bash
 # Claude（默认 claude-opus-4-8）
-export GUDUU_LLM_PROVIDER=claude
+export COSMAC_LLM_PROVIDER=claude
 export ANTHROPIC_API_KEY=sk-ant-...
 # 或 OpenAI（默认 gpt-4o）
-# export GUDUU_LLM_PROVIDER=openai ; export OPENAI_API_KEY=sk-...
+# export COSMAC_LLM_PROVIDER=openai ; export OPENAI_API_KEY=sk-...
 # 或 DeepSeek（走火山引擎方舟，OpenAI 兼容）：
-# export GUDUU_LLM_PROVIDER=deepseek    # 等价 ark
+# export COSMAC_LLM_PROVIDER=deepseek    # 等价 ark
 # export ARK_API_KEY=方舟APIKey
-# export GUDUU_LLM_MODEL=deepseek-v3.2  # 填你方舟账号的 Model ID 或 Endpoint ID(ep-...)
+# export COSMAC_LLM_MODEL=deepseek-v3.2  # 填你方舟账号的 Model ID 或 Endpoint ID(ep-...)
 # 可选换区域：export ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 .venv/bin/python -m cosmac
 ```
-没配 key 时会自动降级回 echo（bot 照常能跑）。可选：`GUDUU_LLM_MODEL` 换模型、`GUDUU_SYSTEM_PROMPT` 改人设。
+没配 key 时会自动降级回 echo（bot 照常能跑）。可选：`COSMAC_LLM_MODEL` 换模型、`COSMAC_SYSTEM_PROMPT` 改人设。
 部署到 Google Cloud 时，把 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`ARK_API_KEY` 配进服务的环境变量/Secret Manager 即可。
 > 方舟(DeepSeek)复用 `openai` SDK，只是 base_url 指向方舟。模型 id 以你方舟控制台实际开通/创建的接入点为准。
 CosMac Star 服务依赖见 `cosmac/requirements.txt`。

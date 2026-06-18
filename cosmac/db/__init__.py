@@ -7,7 +7,7 @@
 
 设计要点：
 - 同步 SQLAlchemy（bot 是同步的 ThreadingHTTPServer + requests，DB 层也保持同步）。
-- 连接由 GUDUU_DATABASE_URL 决定：生产指向独立 PostgreSQL，本地默认回退 SQLite
+- 连接由 COSMAC_DATABASE_URL 决定：生产指向独立 PostgreSQL，本地默认回退 SQLite
   文件 run/cosmac.db（零基建即可跑测试），见 ``engine.py``。
 
 对外只暴露需要的几个名字，业务代码用 ``from cosmac.db import ...``。

@@ -7,7 +7,7 @@ Manager，管理后台**不下发 key**（只选 provider/模型）。
 环境变量：
   ARK_API_KEY   方舟 API Key（方舟控制台「API Key 管理」获取）。
   ARK_BASE_URL  可选，默认 https://ark.cn-beijing.volces.com/api/v3
-模型 id（GUDUU_LLM_MODEL）：方舟的 Model ID 或推理接入点 Endpoint ID（ep-...）。
+模型 id（COSMAC_LLM_MODEL）：方舟的 Model ID 或推理接入点 Endpoint ID（ep-...）。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from cosmac.ai.openai_compat import OpenAICompatProvider
 
 # 方舟北京区默认入口；其它区域用 ARK_BASE_URL 覆盖
 DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-# 默认接 DeepSeek；按方舟账号实际 Model ID / Endpoint ID 用 GUDUU_LLM_MODEL 覆盖
+# 默认接 DeepSeek；按方舟账号实际 Model ID / Endpoint ID 用 COSMAC_LLM_MODEL 覆盖
 DEFAULT_ARK_MODEL = "deepseek-v3.2"
 
 

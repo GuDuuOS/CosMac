@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-19 — 品牌清理 GuDuu→CosMac（stage1：环境变量 + 注释/文档，零停机）
+- 背景：负责人指出项目叫 CosMac，但服务器/运维层到处是 GuDuu（env 变量名、bot 账号、service 名）。当初 guduu→cosmac 改名没做干净。决定**彻底**改，但分两阶段保证不挂线上 bot。
+- **stage1（本次，代码层零停机）**：
+  - **环境变量 `GUDUU_*`→`COSMAC_*`**：`config.py` 加 `_env()`（先查 `COSMAC_` 再回退 `GUDUU_`），`from_env` 全改走它；`db/engine.py` 的 `database_url()` 同样支持两前缀。**向后兼容**——生产 systemd 里现有的 `GUDUU_*` 仍生效，可从容迁移。
+  - **注释/文档/README**：`GuDuu`/`guduu` 品牌字样、stale 模块路径（`guduu.bots`/`guduu.ai`/`本包（guduu）`）、txn id 前缀、CLAUDE.md/AGENTS.md 的 env 示例 → 全改 CosMac/`COSMAC_*`。
+  - **刻意保留**（属 stage2，和**线上 bot 账号强耦合**，改了会找不到账号）：bot id `@guduu`、本地域名 `guduu.local`、注册文件名 `guduu-bot.yaml`、前端 `BOT_LOCALPART='guduu'`、localStorage key。已在 config.py 加注释标明。
+- **stage2（待负责人择期，服务器侧迁移）**：把线上 bot `@guduu`→`@cosmac`（重注册 appservice + 重邀进所有房间）+ 改 systemd 用 `COSMAC_*` + 同步翻 `BOT_LOCALPART`。给 runbook。
+- 验证：cosmac 63 单测全过、ruff 通过；`from_env` 本地仍从 yaml 读到 token（不回归）。纯后端+文档，**无需发 dist**；prod 行为不变（GUDUU_* 仍认），重启可选。
+
 ## 2026-06-19 — 模块2 技能：加群级写权限闸 + 容量上限（防 prompt 注入/上下文炸）
 - **#1【P1】群内任何成员都能改群级技能**：群级技能会作为 system prompt 注入**所有群成员**的 AI 请求 → 等于持久化 prompt injection。`handle_skill_command` 加 `can_write`：群级写操作（添加/删除/停用/启用）要求发送者是房间管理员（bot 端 `_is_room_admin` 读 power_levels，power≥50），普通成员只能「技能 列表」；个人技能（私聊/USER 作用域）不受限。
 - **#2【P2】技能数量/正文无限制**：`skill_cmd` 加上限——单作用域 ≤50 个、正文 ≤2000 字、标识 ≤64、名称 ≤80；`service.render_skill_prompt` 再兜一层**总注入长度 ≤6000 字**，超了停止注入剩余并提示，避免技能一多撑爆模型上下文/费用。

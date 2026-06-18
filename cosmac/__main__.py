@@ -4,7 +4,7 @@
     python -m cosmac
 
 环境变量可覆盖配置，例如换模型后端：
-    GUDUU_LLM_PROVIDER=echo python -m cosmac
+    COSMAC_LLM_PROVIDER=echo python -m cosmac
 """
 
 from __future__ import annotations

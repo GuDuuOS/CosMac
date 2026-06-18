@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from cosmac.bots.appservice_bot import CosmacBot
 from cosmac.config import CosmacConfig
 
+# BOT 必须等于 CosmacConfig 默认 bot_user_id（_reconcile 用它跳过自身）。
+# 标识仍是 guduu（stage2 随线上 bot 账号迁移一起改 @cosmac）。
 CTRL = "!ctrl:guduu.local"
 BOT = "@guduu:guduu.local"
 OWNER = "@admin:guduu.local"

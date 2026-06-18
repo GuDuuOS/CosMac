@@ -10,7 +10,7 @@
 接入群级记忆与知识库等。
 
 技术说明：用 Python 标准库 http.server 起服务（开发够用、无额外依赖）；
-对 Synapse 的反向调用走 guduu.bots.matrix_client。
+对 Synapse 的反向调用走 cosmac.bots.matrix_client。
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ class CosmacBot:
 
         **绝不能因为它出问题就让主 AI 不回话**，所以全程包在 try/except 里、
         且 ``cosmac.db`` 懒导入——生产服务器还没装 SQLAlchemy 时，import 失败也只是
-        退化成「无技能」，bot 照常回复，零回归。等真正配好 DB（GUDUU_DATABASE_URL）
+        退化成「无技能」，bot 照常回复，零回归。等真正配好 DB（COSMAC_DATABASE_URL）
         并通过后台/接口建了技能，这里就会自动开始注入。
         """
         try:

@@ -3,7 +3,7 @@
 为什么这么设计：
 - **同步**：主 AI bot 是同步的（``ThreadingHTTPServer`` + ``requests``），数据层也保持
   同步，不引入 async 的复杂度。
-- **连接来源**：``GUDUU_DATABASE_URL`` 环境变量优先（生产用它指向独立 PostgreSQL）；
+- **连接来源**：``COSMAC_DATABASE_URL`` 环境变量优先（旧 ``GUDUU_DATABASE_URL`` 仍兼容；生产用它指向独立 PostgreSQL）；
   没设就回退到本地 SQLite 文件 ``run/cosmac.db``——本地开发/跑测试零基建即可。
 - **懒初始化**：第一次用到时才建 engine（``get_session`` 会自动 ``init_engine``），
   测试可以先用内存库显式 ``init_engine("sqlite://")`` 覆盖默认。
@@ -34,10 +34,11 @@ _Session: Optional[sessionmaker] = None
 def database_url() -> str:
     """解析要连的数据库 URL。
 
-    优先级：环境变量 GUDUU_DATABASE_URL > 本地默认 SQLite（run/cosmac.db）。
-    本地默认用绝对路径，避免「从不同工作目录启动」时 SQLite 落在不同文件。
+    优先级：环境变量 COSMAC_DATABASE_URL（旧 GUDUU_DATABASE_URL 仍兼容）> 本地默认
+    SQLite（run/cosmac.db）。本地默认用绝对路径，避免「从不同工作目录启动」时 SQLite
+    落在不同文件。
     """
-    url = os.environ.get("GUDUU_DATABASE_URL")
+    url = os.environ.get("COSMAC_DATABASE_URL") or os.environ.get("GUDUU_DATABASE_URL")
     if url:
         return url
     # 仓库根：cosmac/db/engine.py → 上三级。本地产物统一放 run/（已 gitignore）。
