@@ -148,6 +148,59 @@ class MatrixClient:
         logger.warning("发送富卡失败: %s %s", resp.status_code, resp.text)
         return None
 
+    def get_members(self, room_id: str) -> List[Dict[str, str]]:
+        """查房间已加入的成员列表（主 AI 的"眼睛"之一）。
+
+        返回：[{"user_id": "@a:host", "display_name": "Alice"}, ...]；
+        查不到返回空列表。
+        """
+        url = self._url(f"/_matrix/client/v3/rooms/{quote(room_id)}/joined_members")
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                joined = resp.json().get("joined", {})
+                return [
+                    {"user_id": uid, "display_name": info.get("display_name") or uid}
+                    for uid, info in joined.items()
+                ]
+            logger.warning("查成员失败: %s %s", resp.status_code, resp.text)
+        except requests.RequestException as exc:
+            logger.warning("查成员异常: %s", exc)
+        return []
+
+    def get_messages(self, room_id: str, limit: int = 20) -> List[Dict[str, str]]:
+        """查房间最近的文本消息（主 AI"读聊天记录"的能力）。
+
+        参数：
+            room_id: 房间 id。
+            limit:   最多取多少条（从最新往回数）。
+        返回：按时间正序（旧→新）排列的 [{"sender", "body"}, ...]；查不到返回空列表。
+        """
+        # dir=b 表示从最新往回翻；Matrix 返回的是"新→旧"，我们再倒过来给上层
+        url = self._url(
+            f"/_matrix/client/v3/rooms/{quote(room_id)}/messages?dir=b&limit={int(limit)}"
+        )
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code != 200:
+                logger.warning("查消息失败: %s %s", resp.status_code, resp.text)
+                return []
+            chunk = resp.json().get("chunk", [])
+            msgs: List[Dict[str, str]] = []
+            for ev in chunk:
+                if ev.get("type") != "m.room.message":
+                    continue
+                content = ev.get("content", {})
+                body = content.get("body")
+                if not body:
+                    continue
+                msgs.append({"sender": ev.get("sender", ""), "body": body})
+            msgs.reverse()  # 倒成旧→新，读起来顺
+            return msgs
+        except requests.RequestException as exc:
+            logger.warning("查消息异常: %s", exc)
+            return []
+
     def joined_member_count(self, room_id: str) -> int:
         """查房间当前已加入的成员数（用于区分"私聊"和"群聊"）。
 

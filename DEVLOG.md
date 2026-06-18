@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-18 — 主 AI 控制层②：LLM 工具调用（AI 真能动手了）
+- 模块 1 后半段落地：主 AI 从「只会聊天」升级到「会调用 IM 能力动手」。整条链路：用户自然语言 → 模型决定调工具 → 真执行（建群/发消息/查成员/读记录）→ 结果回灌 → 给最终回复。
+- 关键设计（守 CLAUDE.md：厂商差异只锁在抽象层）：
+  - `ai/base.py` 新增厂商中立的 `ToolSpec/ToolCall/TurnResult`，`Message` 扩展 tool_calls/tool_call_id；`LLMProvider.complete_with_tools` 默认退回 `complete`（echo/openai 不支持工具也照常跑）。
+  - `ai/claude.py` 实现工具调用：中立结构 ↔ anthropic `tool_use`/`tool_result` 互转，所有 anthropic 专有格式只此一处。
+  - 新增 `ai/tools.py` 工具箱：`create_room`/`send_message_to_room`/`list_room_members`/`get_recent_messages`，转发到 `MatrixClient`；用 `ToolContext` 注入「当前房间/发起人」，建群默认拉发起人进群。`matrix_client.py` 补 `get_members`/`get_messages`（读聊天记录的"眼睛"）。
+  - 新增 `ai/agent.py` ReAct 循环（max_steps=5 防死循环）；`appservice_bot.py` 把纯 `complete` 路径换成 `agent.run`。旧「专班」关键词快路保留做富卡派单演示。
+- 验证：新增 `tests/test_agent_tools.py`（假大脑+假client 端到端验证「决定调工具→真执行→回灌→最终回复」、建群自动邀请发起人、max_steps 兜底），9 个单测全过；ruff（行宽88）通过；bot 构造冒烟通过（4 工具就位，echo 退化为纯文本不报错）。
+- 待办：线上配 `GUDUU_LLM_PROVIDER=claude`+`ANTHROPIC_API_KEY` 后做真·Element 自然语言建群点验；前端 AI 面板接到真 bot（下一步把"演示"打通成"产品"）。
+
 ## 2026-06-18 — 修复数据看板「横向拖移」BUG
 - 现象：数据看板画布在窗口偏窄时可被横向拖动/平移，标题被推出左缘（用户反馈）。
 - 根因：`.board-scroll` 与 `.canvas` 都只写了 `overflow-y: auto`；按 CSS 规范，另一轴若仍是 visible 会被隐式算成 `auto`，于是内容略宽时整块就能横向滚动/拖移。

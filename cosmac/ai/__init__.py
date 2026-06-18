@@ -15,7 +15,13 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from cosmac.ai.base import LLMProvider, Message
+from cosmac.ai.base import (
+    LLMProvider,
+    Message,
+    ToolCall,
+    ToolSpec,
+    TurnResult,
+)
 from cosmac.ai.echo import EchoProvider
 
 if TYPE_CHECKING:
@@ -60,4 +66,12 @@ def get_provider(config: "CosmacConfig") -> LLMProvider:
     raise ValueError(f"未知的 LLM provider: {name!r}（可选 echo/claude/openai）")
 
 
-__all__ = ["LLMProvider", "Message", "EchoProvider", "get_provider"]
+__all__ = [
+    "LLMProvider",
+    "Message",
+    "ToolCall",
+    "ToolSpec",
+    "TurnResult",
+    "EchoProvider",
+    "get_provider",
+]

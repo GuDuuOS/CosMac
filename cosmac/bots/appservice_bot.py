@@ -21,8 +21,10 @@ from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Set
 
-from cosmac.ai import Message, get_provider
+from cosmac.ai import get_provider
+from cosmac.ai.agent import Agent
 from cosmac.ai.base import LLMProvider
+from cosmac.ai.tools import Toolbox, ToolContext
 from cosmac.bots.matrix_client import MatrixClient
 from cosmac.config import CosmacConfig
 
@@ -42,6 +44,13 @@ class CosmacBot:
         )
         # 主 AI 的"大脑"（可配置的多模型后端）
         self.llm: LLMProvider = get_provider(config)
+        # 主 AI 的"工具箱"（把指令落成真实 IM 操作）+ "会动手的大脑"Agent
+        self.toolbox = Toolbox(self.client)
+        self.agent = Agent(
+            llm=self.llm,
+            toolbox=self.toolbox,
+            system_prompt=config.system_prompt,
+        )
         # 已处理过的事务 id，用于去重（Synapse 可能重发同一批事件）
         self._seen_txns: Set[str] = set()
 
@@ -100,12 +109,17 @@ class CosmacBot:
             # 去掉开头的 @提及，拿到真正的指令/内容
             text = self._strip_mention(user_text)
 
-            # 2a) 命令优先（建专班等）。命中就执行动作、不再走对话。
+            # 2a) 确定性命令快路（建专班等）。命中就执行动作、不再走 Agent。
+            #     保留它做"一句话直接出富卡派单"的演示；自然语言走下面的 Agent。
             if self._try_handle_command(room_id, sender, text):
                 return
 
-            # 2b) 否则当普通对话，喂给可配置的 AI 后端生成回复
-            reply = self.llm.complete([Message(role="user", content=text or user_text)])
+            # 2b) 否则交给会"动手"的 Agent：它能边想边调用工具（建群/发消息/查记录），
+            #     最后把结论发回群。（echo 后端不支持工具，会自动退化为纯文本回复。）
+            reply = self.agent.run(
+                text or user_text,
+                ToolContext(room_id=room_id, sender=sender),
+            )
             self.client.send_text(room_id, reply)
 
     # —— @ 提及识别：只有被 @ 才响应 ——
