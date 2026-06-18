@@ -444,14 +444,16 @@ async function toggleAdmin(u: AdminUser) {
   if (!confirm(`确认${next ? '把' : '撤销'} ${u.name} ${next ? '设为管理员' : '的管理员权限'}？`)) return
   busy.value = u.id
   try {
-    await setUserAdmin(u.id, next)
-    u.admin = next
-    success(
-      '已更新',
-      next
-        ? `${u.name} 现在是管理员`
-        : `${u.name} 已撤为普通成员；其控制室写权限将由主 AI 同步移除`,
-    )
+    const synced = await setUserAdmin(u.id, next)
+    u.admin = next // 服务器管理员身份已改成功（无论控制室是否同步）
+    if (next) {
+      success('已更新', `${u.name} 现在是管理员`)
+    } else if (synced) {
+      success('已撤为普通成员', `${u.name} 的控制室写权限将由主 AI 同步移除`)
+    } else {
+      // 控制室同步没成功 → 不能假装撤干净了，明确提示重试
+      warn('已撤管理员，但控制室同步失败', `请重试，否则 ${u.name} 可能仍能写 AI 配置`)
+    }
   } catch (e: any) {
     warn('操作失败', e?.message || '权限修改失败')
   } finally {

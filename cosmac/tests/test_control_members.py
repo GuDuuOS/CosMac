@@ -29,6 +29,7 @@ class FakeClient:
         self._power_users = power_users
         self.set_pl_calls: List[Dict[str, Any]] = []
         self.kicks: List[Tuple[str, str]] = []
+        self.kick_ok = True  # 测失败路径时置 False
 
     def set_displayname(self, *_a, **_k): pass
 
@@ -47,7 +48,7 @@ class FakeClient:
 
     def kick(self, _room_id: str, user_id: str, reason: str = "") -> bool:
         self.kicks.append((user_id, reason))
-        return True
+        return self.kick_ok
 
 
 def _bot(alias_room, power_users) -> CosmacBot:
@@ -59,8 +60,9 @@ def _bot(alias_room, power_users) -> CosmacBot:
 class TestControlMembers(unittest.TestCase):
     def test_revoked_admin_removed(self) -> None:
         # B 不在期望集 → 被降权(从 users 删掉) + 踢出；A 保留；owner/bot 不动
+        # （owner 本身也是服务器管理员，故在期望集里——真实不变式）
         bot = _bot(CTRL, {OWNER: 100, BOT: 100, A: 50, B: 50})
-        bot._reconcile_control_members(CTRL, {"admins": [A]})
+        bot._reconcile_control_members(CTRL, {"admins": [OWNER, A]})
         self.assertEqual(bot.client.kicks, [(B, "已撤销服务器管理员，移出控制室")])
         # 写回的 power_levels：B 没了，A/owner/bot 还在，其它字段保留
         self.assertEqual(len(bot.client.set_pl_calls), 1)
@@ -71,9 +73,9 @@ class TestControlMembers(unittest.TestCase):
         self.assertEqual(bot.client.set_pl_calls[0]["state_default"], 50)
 
     def test_owner_and_bot_never_touched(self) -> None:
-        # 期望集为空也不能动 owner(100) 和 bot 自己
+        # owner 在期望集(它是服务器管理员)、bot 是基础设施 → 都不动
         bot = _bot(CTRL, {OWNER: 100, BOT: 100})
-        bot._reconcile_control_members(CTRL, {"admins": []})
+        bot._reconcile_control_members(CTRL, {"admins": [OWNER]})
         self.assertEqual(bot.client.kicks, [])
         self.assertEqual(bot.client.set_pl_calls, [])
 
@@ -87,9 +89,28 @@ class TestControlMembers(unittest.TestCase):
     def test_nothing_to_remove_no_write(self) -> None:
         # 所有有权限的人都在期望集 → 不写 power_levels、不踢人
         bot = _bot(CTRL, {OWNER: 100, BOT: 100, A: 50})
-        bot._reconcile_control_members(CTRL, {"admins": [A]})
+        bot._reconcile_control_members(CTRL, {"admins": [OWNER, A]})
         self.assertEqual(bot.client.kicks, [])
         self.assertEqual(bot.client.set_pl_calls, [])
+
+    def test_kick_failure_logged_as_error(self) -> None:
+        # #2：踢出失败时必须报 error（被撤销者仍是成员），不能无条件报成功
+        bot = _bot(CTRL, {OWNER: 100, BOT: 100, B: 50})
+        bot.client.kick_ok = False  # 模拟踢出失败
+        with self.assertLogs("cosmac.appservice_bot", level="ERROR") as cm:
+            bot._reconcile_control_members(CTRL, {"admins": [OWNER]})
+        self.assertTrue(any("移除失败" in m for m in cm.output))
+        # 试过踢 B（结果失败），不会谎报已移除
+        self.assertEqual([u for u, _ in bot.client.kicks], [B])
+
+    def test_legacy_power_100_admin_warned(self) -> None:
+        # #1：power≥100 的遗留管理员 bot 无权移除 → 必须 warning（不静默当 owner 跳过）
+        bot = _bot(CTRL, {OWNER: 100, BOT: 100, A: 100})  # A 被旧 bug 设成了 100
+        with self.assertLogs("cosmac.appservice_bot", level="WARNING") as cm:
+            bot._reconcile_control_members(CTRL, {"admins": [OWNER]})  # 只有 owner 是管理员
+        self.assertTrue(any("需重建" in m for m in cm.output))
+        # 无权移除 → 不会去踢 A（踢了也是 403）
+        self.assertEqual(bot.client.kicks, [])
 
 
 if __name__ == "__main__":

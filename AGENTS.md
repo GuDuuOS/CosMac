@@ -80,6 +80,26 @@
 ### 多模型抽象层（AI 后端可配置）
 主 AI 背后的大模型**必须做成可插拔**：统一接口，支持 Claude / OpenAI / 本地模型等多后端，通过配置切换。不要把任何一家厂商的 SDK 调用散落在业务逻辑里——全部走 `cosmac/ai/` 的统一抽象。
 
+### 数据存储分层（写持久化代码前先对照这张表）
+
+> 铁律：**Synapse 已经存的东西绝不在 CosMac Star 这边重存一份**（否则数据双写、必然不一致）。
+> 只有 Synapse 存不下/搜不了的「AI 层自己的结构化/派生数据」，才进 CosMac Star 自己的数据库。
+
+| 数据 | 存哪 | 说明 |
+|---|---|---|
+| **聊天记录 / 消息 / 已读位** | 🚫 Synapse 的 PG | Matrix 本职，前端走 sync 拿。**不要**在 cosmac 再存一份。 |
+| 账号、群组/成员、房间状态 | 🚫 Synapse 的 PG | 同上。 |
+| **全局 AI 配置**（人设/模型/工具开关） | Matrix state event | 已实现：写在控制室 `cosmac.ai.config`（见 §9 / memory `ai-config-control-room`）。 |
+| **每账号轻量配置** | Matrix per-user **account data** | 优先用它：每用户键值、自动同步到客户端、零新基建。撑不住结构化关联时再迁 DB。 |
+| **Skill / Agent 定义** | ✅ CosMac Star DB | 结构化、要版本、要按账号/群查询关联。 |
+| **知识库** | ✅ CosMac Star DB + **pgvector** | 文档分块 + 向量检索(RAG)，state event 存不下也搜不了。**这是上 DB 的最硬理由**。 |
+| **群级 / Agent 记忆**（摘要、长期记忆） | ✅ CosMac Star DB | 派生数据，与原始聊天记录分开存。 |
+| 工作流定义与运行记录（模块3）、交易（模块4）、个人主页（模块5） | ✅ CosMac Star DB | 关系型。 |
+
+**基建决策**：CosMac Star 的 DB **复用生产现成的 PostgreSQL**，给 cosmac 服务**单开一个 database/schema**，按需装 **pgvector**。走 §2 的第 3 条路径，与 Synapse 核心解耦、不碰它。
+
+**实现约定**（`cosmac/db/`）：用 **SQLAlchemy（同步）**（bot 是同步的，别引入 async）；连接由 `GUDUU_DATABASE_URL` 配置，生产指向 Postgres、本地默认回退 SQLite（`run/cosmac.db`）；pgvector 是 Postgres 专属，本地缺它时相关功能要优雅降级。
+
 ---
 
 ## 4. 功能路线图（一次只推一个）
@@ -88,7 +108,7 @@
 |---|------|------|------|
 | 0 | 项目规范 (本文件) | ✅ 进行中 | — |
 | 1 | **主 AI 控制层** | 🟡 进行中 | ①骨架：appservice bot 看到每条消息+自动进群+回消息（`cosmac/bots/`）②多模型已接入：echo/claude/openai 可配置（`cosmac/ai/`，无 key 自动降级 echo）。待扩展：让 AI 调用创建群/查记录等全部 IM 能力（工具调用） |
-| 2 | 群级 记忆/知识库/Rule/Skill | ⬜ | 挂在主 AI 上的群级智能 |
+| 2 | 群级 记忆/知识库/Rule/Skill | 🟡 进行中 | 数据存储分层已定（见 §3「数据存储分层」）。①已开工：`cosmac/db/` 数据层骨架（SQLAlchemy 同步，PG/本地 SQLite 双跑）+ Skill/Agent 表与仓库。待做：知识库(pgvector·RAG)、群级记忆、Rule，再接进主 AI 工具调用 |
 | 3 | Bot / 插件 / 工作流引擎 | ⬜ | 可配置的 AI 工作流 + 扩展插件 |
 | 4 | 交易系统 | ⬜ | — |
 | 5 | 个人主页 | ⬜ | 需要客户端 UI 配合 |

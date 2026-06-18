@@ -613,18 +613,24 @@ export async function resetPassword(userId: string, newPassword: string): Promis
   })
 }
 
-/** 设/撤某账号的服务器管理员权限（PUT users 的 admin 字段）。 */
-export async function setUserAdmin(userId: string, admin: boolean): Promise<void> {
+/**
+ * 设/撤某账号的服务器管理员权限（PUT users 的 admin 字段）。
+ * 返回值：控制室「期望管理员集」是否成功同步——false 表示**主 AI 还没收到新期望、
+ * 撤销者可能仍有 AI 配置写权限**，调用方应据此告警（绝不静默报全成）。
+ */
+export async function setUserAdmin(userId: string, admin: boolean): Promise<boolean> {
   await adminFetch(`/_synapse/admin/v2/users/${encodeURIComponent(userId)}`, {
     method: 'PUT',
     body: JSON.stringify({ admin }),
   })
   // 控制室成员随服务器管理员身份联动。关键：**真正的移除交给 power=100 的主 AI**，
   // 浏览器只“提交期望”——因为同级(50)管理员之间互相无法降权/踢出，前端做不到可靠移除。
+  // 服务器管理员身份已经改成功（不回滚）；这里只报告控制室同步成没成。
   try {
     await syncControlRoomAdmins()
+    return true
   } catch {
-    /* 尽力而为：同步失败不回滚已成功的服务器管理员变更 */
+    return false // 期望集没写进控制室 → 主 AI 不会对齐，需调用方提示重试
   }
 }
 
