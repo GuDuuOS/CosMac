@@ -16,10 +16,15 @@ ROOM = "!ops:cosmac.cc"
 USER = "@alice:cosmac.cc"
 
 
-def run(text: str, *, is_dm: bool = False) -> str:
+def run(text: str, *, is_dm: bool = False, can_write: bool = True) -> str:
     with session_scope() as s:
         return handle_skill_command(
-            s, is_dm=is_dm, room_id=ROOM, user_id=USER, text=text
+            s,
+            is_dm=is_dm,
+            room_id=ROOM,
+            user_id=USER,
+            text=text,
+            can_write=can_write,
         )
 
 
@@ -88,6 +93,39 @@ class TestSkillCommand(unittest.TestCase):
 
     def test_unknown_subcommand(self) -> None:
         self.assertIn("没听懂", run("技能 乱七八糟"))
+
+    # —— #1 群级写权限闸 ——
+    def test_non_admin_cannot_write_room_skill(self) -> None:
+        # 非管理员（can_write=False）在群里改技能被挡，但仍能查看
+        self.assertIn("只有群管理员", run("技能 添加 x ｜ 名", can_write=False))
+        self.assertIn("只有群管理员", run("技能 删除 x", can_write=False))
+        self.assertIn("只有群管理员", run("技能 停用 x", can_write=False))
+        self.assertNotIn("只有群管理员", run("技能 列表", can_write=False))  # 查看放行
+        # 确实没写进去
+        with session_scope() as s:
+            self.assertIsNone(repo.get_skill(s, SCOPE_ROOM, ROOM, "x"))
+
+    def test_non_admin_can_write_own_dm_skill(self) -> None:
+        # 私聊个人技能不受 can_write 影响（只影响自己）
+        out = run("技能 添加 mine ｜ 我的", is_dm=True, can_write=False)
+        self.assertIn("已新建", out)
+        with session_scope() as s:
+            self.assertIsNotNone(repo.get_skill(s, SCOPE_USER, USER, "mine"))
+
+    # —— #2 容量上限 ——
+    def test_instructions_length_capped(self) -> None:
+        from cosmac.db.skill_cmd import MAX_INSTRUCTIONS_LEN
+        long_body = "字" * (MAX_INSTRUCTIONS_LEN + 1)
+        self.assertIn("正文太长", run(f"技能 添加 big ｜ 名 ｜ {long_body}"))
+
+    def test_count_cap_per_scope(self) -> None:
+        from cosmac.db.skill_cmd import MAX_SKILLS_PER_SCOPE
+        for i in range(MAX_SKILLS_PER_SCOPE):
+            run(f"技能 添加 s{i} ｜ 技能{i}")
+        out = run("技能 添加 overflow ｜ 超额")
+        self.assertIn("数量上限", out)
+        with session_scope() as s:
+            self.assertIsNone(repo.get_skill(s, SCOPE_ROOM, ROOM, "overflow"))
 
 
 if __name__ == "__main__":

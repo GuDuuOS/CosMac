@@ -63,6 +63,20 @@ class TestSkillService(unittest.TestCase):
         with session_scope() as s:
             self.assertEqual(effective_skill_prompt(s, room_id=ROOM), "")
 
+    def test_total_prompt_capped(self) -> None:
+        # #2：技能多了，渲染总长度有上限，超预算停止注入剩余并提示
+        from cosmac.db.service import MAX_TOTAL_PROMPT_CHARS
+
+        big = "字" * 1500  # 每条接近上限
+        with session_scope() as s:
+            for i in range(20):  # 20×1500 远超预算
+                repo.upsert_skill(
+                    s, SCOPE_ROOM, ROOM, f"s{i}", name=f"技能{i}", instructions=big
+                )
+            text = effective_skill_prompt(s, room_id=ROOM)
+        self.assertLessEqual(len(text), MAX_TOTAL_PROMPT_CHARS + 200)  # 容一句提示的余量
+        self.assertIn("未注入", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -426,17 +426,38 @@ class CosmacBot:
             is_dm = self.client.joined_member_count(room_id) <= 2
         except Exception:
             is_dm = False
+        # #1 群级技能写操作要求发送者是房间管理员（个人技能/私聊不限）。
+        can_write = True if is_dm else self._is_room_admin(room_id, sender)
         try:
             from cosmac.db import session_scope
             from cosmac.db.skill_cmd import handle_skill_command
 
             with session_scope() as s:
                 return handle_skill_command(
-                    s, is_dm=is_dm, room_id=room_id, user_id=sender, text=text
+                    s,
+                    is_dm=is_dm,
+                    room_id=room_id,
+                    user_id=sender,
+                    text=text,
+                    can_write=can_write,
                 )
         except Exception as e:
             logger.warning("技能命令执行失败：%s", e)
             return "技能功能暂不可用（服务器可能还没配置数据库）。"
+
+    def _is_room_admin(self, room_id: str, user_id: str) -> bool:
+        """发送者在该房间是否为管理员（power≥50）。读不到权限 → 保守视为否（写被挡）。
+
+        用于群级技能的写权限判断：群级技能会注入所有群成员的 AI 请求，普通成员不能改。
+        """
+        try:
+            pl = self.client.get_state_event(room_id, "m.room.power_levels", "") or {}
+            users = pl.get("users") or {}
+            default = pl.get("users_default", 0)
+            level = users.get(user_id, default)
+            return isinstance(level, int) and level >= 50
+        except Exception:
+            return False
 
     def _launch_campaign(self, origin_room: str, requester: str, name: str) -> None:
         """建一个专班群、拉发起人进来，并在群里发一张"派单"富卡。"""

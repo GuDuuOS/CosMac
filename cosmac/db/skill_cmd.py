@@ -23,6 +23,20 @@ from cosmac.db.models import SCOPE_GLOBAL, SCOPE_ROOM, SCOPE_USER
 # 触发前缀（小写比较）。bot 也用同一份判断"这条是不是技能命令"。
 PREFIXES = ("技能", "/技能", "skill", "/skill")
 
+# —— 容量上限（防止刷爆模型上下文 / 费用；群级技能会注入所有群成员的请求）——
+MAX_SKILLS_PER_SCOPE = 50   # 单作用域（本群 / 个人）技能数量上限
+MAX_SLUG_LEN = 64
+MAX_NAME_LEN = 80
+MAX_INSTRUCTIONS_LEN = 2000  # 单条正文字数上限（总注入长度另在 service 里再兜一层）
+
+# 写类子命令（群级写要求房间管理员；个人技能不受限）
+_WRITE_SUBS = {
+    "添加", "新增", "add", "set",
+    "删除", "删", "del", "rm", "remove",
+    "停用", "disable", "off",
+    "启用", "enable", "on",
+}
+
 
 def looks_like_skill_command(text: str) -> bool:
     """快速判断（不连 DB）：这条消息是不是技能命令。bot 用它做前缀闸。"""
@@ -36,11 +50,19 @@ def looks_like_skill_command(text: str) -> bool:
 
 
 def handle_skill_command(
-    session: Session, *, is_dm: bool, room_id: str, user_id: str, text: str
+    session: Session,
+    *,
+    is_dm: bool,
+    room_id: str,
+    user_id: str,
+    text: str,
+    can_write: bool = True,
 ) -> str:
     """执行一条技能命令，返回要发回聊天的文本。
 
     作用域：私聊（is_dm）→ 个人技能（user）；群里 → 本群技能（room）。
+    can_write：发送者是否有权**改本群技能**（群级技能会注入所有群成员的 AI 请求，
+    属敏感写操作，bot 传入"发送者是否房间管理员"）。个人技能（DM）不受此限。
     """
     scope = SCOPE_USER if is_dm else SCOPE_ROOM
     scope_id = user_id if is_dm else room_id
@@ -54,6 +76,14 @@ def handle_skill_command(
     parts = rest.split(maxsplit=1)
     sub = parts[0]
     arg = parts[1].strip() if len(parts) > 1 else ""
+
+    # #1 权限闸：群里改本群技能要求房间管理员；普通成员只能查看（列表/帮助）。
+    # 个人技能（USER 作用域）只影响自己，不受限。
+    if scope == SCOPE_ROOM and sub in _WRITE_SUBS and not can_write:
+        return (
+            "只有群管理员能改本群技能（它会作用到所有群成员的 AI）。"
+            "你可以用「技能 列表」查看，或私聊我管理你的个人技能。"
+        )
 
     if sub in ("列表", "list", "ls"):
         return _list(session, scope, scope_id, where)
@@ -93,7 +123,22 @@ def _add(session: Session, scope: str, scope_id: str, where: str, arg: str) -> s
         return "技能标识（slug）不能为空。例：技能 添加 weekly-report ｜ 周报 ｜ 按…步骤"
     name = segs[1] if len(segs) > 1 else ""
     instructions = segs[2] if len(segs) > 2 else ""
+
+    # #2 容量校验：标识/名称/正文长度，以及单作用域数量上限
+    if len(slug) > MAX_SLUG_LEN:
+        return f"标识太长（最多 {MAX_SLUG_LEN} 字）。"
+    if len(name) > MAX_NAME_LEN:
+        return f"名称太长（最多 {MAX_NAME_LEN} 字）。"
+    if len(instructions) > MAX_INSTRUCTIONS_LEN:
+        return (
+            f"正文太长（最多 {MAX_INSTRUCTIONS_LEN} 字，当前 {len(instructions)}）。"
+            "请精简，或拆成多个技能。"
+        )
     existed = repo.get_skill(session, scope, scope_id, slug) is not None
+    if not existed:
+        count = len(repo.list_skills(session, scope=scope, scope_id=scope_id))
+        if count >= MAX_SKILLS_PER_SCOPE:
+            return f"{where}已达数量上限（{MAX_SKILLS_PER_SCOPE} 个）。先删一些再加。"
     fields = {"name": name, "instructions": instructions, "enabled": True}
     # 更新时不要用空串覆盖已有的名称/正文：只传用户这次给了的字段
     if not name:
