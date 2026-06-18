@@ -24,8 +24,9 @@ export interface LiveMsg {
   card?: any
   /** 是否被编辑过（m.replace），显示"已编辑" */
   edited?: boolean
-  /** 回复的目标消息（m.in_reply_to）：对方名 + 正文预览 */
+  /** 回复的目标消息（m.in_reply_to）：对方 id/名 + 正文预览 */
   replyToId?: string
+  replyToSender?: string
   replyToName?: string
   replyToBody?: string
 }
@@ -403,13 +404,14 @@ export function listMessages(roomId: string): LiveMsg[] {
         : e.getContent()
       // 回复：读 m.in_reply_to → 解析被回复消息的名字/正文预览
       const inReplyTo = e.getContent()?.['m.relates_to']?.['m.in_reply_to']?.event_id
+      let replyToSender: string | undefined
       let replyToName: string | undefined
       let replyToBody: string | undefined
       if (inReplyTo) {
         const re = room.findEventById?.(inReplyTo)
         if (re) {
-          const rs = re.getSender() || ''
-          replyToName = room.getMember(rs)?.name || rs
+          replyToSender = re.getSender() || ''
+          replyToName = room.getMember(replyToSender)?.name || replyToSender
           replyToBody = stripReplyFallback(re.getContent()?.body || '').slice(0, 80)
         }
       }
@@ -422,6 +424,7 @@ export function listMessages(roomId: string): LiveMsg[] {
         card: c['cosmac.card'],
         edited: !!replacing,
         replyToId: inReplyTo,
+        replyToSender,
         replyToName,
         replyToBody,
       }
