@@ -1632,9 +1632,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 /* @提及高亮 */
 .text :deep(.mention), .ai-bubble :deep(.mention) { background: var(--accent-soft); color: var(--warn); border-radius: 4px; padding: 0 3px; font-weight: 600; }
 /* 回复预览（整行浮在头像上方 · 弯角连接线 + ↩ + 名字上色 + 正文淡色）*/
-.msg-reply { position: relative; display: flex; align-items: center; gap: 5px; font-size: 13px; line-height: 1.2; padding-left: 52px; margin-bottom: 2px; min-width: 0; color: var(--text-3); }
+.msg-reply { position: relative; display: flex; align-items: center; gap: 5px; font-size: 13px; line-height: 1.2; padding-left: 52px; margin-bottom: 7px; min-width: 0; color: var(--text-3); }
 /* 连接线：从回复行中部下探到下方头像，顶部弧向右接到回复文字 */
-.msg-reply::before { content: ""; position: absolute; left: 20px; top: 11px; bottom: -6px; width: 27px; border-left: 2px solid var(--border); border-top: 2px solid var(--border); border-top-left-radius: 8px; }
+.msg-reply::before { content: ""; position: absolute; left: 20px; top: 11px; bottom: -13px; width: 27px; border-left: 2px solid var(--border); border-top: 2px solid var(--border); border-top-left-radius: 8px; }
 .reply-av { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 9px; font-weight: 700; line-height: 1; background: var(--text-3); }
 .reply-av.bot { background: var(--text); }
 .reply-name { font-weight: 600; flex-shrink: 0; }
