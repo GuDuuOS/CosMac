@@ -111,7 +111,7 @@ const productionTabs = [
     key: 'ep-night', name: '夜航星', avatar: '夜', color: '#7a5cad',
     series: { done: 5, total: 12, unit: '集', pct: 48 },
     episodes: [
-      { name: '《夜航星》第 6 集', percent: 72, current: 2, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天', tasks: [
+      { name: '《夜航星》第 6 集', percent: 72, current: 4, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天', tasks: [
         { title: '剧本终稿定稿', status: 'done', assignee: '编剧 Agent', due: '6/12' },
         { title: '第 6 集分镜生成', status: 'done', assignee: '分镜 Agent', due: '6/15' },
         { title: '主角配音 + 配乐', status: 'in_progress', assignee: '配音 Agent', due: '6/20' },
@@ -127,7 +127,7 @@ const productionTabs = [
     key: 'ep-galaxy', name: '银河谣', avatar: '银', color: '#5a8a6a',
     series: { done: 11, total: 12, unit: '集', pct: 95 },
     episodes: [
-      { name: '《银河谣》第 12 集', percent: 35, current: 1, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天', tasks: [
+      { name: '《银河谣》第 12 集', percent: 35, current: 2, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天', tasks: [
         { title: '第 12 集剧本定稿', status: 'done', assignee: '编剧 Agent', due: '6/14' },
         { title: '第 12 集分镜生成', status: 'in_progress', assignee: '分镜 Agent', due: '本周四' },
         { title: '配音排期确认', status: 'pending', assignee: '苏运营', due: '6/26' },
@@ -138,7 +138,7 @@ const productionTabs = [
     key: 'mobai', name: '墨白', avatar: '墨', color: '#b5793a',
     series: { done: 4, total: 8, unit: '首单曲', pct: 58 },
     episodes: [
-      { name: '墨白 · 新单曲 MV', percent: 55, current: 3, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天', tasks: [
+      { name: '墨白 · 新单曲 MV', percent: 55, current: 5, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天', tasks: [
         { title: '词曲定稿', status: 'done', assignee: '编剧 Agent', due: '6/10' },
         { title: 'MV 拍摄', status: 'done', assignee: '老周', due: '6/16' },
         { title: 'MV 剪辑', status: 'in_progress', assignee: '剪辑 Agent', due: '6/22' },
@@ -158,10 +158,15 @@ type Episode = (typeof productionTabs)[number]['episodes'][number]
 const ganttEp = ref<Episode | null>(null)
 function openGantt(ep: Episode) { ganttEp.value = ep }
 const GANTT_DATES = ['6/10', '6/14', '6/18', '6/22', '6/26', '6/30']
-// 制作流水线阶段；由 current 下标生成 done/current/todo
-const PROD_STAGES = ['剧本', '分镜', '配音', '剪辑', '成片']
+// AI 影视制作流水线阶段；由 current 下标生成 done/current/todo
+const PROD_STAGES = ['剧本', '服化道', '分镜', 'AI生成', '配音配乐', '剪辑', '成片']
 function mkStages(currentIdx: number) {
   return PROD_STAGES.map((name, i) => ({ name, state: i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo' }))
+}
+// 甘特条按阶段数均分到时间轴（不重叠），随阶段数自适应
+function ganttBarStyle(i: number) {
+  const slot = 100 / PROD_STAGES.length
+  return { left: i * slot + '%', width: slot - 1.5 + '%' }
 }
 // 当前剧集
 const activeProd = computed(() => productionTabs.find((p) => p.key === activeShow.value) ?? productionTabs[0])
@@ -1386,7 +1391,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <div v-for="(s, i) in mkStages(ganttEp.current)" :key="s.name" class="gantt-row">
             <span class="gantt-stage" :class="s.state">{{ s.name }}</span>
             <div class="gantt-track">
-              <div class="gantt-bar" :class="s.state" :style="{ left: i * 18 + '%', width: '22%' }">
+              <div class="gantt-bar" :class="s.state" :style="ganttBarStyle(i)">
                 <span v-if="s.state === 'done'">✓</span><span v-else-if="s.state === 'current'">●</span>
               </div>
             </div>
