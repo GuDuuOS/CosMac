@@ -7,6 +7,10 @@
 
 ---
 
+## 2026-06-19 — 管理后台入口改回「仅管理员可见」
+- 之前为破 CORS 鸡生蛋把入口改成常显；现 CORS 已通、`isServerAdmin()` 探测正常，按用户要求改回：登录后探测是服务器管理员才显示「管理后台」入口，普通用户菜单里看不到（手敲 /#/admin 仍被 AdminView "无权限"闸 + Admin API 403 双重挡回）。
+- LiveView：恢复 isAdmin ref + afterLogin 里 isServerAdmin 探测 + 入口 v-if=isAdmin。preview 验证 @admin 登录可见入口、isAdmin=true。
+
 ## 2026-06-19 — 管理后台④：AI 配置（人设/模型/工具开关，控制室热下发）
 - 管理后台最后一块**AI 配置**：网页改主 AI 的人设(system prompt)/模型 id/工具开关，保存后 ~20s 内**热生效、无需重启 bot**。管理后台四块(用户/频道/数据/AI)全齐。
 - 架构(守 CLAUDE.md：Matrix 原生、不另起服务、不动 nginx)：配置存进一个**控制室**(别名 `#cosmac-ctrl:<server>`)的 state event `cosmac.ai.config`。前端(管理员=房间创建者，有权写 state)写、bot 运行时读。

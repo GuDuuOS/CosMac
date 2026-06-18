@@ -43,6 +43,7 @@ import {
   isFavourite,
   setFavourite,
   normalizeUserId,
+  isServerAdmin,
   BOT_ID,
   type LiveRoom,
   type LiveMsg,
@@ -220,7 +221,8 @@ const channelsOpen = ref(true)
 const dmsOpen = ref(true)
 const appMenuOpen = ref(false)
 const userMenuOpen = ref(false)
-// 管理后台覆盖层开关（入口常显，权限由覆盖层内的闸判定）
+// 管理后台：isAdmin 决定菜单入口是否显示（仅服务器管理员可见）；adminOpen 控制覆盖层
+const isAdmin = ref(false)
 const adminOpen = ref(false)
 const focused = ref(false)
 const fav = ref(false)
@@ -643,6 +645,9 @@ async function afterLogin(uid: string) {
   } catch (e) {
     /* 没建成私聊也不影响频道功能 */
   }
+  // 探测当前账号是不是服务器管理员：是才显示「管理后台」入口（非管理员连按钮都看不到）。
+  // CORS 已通，探测能正常返回；失败/非管理员一律按"不显示"处理。
+  isServerAdmin().then((ok) => { isAdmin.value = ok }).catch(() => { isAdmin.value = false })
   refresh()
 }
 
@@ -1030,9 +1035,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             <button class="um-item" @click="onSettings('profile')"><span class="um-ic">👤</span>个人资料</button>
             <button class="um-item" @click="onSettings('perms')"><span class="um-ic">🔒</span>我的权限</button>
             <button class="um-item" @click="onSettings('share')"><span class="um-ic">🔔</span>数据调用授权</button>
-            <!-- 管理后台入口常显：是否真有权限由覆盖层里的权限闸判定（探测失败也能进去看到原因）-->
-            <div class="um-sep" />
-            <button class="um-item" @click="adminOpen = true; userMenuOpen = false"><span class="um-ic">⚙</span>管理后台</button>
+            <!-- 管理后台入口：仅服务器管理员可见（isAdmin 探测为真）-->
+            <template v-if="isAdmin">
+              <div class="um-sep" />
+              <button class="um-item" @click="adminOpen = true; userMenuOpen = false"><span class="um-ic">⚙</span>管理后台</button>
+            </template>
             <div class="um-sep" />
             <button class="um-item danger" @click="doLogout"><span class="um-ic">⎋</span>退出登录</button>
           </div>
