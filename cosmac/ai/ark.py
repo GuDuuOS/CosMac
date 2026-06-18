@@ -1,8 +1,8 @@
 """火山引擎 方舟（Ark）模型后端 —— 用于接入 DeepSeek 等。
 
 方舟接口是 OpenAI 兼容的，所以直接复用通用的 `OpenAICompatProvider`，只是把
-base_url 指向方舟、api_key 默认从 ARK_API_KEY 读。运行时也可由管理后台下发 key
-（那条路径走 `build_provider`，不经过本类）。
+base_url 指向方舟、api_key 从 ARK_API_KEY 读。key 只走服务端环境变量/Secret
+Manager，管理后台**不下发 key**（只选 provider/模型）。
 
 环境变量：
   ARK_API_KEY   方舟 API Key（方舟控制台「API Key 管理」获取）。

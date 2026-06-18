@@ -41,8 +41,8 @@ class ClaudeProvider(LLMProvider):
 
         self.model = model or DEFAULT_CLAUDE_MODEL
         self.system_prompt = system_prompt
-        # api_key 显式传入时用它（管理后台下发）；留空则 Anthropic() 从
-        # 环境变量 ANTHROPIC_API_KEY 取（启动配置那条路径）。
+        # api_key 显式传入时用它（仅测试/特殊场景；管理后台不下发 key）；留空则
+        # Anthropic() 从环境变量 ANTHROPIC_API_KEY 取（生产/启动配置那条路径）。
         self._client = Anthropic(api_key=api_key) if api_key else Anthropic()
 
     # —— 内部：把中立结构翻译成 anthropic 所需的格式 ——

@@ -27,18 +27,19 @@ class MatrixClient:
         self.homeserver_url = homeserver_url.rstrip("/")
         self.as_token = as_token
         self.bot_user_id = bot_user_id
+        # 安全：as_token 是高权限凭证，**绝不放进 URL 查询参数**（会进 nginx/代理/错误
+        # 日志）。改用 Authorization: Bearer 请求头，用一个 Session 统一带上。
+        self._session = requests.Session()
+        self._session.headers["Authorization"] = f"Bearer {as_token}"
 
     def _url(self, path: str) -> str:
-        """拼出完整的 API URL，并带上 appservice 鉴权与身份参数。
+        """拼出完整的 API URL，只在查询参数里带 user_id（身份标识，非密钥）。
 
-        - access_token：用 as_token 表明"我是这个 appservice"。
-        - user_id：明确以主 AI（@guduu）的身份操作。
+        - user_id：明确以主 AI（@guduu）的身份操作（appservice 可代理其名下用户）。
+        - 鉴权（as_token）走 Authorization 头，见 __init__ 的 Session，不进 URL。
         """
         sep = "&" if "?" in path else "?"
-        return (
-            f"{self.homeserver_url}{path}{sep}"
-            f"access_token={self.as_token}&user_id={quote(self.bot_user_id)}"
-        )
+        return f"{self.homeserver_url}{path}{sep}user_id={quote(self.bot_user_id)}"
 
     def _txn_id(self) -> str:
         """生成一个唯一的事务 id（Matrix 要求发送类请求带上，用于去重）。"""
@@ -48,7 +49,7 @@ class MatrixClient:
     def join_room(self, room_id: str) -> None:
         """让主 AI 加入指定房间（通常是被邀请后调用）。"""
         url = self._url(f"/_matrix/client/v3/rooms/{quote(room_id)}/join")
-        resp = requests.post(url, json={}, timeout=10)
+        resp = self._session.post(url, json={}, timeout=10)
         if resp.status_code == 200:
             logger.info("已加入房间 %s", room_id)
         else:
@@ -65,7 +66,7 @@ class MatrixClient:
         )
         body = {"msgtype": "m.text", "body": text}
         # 发送类请求用 PUT（带事务 id 保证幂等）
-        resp = requests.put(url, json=body, timeout=10)
+        resp = self._session.put(url, json=body, timeout=10)
         if resp.status_code == 200:
             event_id = resp.json().get("event_id")
             logger.info("已向房间 %s 发送消息, event_id=%s", room_id, event_id)
@@ -83,7 +84,7 @@ class MatrixClient:
             f"/_matrix/client/v3/profile/{quote(self.bot_user_id)}/displayname"
         )
         try:
-            resp = requests.put(url, json={"displayname": displayname}, timeout=10)
+            resp = self._session.put(url, json={"displayname": displayname}, timeout=10)
             if resp.status_code == 200:
                 logger.info("已设置主 AI 显示名: %s", displayname)
             else:
@@ -105,7 +106,7 @@ class MatrixClient:
         body: Dict[str, Any] = {"name": name, "preset": "private_chat"}
         if invitees:
             body["invite"] = invitees
-        resp = requests.post(url, json=body, timeout=15)
+        resp = self._session.post(url, json=body, timeout=15)
         if resp.status_code == 200:
             room_id = resp.json().get("room_id")
             logger.info("已创建房间 %s (%s)", name, room_id)
@@ -116,7 +117,7 @@ class MatrixClient:
     def invite_user(self, room_id: str, user_id: str) -> None:
         """把某用户邀请进房间。"""
         url = self._url(f"/_matrix/client/v3/rooms/{quote(room_id)}/invite")
-        resp = requests.post(url, json={"user_id": user_id}, timeout=10)
+        resp = self._session.post(url, json={"user_id": user_id}, timeout=10)
         if resp.status_code == 200:
             logger.info("已邀请 %s 进 %s", user_id, room_id)
         else:
@@ -142,7 +143,7 @@ class MatrixClient:
             "body": body,
             "cosmac.card": card,
         }
-        resp = requests.put(url, json=payload, timeout=10)
+        resp = self._session.put(url, json=payload, timeout=10)
         if resp.status_code == 200:
             return resp.json().get("event_id")
         logger.warning("发送富卡失败: %s %s", resp.status_code, resp.text)
@@ -158,7 +159,7 @@ class MatrixClient:
             而不是把"读失败"误当成"控制室不存在"。
         """
         url = self._url(f"/_matrix/client/v3/directory/room/{quote(alias)}")
-        resp = requests.get(url, timeout=10)  # 网络异常向上抛
+        resp = self._session.get(url, timeout=10)  # 网络异常向上抛
         if resp.status_code == 200:
             return resp.json().get("room_id")
         if resp.status_code == 404:
@@ -179,7 +180,7 @@ class MatrixClient:
             f"/_matrix/client/v3/rooms/{quote(room_id)}/state/"
             f"{quote(event_type)}/{quote(state_key)}"
         )
-        resp = requests.get(url, timeout=10)  # 网络异常向上抛
+        resp = self._session.get(url, timeout=10)  # 网络异常向上抛
         if resp.status_code == 200:
             return resp.json()
         if resp.status_code == 404:
@@ -196,7 +197,7 @@ class MatrixClient:
         """
         url = self._url(f"/_matrix/client/v3/rooms/{quote(room_id)}/joined_members")
         try:
-            resp = requests.get(url, timeout=10)
+            resp = self._session.get(url, timeout=10)
             if resp.status_code == 200:
                 joined = resp.json().get("joined", {})
                 return [
@@ -221,7 +222,7 @@ class MatrixClient:
             f"/_matrix/client/v3/rooms/{quote(room_id)}/messages?dir=b&limit={int(limit)}"
         )
         try:
-            resp = requests.get(url, timeout=10)
+            resp = self._session.get(url, timeout=10)
             if resp.status_code != 200:
                 logger.warning("查消息失败: %s %s", resp.status_code, resp.text)
                 return []
@@ -249,7 +250,7 @@ class MatrixClient:
         """
         url = self._url(f"/_matrix/client/v3/rooms/{quote(room_id)}/joined_members")
         try:
-            resp = requests.get(url, timeout=10)
+            resp = self._session.get(url, timeout=10)
             if resp.status_code == 200:
                 return len(resp.json().get("joined", {}))
         except requests.RequestException:

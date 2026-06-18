@@ -1,11 +1,13 @@
 <template>
+  <!-- 放大态：半透明遮罩，点击空白处还原 -->
+  <div v-if="maximized" class="ai-backdrop" @click="onToggleMaximized" />
+
   <aside
     class="ai-panel"
-    :class="{ expanded, floating }"
-    :style="floating ? `left:${floatPos.x}px;top:${floatPos.y}px` : undefined"
+    :class="{ expanded, maximized }"
   >
-    <!-- Header（浮窗模式下作为拖拽 handle）-->
-    <div class="ai-head" :class="{ draggable: floating }" @mousedown="onHeadMouseDown">
+    <!-- Header（放大态作为弹窗顶栏）-->
+    <div class="ai-head">
       <span class="ai-title">筱雨中枢 AI</span>
       <div class="ai-head-actions">
         <button class="ai-ic-btn" title="筱雨中枢 AI 设置" @click="openSettings">
@@ -633,7 +635,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAiPanel } from '@/composables/useAiPanel'
 import { useRightPanel } from '@/composables/useRightPanel'
@@ -642,7 +644,7 @@ import { useAiAgent, type AiCard } from '@/composables/useAiAgent'
 import { useToast } from '@/composables/useToast'
 import TypeOut from '@/components/layout/TypeOut.vue'
 
-const { hide, toggleExpanded, toggleFloating, expanded, floating } = useAiPanel()
+const { hide, toggleExpanded, toggleMaximized, expanded, maximized } = useAiPanel()
 const { hide: hideRight } = useRightPanel()
 const { open: openSettings } = useSystemAi()
 const { messages: agentMessages, runCommand, reset, confirmProposal, cancelProposal, draftFromTopic, answerIntake, launchPlan, launchDeal, launchCrisis, launchReview, launchGrowth } = useAiAgent()
@@ -797,52 +799,10 @@ onMounted(() => nextTick(scrollToBottom))
 /** 展开时自动收起 RightPanel，腾出空间 */
 watch(expanded, (e) => { if (e) hideRight() })
 
-/** ===== 浮窗拖拽 ===== */
-const floatPos = reactive({ x: 0, y: 0 })
-
-/** 按实际渲染尺寸居中（CSS 用了 min()，运行时尺寸可能小于声明值）*/
-function recenter() {
-  const panel = document.querySelector<HTMLElement>('.ai-panel.floating')
-  if (!panel) return
-  const r = panel.getBoundingClientRect()
-  floatPos.x = Math.max(0, Math.round((window.innerWidth  - r.width)  / 2))
-  floatPos.y = Math.max(0, Math.round((window.innerHeight - r.height) / 2))
-}
-
-function onToggleFloating() {
-  toggleFloating()
-  if (floating.value) {
-    // 先粗算一次居中（用 CSS 声明值），消除 (0,0) 闪烁
-    floatPos.x = Math.max(0, Math.round((window.innerWidth  - Math.min(1200, window.innerWidth  * 0.95)) / 2))
-    floatPos.y = Math.max(0, Math.round((window.innerHeight - Math.min(720,  window.innerHeight * 0.90)) / 2))
-    // 等 floating class 生效 + 浏览器布局后，按真实尺寸再精确居中一次
-    setTimeout(recenter, 30)
-  }
-}
-
-let dragStart: { mx: number; my: number; px: number; py: number } | null = null
-
-function onHeadMouseDown(e: MouseEvent) {
-  if (!floating.value) return
-  // 仅允许点 header 空白区域开始拖拽（点按钮不触发）
-  if ((e.target as HTMLElement).closest('button')) return
-  dragStart = { mx: e.clientX, my: e.clientY, px: floatPos.x, py: floatPos.y }
-  window.addEventListener('mousemove', onDragMove)
-  window.addEventListener('mouseup',   onDragEnd)
-  e.preventDefault()
-}
-function onDragMove(e: MouseEvent) {
-  if (!dragStart) return
-  const dx = e.clientX - dragStart.mx
-  const dy = e.clientY - dragStart.my
-  // 限制不被拖出视口
-  floatPos.x = Math.min(window.innerWidth  - 120, Math.max(0, dragStart.px + dx))
-  floatPos.y = Math.min(window.innerHeight - 60,  Math.max(0, dragStart.py + dy))
-}
-function onDragEnd() {
-  dragStart = null
-  window.removeEventListener('mousemove', onDragMove)
-  window.removeEventListener('mouseup',   onDragEnd)
+/** 放大 / 还原：进入放大态（Cowork 全屏弹窗）时顺手收起右侧「关于此频道」面板 */
+function onToggleMaximized() {
+  toggleMaximized()
+  if (maximized.value) hideRight()
 }
 
 const text = ref('')

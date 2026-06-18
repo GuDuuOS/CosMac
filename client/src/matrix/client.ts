@@ -619,6 +619,17 @@ export async function setUserAdmin(userId: string, admin: boolean): Promise<void
     method: 'PUT',
     body: JSON.stringify({ admin }),
   })
+  // #2：刚把某人提成管理员时，趁**当前操作者**（已在控制室、有 power 100）在线，立刻
+  // 把新管理员拉进控制室并提权——否则新管理员自己既不在房、又没权限，无法自助修复，
+  // 只能干等原创建者某天登录保存。ensureControlRoom 会对已存在的房做幂等对账。
+  // 尽力而为：对账失败不回滚、不阻塞「提为管理员」这件已经成功的事。
+  if (admin) {
+    try {
+      await ensureControlRoom()
+    } catch {
+      /* 控制室对账失败（如操作者也不在房/无权限）：忽略，不影响提权 */
+    }
+  }
 }
 
 /* =====================================================================

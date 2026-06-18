@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-19 — 再复查修 3 项（token 进 URL / 新管理员卡住 / 文档过时）
+- **#1【P1 安全】as_token 拼进每个 URL 查询参数**：`matrix_client._url` 把高权限 as_token 放进 `?access_token=…`，会进 nginx/代理/错误日志。改用 `requests.Session` + `Authorization: Bearer <token>` 头，URL 里只留 `user_id`（身份标识、非密钥）；11 处请求调用全改走 session。新增 `test_matrix_client.py` 守这条红线。
+- **#2【P2】已有控制室的权限修复无法由受影响的新管理员触发**：reconcile 只有「已在房、有 power 的人」能跑，新管理员自己进不去也修不了。改法：在 `setUserAdmin(uid, true)`（把人提成管理员）成功后，趁**当前操作者**（已在控制室、power 100）在线，顺手 `ensureControlRoom()` 幂等对账，把新管理员邀进去并提权。尽力而为、失败不回滚提权。（残留极端态：控制室里有权限的人全不可用时仍需 Synapse 侧手工介入，可接受。）
+- **#3【P3】文档与实际安全策略冲突**：`ai/__init__.py`、`ark.py`、`claude.py`、`openai_compat.py` 的注释仍称「管理后台可下发 key」，但 bot 已明确忽略控制室 key。注释统一改成「key 只走服务端环境变量/Secret Manager，后台只选 provider/模型」。
+- 验证：MatrixClient 冒烟（token 不在 URL、Bearer 头就位）、cosmac 单测全过（含新增 2 条）、ruff 通过、client build 通过。
+- 部署：#1 改了 `cosmac/` → 要 `restart guduu-bot`；#2 改了前端 → 发 dist。（dist 顺带并行会话的 `useAiPanel.ts` 改动。）
+
 ## 2026-06-19 — 复查修 1 个真 bug：控制室对账会自我锁权
 - 对「多模型 + 后台 provider + 控制室」一轮复查，发现并修掉一个潜伏 bug。
 - **bug**：`reconcileControlRoomAdmins`（#2 给已有控制室补管理员权限那段）在控制室**没同步进本地**时，`pl` 退化成 `{}`，而传入的管理员列表不含创建者，于是 `sendStateEvent('m.room.power_levels', { users })` 会**抹掉 events_default/state_default 等全部字段、并丢掉创建者自己的 100 权限 → 自我锁权**。

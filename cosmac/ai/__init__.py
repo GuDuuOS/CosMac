@@ -8,8 +8,9 @@
   - gemini          ：Google Gemini（OpenAI 兼容端点，key: GEMINI_API_KEY）
 
 业务代码只依赖统一接口，绝不直接调用某家厂商 SDK，方便随时切换模型后端。
-API key 有两条来源：① 启动时的环境变量；② 管理后台「AI 配置」运行时下发（经
-build_provider 显式传入）。任一来源都没有 key，或缺对应 SDK，则优雅降级到 echo。
+API key **只来自服务端环境变量 / Secret Manager**——管理后台只下发 provider/模型，
+**绝不下发 key**（Matrix state event 无法加密，放 key 会明文泄露）。取不到 key、或
+缺对应 SDK，则优雅降级到 echo。（build_provider 保留 api_key 形参仅供测试，生产恒传空。）
 """
 
 from __future__ import annotations
