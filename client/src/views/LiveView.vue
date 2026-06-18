@@ -58,14 +58,18 @@ import CustomAssetsModal from '@/components/layout/CustomAssetsModal.vue'
 import UserSettingsModal from '@/components/layout/UserSettingsModal.vue'
 import ProfileHome from '@/components/layout/ProfileHome.vue'
 import CliConsole from '@/components/layout/CliConsole.vue'
+import ChannelAdminModal from '@/components/channel/ChannelAdminModal.vue'
 import { useMarketplace } from '@/composables/useMarketplace'
 import { useCli } from '@/composables/useCli'
 import { useProfileHome } from '@/composables/useProfileHome'
 import { usePluginStore } from '@/composables/usePluginStore'
 import { useCustomAssets } from '@/composables/useCustomAssets'
 import { useUserProfile, type UserSettingsTab } from '@/composables/useUserProfile'
+import { useChannelAdmin } from '@/composables/useChannelAdmin'
 
 const { open: openMarket } = useMarketplace()
+// 频道头「成员/管理」按钮：复刻 DEMO，点了打开「频道管理」富面板（人设/人员/技能/知识库/规则/数据隔离/模型/记忆）
+const { open: openAdmin, setCurrent: setAdminChannel } = useChannelAdmin()
 const { open: openCli } = useCli()
 const { open: openProfileHome } = useProfileHome()
 const { open: openPluginStore } = usePluginStore()
@@ -140,6 +144,8 @@ const currentName = computed(
 const currentTopic = computed(
   () => rooms.value.find((r) => r.id === currentRoom.value)?.topic || '',
 )
+// 当前频道即「当前群」：切频道时让「频道管理」面板跟着切到对应群的配置（每个群一份、互不影响）
+watch(currentName, (n) => { if (n) setAdminChannel(n) }, { immediate: true })
 
 // ── 工作区（Matrix Space）──────────────────────────────
 const spaces = ref<LiveSpace[]>([])
@@ -1035,7 +1041,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <button class="title title-btn" :title="'频道设置'" @click="openChannelSettings">{{ currentName }}<svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg></button>
           <div v-if="currentTopic" class="ch-topic">{{ currentTopic }}</div>
           <div class="ch-actions">
-            <button class="ch-members-btn" title="成员 · 邀请" @click="openMembers">
+            <button class="ch-members-btn" title="频道管理 · 成员 / 技能 / 知识库 / 规则" @click="openAdmin(currentName)">
               <div class="ava-stack">
                 <div v-for="m in channelMembers.slice(0, 3)" :key="m.id" class="a" :class="{ bot: m.isBot }">{{ m.isBot ? '智' : initials(m.name) }}</div>
               </div>
@@ -1227,6 +1233,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     <UserSettingsModal />
     <ProfileHome />
     <CliConsole />
+    <ChannelAdminModal />
 
     <!-- 新建工作区（完整表单 · 真建 Matrix Space + 默认频道）-->
     <div v-if="newWsOpen" class="nw-overlay" @click.self="newWsOpen = false">

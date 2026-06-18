@@ -7,6 +7,12 @@
 
 ---
 
+## 2026-06-18 — 客户端：频道头「成员」按钮接 DEMO 的「频道管理」富面板
+- 真实客户端（LiveView）频道头成员堆叠按钮原本只开简单「邀请成员」弹窗；改为**复刻 DEMO 逻辑**：点了打开 DEMO 同款 `ChannelAdminModal`「频道管理」富面板（角色/人员/技能/知识库/数据权限/规则/模型/记忆审计 多标签页，群级 AI 隔离配置）。
+- 按既有「常驻挂载 + composable.open()」模式接入：导入 `ChannelAdminModal` 常驻挂载、按钮调 `useChannelAdmin().open(currentName)`；并 `watch(currentName)` → `setCurrent`，让面板跟着当前频道切到对应群配置（每群一份、互不影响）。
+- 真实「邀请已有用户」入口保留在左侧频道栏「邀请成员」项，未丢功能。
+- **关键修复**：`main.ts` 故意不加载整包 `styles/index.css`（防 DEMO CSS 串扰），导致 `.cam-*` 弹窗样式缺失、面板裸奔。让 `ChannelAdminModal.vue` 自带 `import '@/styles/admin-modal.css'`，组件自包含样式，DEMO/真实端两边都成型。本地 preview 已验证：居中卡片 720×660、遮罩、各标签页、成员头像齐全，无 console 报错。
+
 ## 2026-06-18 — 客户端：回复连接线竖线不连头像、留空隙
 - 连接线 ::before bottom -13→-2px，竖线停在头像上方留空隙，不再连到头像。
 

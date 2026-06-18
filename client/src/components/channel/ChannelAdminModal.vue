@@ -201,6 +201,9 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+// 弹窗样式（.cam-*）来自全局 admin-modal.css。真实客户端（main.ts）只加载 tokens/reset、
+// 不加载整包 styles/index.css，所以组件自带这份样式，保证在任何宿主里（DEMO / 真实端）都成型。
+import '@/styles/admin-modal.css'
 import {
   useChannelAdmin,
   MODEL_OPTIONS,
