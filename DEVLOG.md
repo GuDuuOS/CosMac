@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-19 — 管理后台④：AI 配置（人设/模型/工具开关，控制室热下发）
+- 管理后台最后一块**AI 配置**：网页改主 AI 的人设(system prompt)/模型 id/工具开关，保存后 ~20s 内**热生效、无需重启 bot**。管理后台四块(用户/频道/数据/AI)全齐。
+- 架构(守 CLAUDE.md：Matrix 原生、不另起服务、不动 nginx)：配置存进一个**控制室**(别名 `#cosmac-ctrl:<server>`)的 state event `cosmac.ai.config`。前端(管理员=房间创建者，有权写 state)写、bot 运行时读。
+- **零回归设计**：bot 读配置全程 try/except + 20s 缓存 + 按 (provider,model,system_prompt) 签名才热重建 llm/agent；控制室不存在/未加入/读失败 → 完全回退启动时的环境变量配置。provider 本期前端**只读不可改**(避免切到没 key 的后端→静默降级 echo)。工具开关：Toolbox 加 `set_enabled`，specs/execute 都按启用集过滤。
+- 后端：`config.py` 加 control_room_alias + AI_CONFIG_EVENT_TYPE；`matrix_client` 加 resolve_alias/get_state_event；`appservice_bot` 加 _read_overrides/_apply_runtime_config。前端：`client.ts` 加 ensureControlRoom/getAiConfig/setAiConfig；AdminView 加 ai tab。
+- 验证：新增 `test_runtime_config.py`(假 client 验证人设热应用/工具过滤/缓存/读失败回退)，cosmac 14 单测全过、ruff 通过。前端**直连生产**验证：保存自动建控制室 `!sQjaKThqehKUaCojUV`、写读 `cosmac.ai.config` round-trip(st 200)。⚠️ bot 端读取本机无法验，需上线点验。
+
 ## 2026-06-19 — 管理后台③：数据概览（KPI + 最活跃频道）
 - 管理后台第三块**数据概览**：AdminView 加 `overview` tab。4 张 KPI 卡(账号总数/管理员/停用、频道总数/公开/加密、成员人次合计/平均、活跃频道≥2 人) + 服务端版本 + 最活跃频道 Top 8。
 - 低风险：基本是**复用**已有 `listUsers`+`listAdminRooms` 前端聚合，仅 client.ts 新增轻量 `getServerVersion()`。

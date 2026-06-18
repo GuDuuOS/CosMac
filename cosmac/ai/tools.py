@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from cosmac.ai.base import ToolCall, ToolSpec
 from cosmac.bots.matrix_client import MatrixClient
@@ -51,19 +51,45 @@ class Toolbox:
         self.client = client
         # 工具名 → (说明书, 执行函数)。执行函数签名: (arguments, ctx) -> 结果文本
         self._tools: Dict[str, Dict[str, Any]] = {}
+        # 启用集合：None = 全部启用（默认）；否则只启用集合内的工具。
+        # 管理后台「AI 配置」可下发工具开关，运行时由 bot 调 set_enabled 更新。
+        self._enabled: Optional[Set[str]] = None
         self._register_default_tools()
+
+    # —— 工具开关 ——
+
+    def set_enabled(self, names: Optional[Set[str]]) -> None:
+        """设置启用的工具集合。传 None = 全部启用（不限制）。
+
+        只对"已注册的工具名"生效；未知名字忽略。这样管理后台即使下发了已废弃的
+        工具名也不会出错。
+        """
+        if names is None:
+            self._enabled = None
+        else:
+            # 只保留确实存在的工具名
+            self._enabled = {n for n in names if n in self._tools}
+
+    def _is_enabled(self, name: str) -> bool:
+        return self._enabled is None or name in self._enabled
 
     # —— 对外接口 ——
 
     def specs(self) -> List[ToolSpec]:
-        """返回所有工具的说明书（交给模型，让它知道有哪些工具可用）。"""
-        return [entry["spec"] for entry in self._tools.values()]
+        """返回当前启用工具的说明书（交给模型，让它知道有哪些工具可用）。"""
+        return [
+            entry["spec"]
+            for name, entry in self._tools.items()
+            if self._is_enabled(name)
+        ]
 
     def execute(self, call: ToolCall, ctx: ToolContext) -> str:
         """执行一次工具调用，返回给模型读的文本结果（绝不抛异常，出错也转成文本）。"""
         entry = self._tools.get(call.name)
         if entry is None:
             return f"错误：不存在名为 {call.name} 的工具。"
+        if not self._is_enabled(call.name):
+            return f"工具 {call.name} 已被管理员停用。"
         try:
             logger.info("执行工具 %s 参数=%s", call.name, call.arguments)
             return entry["fn"](call.arguments, ctx)

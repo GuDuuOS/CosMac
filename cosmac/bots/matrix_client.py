@@ -148,6 +148,38 @@ class MatrixClient:
         logger.warning("发送富卡失败: %s %s", resp.status_code, resp.text)
         return None
 
+    def resolve_alias(self, alias: str) -> Optional[str]:
+        """把房间别名（#cosmac-ctrl:host）解析成 room_id。解析不到返回 None。"""
+        url = self._url(f"/_matrix/client/v3/directory/room/{quote(alias)}")
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                return resp.json().get("room_id")
+        except requests.RequestException as exc:
+            logger.warning("解析别名 %s 异常: %s", alias, exc)
+        return None
+
+    def get_state_event(
+        self, room_id: str, event_type: str, state_key: str = ""
+    ) -> Optional[Dict[str, Any]]:
+        """读某房间的一个 state event 内容（如 AI 配置）。读不到返回 None。
+
+        需要 bot 已加入该房间。任何失败（未加入/网络错/不存在）都返回 None，
+        交给调用方回退——绝不抛异常拖垮消息处理。
+        """
+        url = self._url(
+            f"/_matrix/client/v3/rooms/{quote(room_id)}/state/"
+            f"{quote(event_type)}/{quote(state_key)}"
+        )
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+            logger.debug("读 state %s@%s: %s", event_type, room_id, resp.status_code)
+        except requests.RequestException as exc:
+            logger.warning("读 state event 异常: %s", exc)
+        return None
+
     def get_members(self, room_id: str) -> List[Dict[str, str]]:
         """查房间已加入的成员列表（主 AI 的"眼睛"之一）。
 

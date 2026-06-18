@@ -52,6 +52,12 @@ class CosmacConfig:
     # 主 AI 在群里显示的名字（用户看到的品牌名；与内部用户 id @guduu 无关）
     bot_displayname: str = "CosMac Star"
 
+    # —— 运行时 AI 配置（管理后台「AI 配置」用）——
+    # 控制室别名：管理后台把 AI 配置写进这个房间的 state event，bot 运行时来读。
+    # 留空则在 from_env 里按 server_name 自动推出 #cosmac-ctrl:<server_name>。
+    # 读不到（房间不存在/未加入/网络错）一律回退到上面的启动配置，零回归。
+    control_room_alias: str = ""
+
     @staticmethod
     def from_env() -> "CosmacConfig":
         """从环境变量读取配置，未设置的项用上面的开发默认值。"""
@@ -70,4 +76,13 @@ class CosmacConfig:
             bot_displayname=os.environ.get(
                 "GUDUU_BOT_DISPLAYNAME", defaults.bot_displayname
             ),
+            control_room_alias=os.environ.get(
+                "GUDUU_CONTROL_ROOM_ALIAS",
+                # 默认按 server_name 推：#cosmac-ctrl:<server_name>
+                f"#cosmac-ctrl:{os.environ.get('GUDUU_SERVER_NAME', defaults.server_name)}",
+            ),
         )
+
+
+# 管理后台写、bot 读的"AI 配置"state event 类型（cosmac.* 命名空间，不与协议 m.* 冲突）
+AI_CONFIG_EVENT_TYPE = "cosmac.ai.config"

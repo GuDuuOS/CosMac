@@ -18,8 +18,8 @@
         <button class="adm-mi" :class="{ active: tab === 'rooms' }" @click="switchToRooms">
           <span class="adm-mi-ic">＃</span> 频道管理
         </button>
-        <button class="adm-mi" disabled>
-          <span class="adm-mi-ic">🤖</span> AI 配置 <span class="adm-soon">敬请期待</span>
+        <button class="adm-mi" :class="{ active: tab === 'ai' }" @click="switchToAi">
+          <span class="adm-mi-ic">🤖</span> AI 配置
         </button>
         <button class="adm-mi" :class="{ active: tab === 'overview' }" @click="switchToOverview">
           <span class="adm-mi-ic">📊</span> 数据概览
@@ -183,6 +183,54 @@
         </table>
       </template>
 
+      <!-- AI 配置面板 -->
+      <template v-else-if="tab === 'ai'">
+        <header class="adm-head">
+          <div>
+            <h1 class="adm-h1">AI 配置</h1>
+            <p class="adm-hint">
+              改主 AI 的人设/模型/工具开关 · 保存后写入控制室，bot 约 20 秒内热生效（无需重启）
+            </p>
+          </div>
+          <div class="adm-actions">
+            <button class="adm-btn ghost" :disabled="aiLoading || aiSaving" @click="loadAi">
+              {{ aiLoading ? '加载中…' : '重新加载' }}
+            </button>
+            <button class="adm-btn" :disabled="aiLoading || aiSaving" @click="saveAi">
+              {{ aiSaving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </header>
+
+        <div v-if="aiLoading" class="adm-center"><div class="adm-spin" /> 加载配置…</div>
+
+        <div v-else class="adm-form">
+          <label class="adm-field">
+            <span>主 AI 人设（system prompt）</span>
+            <textarea v-model="aiForm.system_prompt" rows="5"
+              placeholder="留空 = 用服务器默认人设" />
+          </label>
+
+          <label class="adm-field">
+            <span>模型 id（留空 = 用服务器默认）</span>
+            <input v-model.trim="aiForm.model" placeholder="如 claude-opus-4-8 / gpt-4o" />
+            <em class="adm-note">⚠️ 填错的模型 id 会让 AI 回话报错；不确定就留空。模型后端（Claude/OpenAI）由服务器环境变量决定，此处不改。</em>
+          </label>
+
+          <div class="adm-field">
+            <span>工具开关（关掉的工具主 AI 将无法调用）</span>
+            <div class="adm-tools">
+              <label v-for="t in AI_TOOL_CATALOG" :key="t.name" class="adm-tool">
+                <input type="checkbox" :checked="isToolOn(t.name)" @change="toggleTool(t.name, ($event.target as HTMLInputElement).checked)" />
+                <span class="adm-tool-l">{{ t.label }}</span>
+                <code>{{ t.name }}</code>
+              </label>
+            </div>
+            <em class="adm-note">全部勾选 = 不限制（默认）。</em>
+          </div>
+        </div>
+      </template>
+
       <!-- 数据概览面板 -->
       <template v-else-if="tab === 'overview'">
         <header class="adm-head">
@@ -320,6 +368,9 @@ import {
   getRoomMembers,
   deleteRoom,
   getServerVersion,
+  getAiConfig,
+  setAiConfig,
+  AI_TOOL_CATALOG,
   type AdminUser,
   type AdminRoom,
 } from '@/matrix/client'
@@ -330,8 +381,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { success, warn } = useToast()
 
-// 当前管理模块：用户管理 / 频道管理 / 数据概览
-const tab = ref<'users' | 'rooms' | 'overview'>('users')
+// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 数据概览
+const tab = ref<'users' | 'rooms' | 'ai' | 'overview'>('users')
 
 // 页面状态机：checking 校验中 / denied 无权限 / ok 已是管理员
 const state = ref<'checking' | 'denied' | 'ok'>('checking')
@@ -504,6 +555,66 @@ async function doDeleteRoom(r: AdminRoom) {
     warn('删除失败', e?.message || '无法删除频道')
   } finally {
     roomBusy.value = null
+  }
+}
+
+/* —— AI 配置 —— */
+const aiLoading = ref(false)
+const aiSaving = ref(false)
+const aiLoaded = ref(false)
+// enabled_tools=null 表示全开；UI 里用一个集合表示"当前开启的工具"
+const aiForm = reactive<{ system_prompt: string; model: string; tools: Set<string> }>({
+  system_prompt: '',
+  model: '',
+  tools: new Set(AI_TOOL_CATALOG.map((t) => t.name)), // 默认全开
+})
+
+function isToolOn(name: string): boolean {
+  return aiForm.tools.has(name)
+}
+function toggleTool(name: string, on: boolean) {
+  if (on) aiForm.tools.add(name)
+  else aiForm.tools.delete(name)
+}
+
+function switchToAi() {
+  tab.value = 'ai'
+  if (!aiLoaded.value) loadAi()
+}
+
+async function loadAi() {
+  aiLoading.value = true
+  try {
+    const cfg = await getAiConfig()
+    aiForm.system_prompt = cfg?.system_prompt || ''
+    aiForm.model = cfg?.model || ''
+    // null = 全开；否则按存储的集合
+    const all = AI_TOOL_CATALOG.map((t) => t.name)
+    aiForm.tools = new Set(cfg?.enabled_tools ?? all)
+    aiLoaded.value = true
+  } catch (e: any) {
+    warn('加载失败', e?.message || '无法读取 AI 配置')
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+async function saveAi() {
+  aiSaving.value = true
+  try {
+    const all = AI_TOOL_CATALOG.map((t) => t.name)
+    // 全开 → 存 null（表示不限制）；否则存当前集合
+    const enabled = all.every((n) => aiForm.tools.has(n)) ? null : [...aiForm.tools]
+    await setAiConfig({
+      system_prompt: aiForm.system_prompt,
+      model: aiForm.model,
+      enabled_tools: enabled,
+    })
+    success('已保存', '主 AI 约 20 秒内热生效')
+  } catch (e: any) {
+    warn('保存失败', e?.message || '无法写入控制室')
+  } finally {
+    aiSaving.value = false
   }
 }
 
@@ -713,6 +824,26 @@ onMounted(check)
 .adm-dim { color: var(--text-3); font-size: var(--fs-75); }
 .adm-empty { text-align: center; color: var(--text-3); padding: 24px 0; }
 .adm-tag.bot { margin-left: 6px; }
+
+/* AI 配置表单 */
+.adm-form { max-width: 640px; display: flex; flex-direction: column; gap: 18px; }
+.adm-form .adm-field textarea,
+.adm-form .adm-field input {
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px;
+  font-size: var(--fs-100); background: var(--bg); color: var(--text);
+  font-family: inherit; resize: vertical; line-height: 1.5;
+}
+.adm-form .adm-field textarea:focus,
+.adm-form .adm-field input:focus { outline: none; border-color: var(--accent); }
+.adm-note { font-size: var(--fs-75); color: var(--text-3); font-style: normal; line-height: 1.5; }
+.adm-tools { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.adm-tool {
+  display: flex; align-items: center; gap: 9px; cursor: pointer;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel);
+}
+.adm-tool input { width: 16px; height: 16px; accent-color: var(--accent); }
+.adm-tool-l { font-size: var(--fs-100); color: var(--text); }
+.adm-tool code { margin-left: auto; font-family: var(--mono); font-size: var(--fs-75); color: var(--text-3); }
 
 /* 数据概览 KPI 卡片 */
 .adm-kpis {

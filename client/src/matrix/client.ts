@@ -691,6 +691,84 @@ export async function deleteRoom(roomId: string, block = false): Promise<void> {
   })
 }
 
+/* =====================================================================
+ *  管理后台 · AI 配置（运行时下发给主 AI bot）
+ *  存储：一个"控制室"（别名 #cosmac-ctrl:<server>）里的 state event
+ *  `cosmac.ai.config`。管理后台（管理员）写，bot 运行时读并热应用。
+ *  走标准 Matrix C-S API（不是 Admin API）：管理员是房间创建者，有权写 state。
+ * ===================================================================== */
+
+/** 控制室里 AI 配置 state event 的类型（与 bot 端 AI_CONFIG_EVENT_TYPE 一致）。 */
+const AI_CONFIG_EVENT_TYPE = 'cosmac.ai.config'
+/** 控制室别名 localpart（#cosmac-ctrl:<server>）。 */
+const CONTROL_ROOM_LOCALPART = 'cosmac-ctrl'
+
+/** 主 AI 可用工具目录（工具开关 UI 用；name 要与 bot 端 Toolbox 注册的一致）。 */
+export const AI_TOOL_CATALOG: { name: string; label: string }[] = [
+  { name: 'create_room', label: '建群/开专班' },
+  { name: 'send_message_to_room', label: '往房间发消息' },
+  { name: 'list_room_members', label: '查看房间成员' },
+  { name: 'get_recent_messages', label: '读取聊天记录' },
+]
+
+/** 管理后台编辑的 AI 配置。enabled_tools=null 表示全部启用。 */
+export interface AiConfig {
+  model: string
+  system_prompt: string
+  enabled_tools: string[] | null
+}
+
+/** 解析控制室别名 → room_id；不存在返回 null。 */
+async function resolveControlRoom(): Promise<string | null> {
+  if (!mx) return null
+  const alias = `#${CONTROL_ROOM_LOCALPART}:${serverName()}`
+  try {
+    const r = await (mx as any).getRoomIdForAlias(alias)
+    return r?.room_id || null
+  } catch {
+    return null // 别名未注册（控制室还没建）
+  }
+}
+
+/** 确保控制室存在：解析不到就新建（带别名、邀请主 AI bot、私有）。返回 room_id。 */
+export async function ensureControlRoom(): Promise<string> {
+  if (!mx) throw new Error('未登录')
+  const existing = await resolveControlRoom()
+  if (existing) return existing
+  const res: any = await (mx as any).createRoom({
+    name: 'CosMac 控制室',
+    room_alias_name: CONTROL_ROOM_LOCALPART,
+    preset: 'private_chat',
+    invite: [BOT_ID], // 邀请主 AI，它会自动进群并能读到这里的配置
+    topic: 'CosMac 管理后台 · 主 AI 运行时配置（请勿删除/退出）',
+  })
+  return res.room_id
+}
+
+/** 读取当前 AI 配置；控制室或配置不存在时返回 null（前端用默认值兜底）。 */
+export async function getAiConfig(): Promise<AiConfig | null> {
+  if (!mx) return null
+  const rid = await resolveControlRoom()
+  if (!rid) return null
+  try {
+    const ev = await (mx as any).getStateEvent(rid, AI_CONFIG_EVENT_TYPE, '')
+    return {
+      model: ev?.model || '',
+      system_prompt: ev?.system_prompt || '',
+      enabled_tools: Array.isArray(ev?.enabled_tools) ? ev.enabled_tools : null,
+    }
+  } catch {
+    return null // 房间在但还没写过配置
+  }
+}
+
+/** 写入 AI 配置（必要时先建控制室）。bot 会在 ~20s 内读到并热应用。 */
+export async function setAiConfig(cfg: AiConfig): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  const rid = await ensureControlRoom()
+  await (mx as any).sendStateEvent(rid, AI_CONFIG_EVENT_TYPE, { ...cfg }, '')
+}
+
 /** 读某个频道当前时间线的消息（含发送者昵称与 cosmac.card 富卡）。 */
 export function listMessages(roomId: string): LiveMsg[] {
   const room = mx?.getRoom(roomId)

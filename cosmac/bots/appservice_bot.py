@@ -17,16 +17,18 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from dataclasses import replace
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from cosmac.ai import get_provider
 from cosmac.ai.agent import Agent
 from cosmac.ai.base import LLMProvider
 from cosmac.ai.tools import Toolbox, ToolContext
 from cosmac.bots.matrix_client import MatrixClient
-from cosmac.config import CosmacConfig
+from cosmac.config import AI_CONFIG_EVENT_TYPE, CosmacConfig
 
 logger = logging.getLogger("cosmac.appservice_bot")
 
@@ -53,6 +55,17 @@ class CosmacBot:
         )
         # 已处理过的事务 id，用于去重（Synapse 可能重发同一批事件）
         self._seen_txns: Set[str] = set()
+
+        # —— 运行时 AI 配置（管理后台「AI 配置」下发）——
+        self._control_room: Optional[str] = None  # 控制室 room_id（别名解析一次后缓存）
+        self._cfg_cache: Dict[str, Any] = {}        # 上次读到的配置覆盖
+        # 上次读取时间（缓存 20s，别每条消息都打服务器）。
+        # 用 -inf 当"从未读过"的哨兵：保证首次必读（monotonic 起点不定，别用 0）。
+        self._cfg_cache_ts: float = float("-inf")
+        # 当前已生效的 (provider, model, system_prompt) 签名；变了才热重建模型/Agent
+        self._applied_sig: Tuple[str, str, str] = (
+            config.llm_provider, config.llm_model, config.system_prompt,
+        )
 
     # —— 事件分发 ——
 
@@ -116,11 +129,72 @@ class CosmacBot:
 
             # 2b) 否则交给会"动手"的 Agent：它能边想边调用工具（建群/发消息/查记录），
             #     最后把结论发回群。（echo 后端不支持工具，会自动退化为纯文本回复。）
+            # 回复前先按管理后台下发的运行时配置（人设/模型/工具开关）对齐一次。
+            self._apply_runtime_config()
             reply = self.agent.run(
                 text or user_text,
                 ToolContext(room_id=room_id, sender=sender),
             )
             self.client.send_text(room_id, reply)
+
+    # —— 运行时 AI 配置：管理后台写控制室 state event，bot 读并应用 ——
+
+    def _read_overrides(self) -> Dict[str, Any]:
+        """从控制室读取 AI 配置覆盖。带 20s 缓存；任何失败都返回上次缓存/空，
+        从而**完全回退到启动配置**（控制室不存在/未加入/网络错都不影响正常回话）。
+        """
+        now = time.monotonic()
+        if now - self._cfg_cache_ts < 20:
+            return self._cfg_cache
+        overrides: Dict[str, Any] = {}
+        try:
+            # 别名只解析一次，之后缓存 room_id
+            if not self._control_room:
+                self._control_room = self.client.resolve_alias(
+                    self.config.control_room_alias
+                )
+            if self._control_room:
+                ev = self.client.get_state_event(
+                    self._control_room, AI_CONFIG_EVENT_TYPE
+                )
+                if isinstance(ev, dict):
+                    # 只取我们认识的字段，避免脏数据
+                    for k in ("model", "system_prompt", "enabled_tools"):
+                        if k in ev:
+                            overrides[k] = ev[k]
+        except Exception:  # 读配置绝不能拖垮回话
+            logger.exception("读取运行时 AI 配置失败，沿用启动配置")
+            overrides = self._cfg_cache  # 沿用上次成功的
+        self._cfg_cache = overrides
+        self._cfg_cache_ts = now
+        return overrides
+
+    def _apply_runtime_config(self) -> None:
+        """把控制室下发的配置应用到 llm/agent/toolbox（按需热重建，幂等）。"""
+        ov = self._read_overrides()
+        # 模型/人设：与启动配置合并（覆盖项缺省时用启动值）。
+        # provider 本期不开放前端改（避免切到没 key 的后端→静默降级 echo）。
+        model = ov.get("model") or self.config.llm_model
+        system_prompt = ov.get("system_prompt") or self.config.system_prompt
+        sig = (self.config.llm_provider, model, system_prompt)
+        if sig != self._applied_sig:
+            try:
+                cfg = replace(
+                    self.config, llm_model=model, system_prompt=system_prompt
+                )
+                self.llm = get_provider(cfg)
+                self.agent = Agent(
+                    llm=self.llm, toolbox=self.toolbox, system_prompt=system_prompt
+                )
+                self._applied_sig = sig
+                logger.info("已应用运行时 AI 配置: model=%s 人设已更新", model or "默认")
+            except Exception:
+                logger.exception("应用运行时 AI 配置失败，沿用当前模型")
+        # 工具开关：enabled_tools 是字符串列表 → 只启用这些；缺省/非法 = 全开
+        enabled = ov.get("enabled_tools")
+        self.toolbox.set_enabled(
+            set(enabled) if isinstance(enabled, list) else None
+        )
 
     # —— @ 提及识别：只有被 @ 才响应 ——
 
