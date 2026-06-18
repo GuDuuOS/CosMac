@@ -1057,17 +1057,19 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <!-- 日期分隔线 -->
           <div v-if="m.showDay" class="day-sep"><span>{{ dayLabel(m.ts) }}</span></div>
           <div class="msg" :class="{ bot: isBot(m.sender), me: isMe(m.sender), grouped: !m.showHeader }">
+            <!-- 回复预览：整行浮在头像上方（Discord 风：弯角连接线 + ↩ + 名字上色 + 正文淡色）-->
+            <div v-if="m.replyToId" class="msg-reply">
+              <svg class="reply-ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>
+              <span class="reply-name" :style="{ color: nameColor(m.replyToName || '') }">@{{ (m.replyToName || '').replace(/^@/, '') }}</span>
+              <span class="reply-body">{{ m.replyToBody }}</span>
+            </div>
+            <div class="msg-main">
             <!-- 左槽：首条显头像，分组内显悬停时间 -->
             <div class="msg-gutter">
               <div v-if="m.showHeader" class="ava">{{ isBot(m.sender) ? '智' : initials(m.senderName) }}</div>
               <span v-else class="gutter-time">{{ fmtTime(m.ts) }}</span>
             </div>
             <div class="msg-body">
-              <!-- 回复预览（Discord 风弯角连接线 + 名字上色 + 正文淡色）-->
-              <div v-if="m.replyToId" class="msg-reply">
-                <span class="reply-name" :style="{ color: nameColor(m.replyToName || '') }">@{{ (m.replyToName || '').replace(/^@/, '') }}</span>
-                <span class="reply-body">{{ m.replyToBody }}</span>
-              </div>
               <div v-if="m.showHeader" class="head">
                 <span class="name" :style="{ color: nameColor(m.senderName) }">{{ m.senderName }}</span>
                 <span v-if="isBot(m.sender)" class="app-tag">APP</span>
@@ -1089,6 +1091,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 <button v-for="r in reactions[m.id]" :key="r.key" class="rxn" :class="{ mine: r.mine }" @click="toggleReaction(m.id, r.key)">{{ r.key }} <b>{{ r.count }}</b></button>
                 <button class="rxn add" title="加表情" @click="openEmojiPicker(m.id, $event)">＋</button>
               </div>
+            </div>
             </div>
             <!-- 悬停工具条（表情 / 回复 / 编辑(自己) / 复制）-->
             <div class="msg-tools">
@@ -1598,10 +1601,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 /* 消息流（Discord 风：分组 / 悬停高亮 / 工具条 / 反应 / 回复）*/
 .stream { flex: 1; overflow-y: auto; padding: 8px var(--content-pad-x) 20px; }
-.msg { display: flex; gap: 12px; padding: 4px 10px; margin: 0 -10px; border-radius: 4px; position: relative; }
+.msg { display: flex; flex-direction: column; padding: 4px 10px; margin: 0 -10px; border-radius: 4px; position: relative; }
 .msg:not(.grouped) { margin-top: 8px; }
 .msg:hover { background: var(--bg-soft); }
 .msg.unread { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.msg-main { display: flex; gap: 12px; }
 /* 左槽：固定头像宽度；分组内放悬停才显的时间 */
 .msg-gutter { width: 36px; flex-shrink: 0; display: flex; justify-content: center; }
 .msg .ava { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; color: #fff; background: var(--text-3); position: relative; }
@@ -1624,9 +1628,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .edited { font-size: 11px; color: var(--text-dim); margin-left: 6px; }
 /* @提及高亮 */
 .text :deep(.mention), .ai-bubble :deep(.mention) { background: var(--accent-soft); color: var(--warn); border-radius: 4px; padding: 0 3px; font-weight: 600; }
-/* 回复预览（弯角连接线 + 名字上色 + 正文淡色）*/
-.msg-reply { position: relative; display: flex; align-items: center; gap: 6px; font-size: 13px; line-height: 1.3; margin-bottom: 3px; min-width: 0; }
-.msg-reply::before { content: ""; position: absolute; left: -32px; top: 9px; bottom: -2px; width: 30px; border-left: 2px solid var(--border); border-top: 2px solid var(--border); border-top-left-radius: 8px; }
+/* 回复预览（整行浮在头像上方 · 弯角连接线 + ↩ + 名字上色 + 正文淡色）*/
+.msg-reply { position: relative; display: flex; align-items: center; gap: 5px; font-size: 13px; line-height: 1.2; padding-left: 52px; margin-bottom: 2px; min-width: 0; color: var(--text-3); }
+/* 连接线：从回复行中部下探到下方头像，顶部弧向右接到回复文字 */
+.msg-reply::before { content: ""; position: absolute; left: 20px; top: 11px; bottom: -6px; width: 27px; border-left: 2px solid var(--border); border-top: 2px solid var(--border); border-top-left-radius: 8px; }
+.reply-ic { color: var(--text-3); flex-shrink: 0; }
 .reply-name { font-weight: 600; flex-shrink: 0; }
 .reply-name:hover { text-decoration: underline; cursor: pointer; }
 .reply-body { color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
