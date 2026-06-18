@@ -111,23 +111,43 @@ const productionTabs = [
     key: 'ep-night', name: '夜航星', avatar: '夜', color: '#7a5cad',
     series: { done: 5, total: 12, unit: '集', pct: 48 },
     episodes: [
-      { name: '《夜航星》第 6 集', percent: 72, current: 2, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天' },
-      { name: '《夜航星》第 7 集', percent: 15, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#9b8bd0', dateRange: '6/22 → 6/30', daysLeft: '还剩 10 天' },
+      { name: '《夜航星》第 6 集', percent: 72, current: 2, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天', tasks: [
+        { title: '剧本终稿定稿', status: 'done', assignee: '编剧 Agent', due: '6/12' },
+        { title: '第 6 集分镜生成', status: 'done', assignee: '分镜 Agent', due: '6/15' },
+        { title: '主角配音 + 配乐', status: 'in_progress', assignee: '配音 Agent', due: '6/20' },
+        { title: '主视觉海报终稿', status: 'pending', assignee: '安总', due: '6/21' },
+      ] },
+      { name: '《夜航星》第 7 集', percent: 15, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#9b8bd0', dateRange: '6/22 → 6/30', daysLeft: '还剩 10 天', tasks: [
+        { title: '第 7 集剧本初稿', status: 'in_progress', assignee: '编剧 Agent', due: '6/25' },
+        { title: '分集大纲评审', status: 'pending', assignee: '林导', due: '6/27' },
+      ] },
     ],
   },
   {
     key: 'ep-galaxy', name: '银河谣', avatar: '银', color: '#5a8a6a',
     series: { done: 11, total: 12, unit: '集', pct: 95 },
     episodes: [
-      { name: '《银河谣》第 12 集', percent: 35, current: 1, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天' },
+      { name: '《银河谣》第 12 集', percent: 35, current: 1, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天', tasks: [
+        { title: '第 12 集剧本定稿', status: 'done', assignee: '编剧 Agent', due: '6/14' },
+        { title: '第 12 集分镜生成', status: 'in_progress', assignee: '分镜 Agent', due: '本周四' },
+        { title: '配音排期确认', status: 'pending', assignee: '苏运营', due: '6/26' },
+      ] },
     ],
   },
   {
     key: 'mobai', name: '墨白', avatar: '墨', color: '#b5793a',
     series: { done: 4, total: 8, unit: '首单曲', pct: 58 },
     episodes: [
-      { name: '墨白 · 新单曲 MV', percent: 55, current: 3, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天' },
-      { name: '墨白 · 新专辑企划', percent: 10, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#c9a05a', dateRange: '6/25 → 7/20', daysLeft: '还剩 1 月' },
+      { name: '墨白 · 新单曲 MV', percent: 55, current: 3, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天', tasks: [
+        { title: '词曲定稿', status: 'done', assignee: '编剧 Agent', due: '6/10' },
+        { title: 'MV 拍摄', status: 'done', assignee: '老周', due: '6/16' },
+        { title: 'MV 剪辑', status: 'in_progress', assignee: '剪辑 Agent', due: '6/22' },
+        { title: '发布排期确认', status: 'pending', assignee: '苏运营', due: '6/24' },
+      ] },
+      { name: '墨白 · 新专辑企划', percent: 10, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#c9a05a', dateRange: '6/25 → 7/20', daysLeft: '还剩 1 月', tasks: [
+        { title: '专辑概念企划', status: 'in_progress', assignee: '编剧 Agent', due: '7/5' },
+        { title: '主打歌选定', status: 'pending', assignee: '林导', due: '7/10' },
+      ] },
     ],
   },
 ]
@@ -143,34 +163,18 @@ const PROD_STAGES = ['剧本', '分镜', '配音', '剪辑', '成片']
 function mkStages(currentIdx: number) {
   return PROD_STAGES.map((name, i) => ({ name, state: i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo' }))
 }
-// 当前工作区所有任务
-const allTaskItems = computed<TodoItem[]>(() => getTodos(activeId.value).groups.flatMap((g) => g.items))
-// 某剧集的任务数（Tab 上的角标）
-function showCount(key: string) { return allTaskItems.value.filter((t) => t.show === key).length }
-// 当前剧集的任务（看板正文）
-const taskItems = computed<TodoItem[]>(() => allTaskItems.value.filter((t) => t.show === activeShow.value))
-const taskCols = computed(() => [
-  { key: 'pending', title: '待办', items: taskItems.value.filter((t) => t.status === 'pending') },
-  { key: 'in_progress', title: '进行中', items: taskItems.value.filter((t) => t.status === 'in_progress') },
-  { key: 'done', title: '已完成', items: taskItems.value.filter((t) => t.status === 'done') },
-])
-function priLabel(p: string) { return p === 'high' ? '高' : p === 'mid' ? '中' : '低' }
-
-// 当前剧集（用于进度条/时间线的名字与配色）
+// 当前剧集
 const activeProd = computed(() => productionTabs.find((p) => p.key === activeShow.value) ?? productionTabs[0])
-// 剧集整体进度：done=100% / 进行中=50% / 待办=0%，按任务数加权平均（动态算）
-const showProgress = computed(() => {
-  const items = taskItems.value
-  if (!items.length) return 0
-  const done = items.filter((t) => t.status === 'done').length
-  const doing = items.filter((t) => t.status === 'in_progress').length
-  return Math.round((done * 100 + doing * 50) / items.length)
-})
-// 时间线：已完成(过去) → 进行中(现在) → 待办(将来)
+// 某剧集任务总数（Tab 角标）：该剧所有在制集的任务数之和
+function showCount(key: string) {
+  const p = productionTabs.find((x) => x.key === key)
+  return p ? p.episodes.reduce((n, e) => n + e.tasks.length, 0) : 0
+}
+// 当前剧集任务总数（顶栏 N 项）
+const activeTaskTotal = computed(() => activeProd.value.episodes.reduce((n, e) => n + e.tasks.length, 0))
+// 每集任务排序：已完成 → 进行中 → 待办
 const STATUS_ORDER: Record<string, number> = { done: 0, in_progress: 1, pending: 2 }
-const showTimeline = computed(() =>
-  [...taskItems.value].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
-)
+function epTasks(ep: Episode) { return [...ep.tasks].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) }
 function statusLabel(s: string) { return s === 'done' ? '已完成' : s === 'in_progress' ? '进行中' : '待办' }
 
 const HS = 'https://hs.cosmac.cc'
@@ -1096,7 +1100,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               </button>
             </div>
             <div class="ch-actions">
-              <span class="board-sub">{{ taskItems.length }} 项 · AI 制作中</span>
+              <span class="board-sub">{{ activeTaskTotal }} 项 · AI 制作中</span>
               <!-- 数据源：点开右侧「数据源」面板（展示 + 增删）-->
               <button class="ch-ic-btn bs-srcbtn" :class="{ active: boardPanelOpen }" :title="`数据源（${sources.tasks.length}）`" @click="toggleSourcePanel('tasks')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" /></svg>
@@ -1120,9 +1124,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 />
               </div>
             </div>
-            <!-- 多集同时在制：每集一张流水线卡，点开看甘特 -->
-            <div class="prod-row">
-              <div v-for="ep in activeProd.episodes" :key="ep.name" class="prod-card clickable" title="点击查看甘特图" @click="openGantt(ep)">
+            <!-- 多集同时在制：每集 = 流水线卡（点开看甘特）+ 这一集的任务，逐集往下 -->
+            <div v-for="ep in activeProd.episodes" :key="ep.name" class="ep-block">
+              <div class="prod-card clickable" title="点击查看甘特图" @click="openGantt(ep)">
                 <div class="prod-head">
                   <span class="prod-av" :style="{ background: activeProd.color }">{{ activeProd.avatar }}</span>
                   <span class="prod-name">{{ ep.name }}</span>
@@ -1143,12 +1147,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                   <span class="prod-date">{{ ep.dateRange }} · {{ ep.daysLeft }}</span>
                 </div>
               </div>
-            </div>
-            <div class="show-tl">
-              <div v-for="t in showTimeline" :key="t.id" class="tl-row" :class="t.status">
-                <span class="tl-dot" />
-                <span class="tl-name">{{ t.title }}</span>
-                <span class="tl-meta">{{ statusLabel(t.status) }} · {{ t.assignee }} · {{ t.due }}</span>
+              <div class="show-tl ep-tasks">
+                <div v-for="t in epTasks(ep)" :key="t.title" class="tl-row" :class="t.status">
+                  <span class="tl-dot" />
+                  <span class="tl-name">{{ t.title }}</span>
+                  <span class="tl-meta">{{ statusLabel(t.status) }} · {{ t.assignee }} · {{ t.due }}</span>
+                </div>
+                <p v-if="!ep.tasks.length" class="tl-empty">这一集暂无任务</p>
               </div>
             </div>
           </div>
@@ -1732,7 +1737,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .prod-tab.active .prod-tab-n { background: var(--accent); color: #fff; }
 /* 剧集制作流水线卡 + 时间线 */
 .show-band { flex: 1; min-height: 0; overflow-y: auto; padding: 12px var(--content-pad-x) 16px; }
-.prod-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+/* 每集一个区块：流水线卡 + 这一集任务 */
+.ep-block { margin-bottom: 20px; }
+.ep-block .prod-card { margin-bottom: 8px; }
+.ep-tasks { padding: 2px 0 0 6px; }
+.tl-empty { font-size: 12px; color: var(--text-3); padding: 6px; }
 /* 整部剧进度（分段条：每段一集，已完成绿 / 当前集橙 / 未做灰）*/
 .series-bar { margin-bottom: 12px; }
 .series-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
