@@ -112,14 +112,14 @@ const productionTabs = [
     series: { done: 5, total: 12, unit: '集', pct: 48 },
     episodes: [
       { name: '《夜航星》第 6 集', percent: 72, current: 4, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天', tasks: [
-        { title: '剧本终稿定稿', status: 'done', assignee: '编剧 Agent', due: '6/12' },
-        { title: '第 6 集分镜生成', status: 'done', assignee: '分镜 Agent', due: '6/15' },
-        { title: '主角配音 + 配乐', status: 'in_progress', assignee: '配音 Agent', due: '6/20' },
-        { title: '主视觉海报终稿', status: 'pending', assignee: '安总', due: '6/21' },
+        { title: '剧本终稿定稿', status: 'done', assignee: '编剧 Agent', due: '6/12', progress: 100, detail: '第 6 集剧本三审通过、定稿归档，共 4.2 万字。', steps: [{ label: '剧本初稿', done: true }, { label: '两轮修改', done: true }, { label: '终审定稿', done: true }] },
+        { title: '第 6 集分镜生成', status: 'done', assignee: '分镜 Agent', due: '6/15', progress: 100, detail: '全集 42 个镜头分镜已生成并经导演确认。', steps: [{ label: '镜头拆解', done: true }, { label: 'AI 分镜生成', done: true }, { label: '导演确认', done: true }] },
+        { title: '主角配音 + 配乐', status: 'in_progress', assignee: '配音 Agent', due: '6/20', progress: 65, detail: '主角与配角配音已完成，配乐编曲进行中，待混音。', steps: [{ label: '主角配音', done: true }, { label: '配角配音', done: true }, { label: '配乐编曲', done: false }, { label: '混音合成', done: false }] },
+        { title: '主视觉海报终稿', status: 'pending', assignee: '安总', due: '6/21', progress: 0, detail: '等配音定稿后启动主视觉设计，尚未开始。', steps: [{ label: '概念稿', done: false }, { label: '终稿审定', done: false }] },
       ] },
       { name: '《夜航星》第 7 集', percent: 15, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#9b8bd0', dateRange: '6/22 → 6/30', daysLeft: '还剩 10 天', tasks: [
-        { title: '第 7 集剧本初稿', status: 'in_progress', assignee: '编剧 Agent', due: '6/25' },
-        { title: '分集大纲评审', status: 'pending', assignee: '林导', due: '6/27' },
+        { title: '第 7 集剧本初稿', status: 'in_progress', assignee: '编剧 Agent', due: '6/25', progress: 40, detail: '前半集剧本已出初稿，后半集大纲搭建中。', steps: [{ label: '故事大纲', done: true }, { label: '前半集初稿', done: true }, { label: '后半集初稿', done: false }] },
+        { title: '分集大纲评审', status: 'pending', assignee: '林导', due: '6/27', progress: 0, detail: '待初稿完成后由林导评审。', steps: [{ label: '提交评审', done: false }, { label: '修改意见', done: false }] },
       ] },
     ],
   },
@@ -128,9 +128,9 @@ const productionTabs = [
     series: { done: 11, total: 12, unit: '集', pct: 95 },
     episodes: [
       { name: '《银河谣》第 12 集', percent: 35, current: 2, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天', tasks: [
-        { title: '第 12 集剧本定稿', status: 'done', assignee: '编剧 Agent', due: '6/14' },
-        { title: '第 12 集分镜生成', status: 'in_progress', assignee: '分镜 Agent', due: '本周四' },
-        { title: '配音排期确认', status: 'pending', assignee: '苏运营', due: '6/26' },
+        { title: '第 12 集剧本定稿', status: 'done', assignee: '编剧 Agent', due: '6/14', progress: 100, detail: '剧本已定稿，本集为本季收官集。', steps: [{ label: '初稿', done: true }, { label: '定稿', done: true }] },
+        { title: '第 12 集分镜生成', status: 'in_progress', assignee: '分镜 Agent', due: '本周四', progress: 35, detail: '已生成约 1/3 镜头分镜，动作戏部分在调。', steps: [{ label: '镜头拆解', done: true }, { label: 'AI 分镜生成', done: false }, { label: '导演确认', done: false }] },
+        { title: '配音排期确认', status: 'pending', assignee: '苏运营', due: '6/26', progress: 0, detail: '待分镜定稿后安排配音档期。', steps: [{ label: '档期协调', done: false }] },
       ] },
     ],
   },
@@ -139,14 +139,14 @@ const productionTabs = [
     series: { done: 4, total: 8, unit: '首单曲', pct: 58 },
     episodes: [
       { name: '墨白 · 新单曲 MV', percent: 55, current: 5, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天', tasks: [
-        { title: '词曲定稿', status: 'done', assignee: '编剧 Agent', due: '6/10' },
-        { title: 'MV 拍摄', status: 'done', assignee: '老周', due: '6/16' },
-        { title: 'MV 剪辑', status: 'in_progress', assignee: '剪辑 Agent', due: '6/22' },
-        { title: '发布排期确认', status: 'pending', assignee: '苏运营', due: '6/24' },
+        { title: '词曲定稿', status: 'done', assignee: '编剧 Agent', due: '6/10', progress: 100, detail: '词曲已定稿，时长 3 分 28 秒。', steps: [{ label: '作词', done: true }, { label: '作曲编曲', done: true }, { label: '定稿', done: true }] },
+        { title: 'MV 拍摄', status: 'done', assignee: '老周', due: '6/16', progress: 100, detail: '实景 + 绿幕素材拍摄完成，共 6 个场景。', steps: [{ label: '分镜', done: true }, { label: '实景拍摄', done: true }, { label: '绿幕拍摄', done: true }] },
+        { title: 'MV 剪辑', status: 'in_progress', assignee: '剪辑 Agent', due: '6/22', progress: 70, detail: '粗剪完成，正在精剪 + 调色。', steps: [{ label: '粗剪', done: true }, { label: '精剪', done: false }, { label: '调色', done: false }] },
+        { title: '发布排期确认', status: 'pending', assignee: '苏运营', due: '6/24', progress: 0, detail: '待成片后定档各平台发布时间。', steps: [{ label: '平台沟通', done: false }, { label: '定档', done: false }] },
       ] },
       { name: '墨白 · 新专辑企划', percent: 10, current: 0, assignee: '编剧 Agent', aAvatar: '编', aColor: '#c9a05a', dateRange: '6/25 → 7/20', daysLeft: '还剩 1 月', tasks: [
-        { title: '专辑概念企划', status: 'in_progress', assignee: '编剧 Agent', due: '7/5' },
-        { title: '主打歌选定', status: 'pending', assignee: '林导', due: '7/10' },
+        { title: '专辑概念企划', status: 'in_progress', assignee: '编剧 Agent', due: '7/5', progress: 25, detail: '专辑主题与曲目框架初定，企划案撰写中。', steps: [{ label: '主题定调', done: true }, { label: '曲目框架', done: false }, { label: '企划案', done: false }] },
+        { title: '主打歌选定', status: 'pending', assignee: '林导', due: '7/10', progress: 0, detail: '待企划完成后从候选中选定主打歌。', steps: [{ label: '候选评估', done: false }, { label: '终选', done: false }] },
       ] },
     ],
   },
@@ -157,6 +157,11 @@ const activeShow = ref(productionTabs[0].key)   // 当前选中的剧集
 type Episode = (typeof productionTabs)[number]['episodes'][number]
 const ganttEp = ref<Episode | null>(null)
 function openGantt(ep: Episode) { ganttEp.value = ep }
+
+// 任务详情弹窗：点任务行打开（负责人 / 进度 / 做到什么程度 / 子步骤）
+type Task = Episode['tasks'][number]
+const taskDetail = ref<Task | null>(null)
+function openTaskDetail(t: Task) { taskDetail.value = t }
 const GANTT_DATES = ['6/10', '6/14', '6/18', '6/22', '6/26', '6/30']
 // AI 影视制作流水线阶段；由 current 下标生成 done/current/todo
 const PROD_STAGES = ['剧本', '服化道', '分镜', 'AI生成', '配音配乐', '剪辑', '成片']
@@ -1153,10 +1158,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 </div>
               </div>
               <div class="show-tl ep-tasks">
-                <div v-for="t in epTasks(ep)" :key="t.title" class="tl-row" :class="t.status">
+                <div v-for="t in epTasks(ep)" :key="t.title" class="tl-row clickable" :class="t.status" title="查看详情" @click="openTaskDetail(t)">
                   <span class="tl-dot" />
                   <span class="tl-name">{{ t.title }}</span>
                   <span class="tl-meta">{{ statusLabel(t.status) }} · {{ t.assignee }} · {{ t.due }}</span>
+                  <svg class="tl-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6" /></svg>
                 </div>
                 <p v-if="!ep.tasks.length" class="tl-empty">这一集暂无任务</p>
               </div>
@@ -1401,6 +1407,34 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <span class="prod-a-av" :style="{ background: ganttEp.aColor }">{{ ganttEp.aAvatar }}</span>
           <span>{{ ganttEp.assignee }} · 当前进度 {{ ganttEp.percent }}%</span>
           <span class="gantt-legend"><i class="gl done" />完成<i class="gl current" />进行中<i class="gl todo" />未开始</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务详情弹窗（点任务行打开）-->
+    <div v-if="taskDetail" class="td-overlay" @click.self="taskDetail = null">
+      <div class="td-modal">
+        <div class="td-head">
+          <span class="td-status-dot" :class="taskDetail.status" />
+          <span class="td-title">{{ taskDetail.title }}</span>
+          <button class="gantt-close" title="关闭" @click="taskDetail = null">×</button>
+        </div>
+        <div class="td-meta-row">
+          <span class="td-chip">{{ statusLabel(taskDetail.status) }}</span>
+          <span class="td-chip">负责 · {{ taskDetail.assignee }}</span>
+          <span class="td-chip">截止 · {{ taskDetail.due }}</span>
+        </div>
+        <div class="td-prog">
+          <div class="td-prog-bar"><div class="td-prog-fill" :class="taskDetail.status" :style="{ width: taskDetail.progress + '%' }" /></div>
+          <span class="td-prog-pct">{{ taskDetail.progress }}%</span>
+        </div>
+        <div class="td-detail">{{ taskDetail.detail }}</div>
+        <div class="td-steps">
+          <div class="td-steps-h">子步骤</div>
+          <div v-for="st in taskDetail.steps" :key="st.label" class="td-step" :class="{ done: st.done }">
+            <span class="td-step-box">{{ st.done ? '✓' : '' }}</span>
+            <span class="td-step-label">{{ st.label }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1815,6 +1849,31 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .gantt-legend .gl.done { background: #6b8e4e; }
 .gantt-legend .gl.current { background: var(--accent); }
 .gantt-legend .gl.todo { background: var(--border); }
+/* 任务行可点 + 任务详情弹窗 */
+.tl-row.clickable { cursor: pointer; border-radius: 6px; padding-right: 8px; }
+.tl-row.clickable:hover { background: var(--bg-hover); }
+.tl-chev { margin-left: 4px; color: var(--text-3); flex-shrink: 0; opacity: 0; transition: opacity .12s; }
+.tl-row.clickable:hover .tl-chev { opacity: 1; }
+.td-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.32); display: flex; align-items: center; justify-content: center; }
+.td-modal { width: 460px; max-width: calc(100vw - 48px); background: var(--bg-panel); border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.22); padding: 18px 20px; }
+.td-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.td-status-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+.td-status-dot.done { background: #6b8e4e; }
+.td-status-dot.in_progress { background: var(--accent); }
+.td-title { font-size: 16px; font-weight: 600; color: var(--text); flex: 1; }
+.td-meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.td-chip { font-size: 12px; color: var(--text-2); background: var(--bg-hover); padding: 3px 10px; border-radius: 20px; }
+.td-prog { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.td-prog-bar { flex: 1; height: 8px; border-radius: 6px; background: var(--bg-hover); overflow: hidden; }
+.td-prog-fill { height: 100%; border-radius: 6px; background: var(--accent); }
+.td-prog-fill.done { background: #6b8e4e; }
+.td-prog-pct { font-size: 13px; font-weight: 600; color: var(--text-2); min-width: 38px; text-align: right; }
+.td-detail { font-size: 13px; color: var(--text); line-height: 1.6; background: var(--bg-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.td-steps-h { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+.td-step { display: flex; align-items: center; gap: 9px; padding: 5px 0; font-size: 13px; color: var(--text-3); }
+.td-step-box { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--border); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; flex-shrink: 0; }
+.td-step.done .td-step-box { background: #6b8e4e; border-color: #6b8e4e; }
+.td-step.done .td-step-label { color: var(--text); }
 .kanban { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 16px var(--content-pad-x); overflow: hidden; }
 .kb-col { display: flex; flex-direction: column; min-height: 0; background: var(--bg-soft); border-radius: 12px; overflow: hidden; }
 .kb-col-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; flex-shrink: 0; }
