@@ -15,6 +15,7 @@
   - **安全护栏**：① 只在 room_id == 别名解析出的控制室才动手（防有人塞事件借 bot 踢人）；② 绝不动 owner(100) 和 bot 自己；③ 任何异常只记日志不抛。`matrix_client` 加 `set_power_levels`/`kick`。
   - UI 文案改诚实：撤管理员提示「控制室写权限将由主 AI 同步移除」，不再静默报全成。
 - 验证：新增 `test_control_members.py`（撤销者被移除 / owner·bot 永不被动 / 非控制室不动手 / 无需移除则不写）；cosmac 37 单测全过、ruff 通过、client build 通过。
+- **补**：老控制室（早先建的）里 bot 可能还是默认 power 0，那样它没法执行降权/踢出。`reconcileControlRoomAdmins` 改成顺手把 bot 提到 100（由所有者执行；下次 @admin 存 AI 配置或改管理员时即补上），并去掉「无其他管理员就 return」的早退，确保单管理员场景也能补 bot 权限。
 - 部署：改了 `cosmac/` → 要 `restart guduu-bot`；改了前端 → 发 dist。
 
 ## 2026-06-19 — 主 AI：右侧中枢 AI 面板加「放大」按钮 → Cowork 式全屏弹窗

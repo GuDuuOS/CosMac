@@ -853,7 +853,7 @@ export async function ensureControlRoom(): Promise<string> {
  * 绝不阻塞「保存 AI 配置」主流程。
  */
 async function reconcileControlRoomAdmins(roomId: string, admins: string[]): Promise<void> {
-  if (!mx || !admins.length) return
+  if (!mx) return
   const room = mx.getRoom(roomId)
   try {
     // ① 提权：**只有真正读到 power_levels 时才动它**。
@@ -865,10 +865,13 @@ async function reconcileControlRoomAdmins(roomId: string, admins: string[]): Pro
     if (pl && typeof pl === 'object') {
       const users: Record<string, number> = { ...(pl.users || {}) }
       let changed = false
-      for (const a of admins) {
-        // 只把"权限不足以写配置"的管理员提到 50；已 ≥50（含所有者 100）的不动
-        if ((users[a] ?? 0) < CONTROL_ADMIN_PL) {
-          users[a] = CONTROL_ADMIN_PL
+      // 各管理员要到 50（够写配置）；**bot 要到 100**——否则它没法执行成员对齐
+      // （降权/踢出被撤销的管理员）。老控制室里 bot 可能还是默认 0，这里由所有者补上。
+      const want: Record<string, number> = { [botId()]: CONTROL_OWNER_PL }
+      for (const a of admins) want[a] = CONTROL_ADMIN_PL
+      for (const [uid, lvl] of Object.entries(want)) {
+        if ((users[uid] ?? 0) < lvl) {
+          users[uid] = lvl // 只升不降：不动已 ≥ 目标的（含所有者 100）
           changed = true
         }
       }
