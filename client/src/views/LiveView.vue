@@ -44,7 +44,7 @@ import {
   setFavourite,
   normalizeUserId,
   isServerAdmin,
-  BOT_ID,
+  botId,
   type LiveRoom,
   type LiveMsg,
   type LiveSpace,
@@ -532,7 +532,7 @@ function iconChar(name: string): string {
 }
 
 function isBot(s: string) {
-  return s === BOT_ID
+  return s === botId()
 }
 
 // ── 安全的极简 Markdown 渲染（消息显示用）──
@@ -544,7 +544,7 @@ function escapeHtml(s: string): string {
 function renderMd(raw: string): string {
   let s = escapeHtml(raw || '')
   const stash: string[] = []
-  const keep = (html: string) => ` ${stash.push(html) - 1} `
+  const keep = (html: string) => `\x00${stash.push(html) - 1}\x00`
   // 代码块 ```...```
   s = s.replace(/```([\s\S]*?)```/g, (_m, c) => keep(`<pre class="md-pre">${c.replace(/^\n|\n$/g, '')}</pre>`))
   // 行内代码 `...`
@@ -561,7 +561,7 @@ function renderMd(raw: string): string {
   // 换行
   s = s.replace(/\n/g, '<br>')
   // 还原代码占位
-  s = s.replace(/ (\d+) /g, (_m, i) => stash[+i])
+  s = s.replace(/\x00(\d+)\x00/g, (_m, i) => stash[+i])
   return s
 }
 function fmtTime(ts: number) {

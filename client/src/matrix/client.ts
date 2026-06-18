@@ -346,7 +346,7 @@ export async function createChannelInSpace(
     name,
     topic: opts.topic || undefined, // 频道简介
     preset: (opts.public ? 'public_chat' : 'private_chat') as any,
-    invite: [BOT_ID], // 拉主 AI 进群，频道里 AI 能回
+    invite: [botId()], // 拉主 AI 进群，频道里 AI 能回
   })
   const cid = res.room_id
   // 双向挂接：Space 记子频道，子频道指回父 Space
@@ -389,7 +389,7 @@ export function listRoomMembers(roomId: string): { id: string; name: string; isB
   return room.getJoinedMembers().map((m: any) => ({
     id: m.userId,
     name: m.name || m.userId,
-    isBot: m.userId === BOT_ID,
+    isBot: m.userId === botId(),
   }))
 }
 
@@ -398,7 +398,7 @@ export interface ChannelMember {
   id: string              // 完整 Matrix 用户 id，如 @alice:cosmac.cc
   name: string            // 显示名（没设昵称就退回用户名段）
   avatar: string          // http 头像地址；没有则空串（UI 退回首字母圆头像）
-  isBot: boolean          // 是否中枢 AI（按 BOT_ID 判定，UI 标 APP）
+  isBot: boolean          // 是否中枢 AI（按 botId() 判定，UI 标 APP）
   role: 'owner' | 'admin' | 'member'  // 由 m.room.power_levels 推出：100=owner，≥50=admin，其余 member
   roleLabel: string       // 角色中文标签：群主 / 管理员 / 成员
   power: number           // 原始 power level 数值（移除/降权判断用）
@@ -441,7 +441,7 @@ export function listChannelMembers(roomId: string): ChannelMember[] {
       id: m.userId,
       name,
       avatar: mxc ? mxcToHttp(mxc, 64) : '',
-      isBot: m.userId === BOT_ID,
+      isBot: m.userId === botId(),
       role,
       roleLabel,
       power,
@@ -527,7 +527,7 @@ export interface AdminUser {
   name: string          // 显示名（没设就退回 localpart）
   admin: boolean        // 是否服务器管理员
   deactivated: boolean  // 是否已停用
-  isBot: boolean        // 是否中枢 AI（按 BOT_ID 判定）
+  isBot: boolean        // 是否中枢 AI（按 botId() 判定）
 }
 
 /**
@@ -564,7 +564,7 @@ export async function listUsers(): Promise<AdminUser[]> {
         name: u.displayname || localpart,
         admin: !!u.admin,
         deactivated: !!u.deactivated,
-        isBot: u.name === BOT_ID,
+        isBot: u.name === botId(),
       })
     }
     if (data.next_token === undefined || data.next_token === null) break
@@ -730,17 +730,44 @@ async function resolveControlRoom(): Promise<string | null> {
   }
 }
 
-/** 确保控制室存在：解析不到就新建（带别名、邀请主 AI bot、私有）。返回 room_id。 */
+/**
+ * 确保控制室存在：解析不到就新建（带别名、私有）。返回 room_id。
+ *
+ * 邀请对象不只是主 AI bot，还包括**所有服务器管理员**——否则只有创建者一人是
+ * 房间成员，其他管理员虽能看到 /admin 入口，却读不到/写不了 AI 配置 state event
+ * （服务器管理员权限不等于房间权限）。同时把这些管理员的房间权限提到 100，
+ * 否则他们进群后受 state_default=50 限制，连自定义 state event 都写不了，只能读。
+ */
 export async function ensureControlRoom(): Promise<string> {
   if (!mx) throw new Error('未登录')
   const existing = await resolveControlRoom()
   if (existing) return existing
+
+  const me = mx.getUserId() || ''
+  // 拉服务器管理员名单（需管理员 token；能进到这步的本就是管理员）。
+  // 失败就退化为"只有创建者"——至少自己能用，不阻塞建房。
+  let admins: string[] = []
+  try {
+    admins = (await listUsers())
+      .filter((u) => u.admin && !u.deactivated)
+      .map((u) => u.id)
+  } catch {
+    /* 拉不到名单：仅创建者可用 */
+  }
+  // 除创建者外的其他管理员（创建者建房自动入群，无需 invite）
+  const others = admins.filter((a) => a && a !== me)
+
+  // 房间初始权限：创建者 + bot + 各管理员都给 100，确保都能读写 AI 配置 state event
+  const users: Record<string, number> = { [me]: 100, [botId()]: 100 }
+  for (const a of others) users[a] = 100
+
   const res: any = await (mx as any).createRoom({
     name: 'CosMac 控制室',
     room_alias_name: CONTROL_ROOM_LOCALPART,
     preset: 'private_chat',
-    invite: [BOT_ID], // 邀请主 AI，它会自动进群并能读到这里的配置
+    invite: [botId(), ...others], // 主 AI + 其他管理员
     topic: 'CosMac 管理后台 · 主 AI 运行时配置（请勿删除/退出）',
+    power_level_content_override: { users },
   })
   return res.room_id
 }
@@ -885,15 +912,24 @@ export async function sendText(roomId: string, body: string): Promise<void> {
   await mx.sendTextMessage(roomId, body)
 }
 
-/** 主 AI 的用户 id（私聊它 = 右侧"中枢 AI"面板）。 */
-export const BOT_ID = '@guduu:cosmac.cc'
+/** 主 AI 的 localpart（用户名部分，固定）；完整 id 的域名按当前登录服务器动态拼。 */
+const BOT_LOCALPART = 'guduu'
+/**
+ * 主 AI 的完整用户 id（私聊它 = 右侧"中枢 AI"面板）。
+ * 按当前登录服务器域名动态拼（@guduu:<serverName>），不写死 cosmac.cc——
+ * 否则本地 guduu.local 环境会去邀请一个不存在的账号，AI 进不了群。
+ * 必须在登录后调用（serverName() 取自当前用户 id）。
+ */
+export function botId(): string {
+  return `@${BOT_LOCALPART}:${serverName()}`
+}
 
 /** 找到我和主 AI 的私聊房间（仅两人）；没有返回 null。 */
 export function findBotDm(): string | null {
   if (!mx) return null
   for (const r of mx.getRooms()) {
     const ids = r.getJoinedMembers().map((m) => m.userId)
-    if (ids.length <= 2 && ids.includes(BOT_ID)) return r.roomId
+    if (ids.length <= 2 && ids.includes(botId())) return r.roomId
   }
   return null
 }
@@ -907,7 +943,7 @@ export async function ensureBotDm(): Promise<string> {
   const res: any = await mx.createRoom({
     name: '中枢 AI',
     preset: 'trusted_private_chat' as any,
-    invite: [BOT_ID],
+    invite: [botId()],
     is_direct: true,
   })
   return res.room_id
