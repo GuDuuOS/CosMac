@@ -103,13 +103,19 @@ const tasks = ref(false)
 function openBoard() { board.value = true; tasks.value = false; currentRoom.value = '' }
 function openTasks() { tasks.value = true; board.value = false; currentRoom.value = '' }
 
-// 任务看板：剧集 Tab（每部剧一个），点击后只看那部剧的任务
+// 任务看板：剧集 Tab（每部剧一个），点击后看那部剧的制作流水线 + 任务
+// 每部剧带：当前在制项目 + 流水线阶段(current) + 进度% + 负责人 + 排期（demo 数据，后续接真实）
 const productionTabs = [
-  { key: 'ep-night', name: '夜航星', avatar: '夜', color: '#7a5cad' },
-  { key: 'ep-galaxy', name: '银河谣', avatar: '银', color: '#5a8a6a' },
-  { key: 'mobai', name: '墨白', avatar: '墨', color: '#b5793a' },
+  { key: 'ep-night', name: '夜航星', avatar: '夜', color: '#7a5cad', project: '《夜航星》第 6 集', percent: 72, current: 2, assignee: '配音 Agent', aAvatar: '音', aColor: '#d9a066', dateRange: '6/18 → 6/22', daysLeft: '还剩 2 天' },
+  { key: 'ep-galaxy', name: '银河谣', avatar: '银', color: '#5a8a6a', project: '《银河谣》第 12 集', percent: 35, current: 1, assignee: '分镜 Agent', aAvatar: '镜', aColor: '#9bbf7a', dateRange: '6/20 → 6/27', daysLeft: '还剩 7 天' },
+  { key: 'mobai', name: '墨白', avatar: '墨', color: '#b5793a', project: '墨白 · 新单曲 MV', percent: 55, current: 3, assignee: '剪辑 Agent', aAvatar: '剪', aColor: '#c98a5a', dateRange: '6/16 → 6/24', daysLeft: '还剩 4 天' },
 ]
 const activeShow = ref(productionTabs[0].key)   // 当前选中的剧集
+// 制作流水线阶段；由 current 下标生成 done/current/todo
+const PROD_STAGES = ['剧本', '分镜', '配音', '剪辑', '成片']
+function mkStages(currentIdx: number) {
+  return PROD_STAGES.map((name, i) => ({ name, state: i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo' }))
+}
 // 当前工作区所有任务
 const allTaskItems = computed<TodoItem[]>(() => getTodos(activeId.value).groups.flatMap((g) => g.items))
 // 某剧集的任务数（Tab 上的角标）
@@ -1071,12 +1077,28 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               </button>
             </div>
           </div>
-          <!-- 剧集进度条 + 时间线（跟选中的剧集走）-->
+          <!-- 制作流水线卡 + 时间线（跟选中的剧集走）-->
           <div class="show-band">
-            <div class="show-prog">
-              <span class="sp-label">{{ activeProd.name }} · 制作进度</span>
-              <div class="sp-bar"><div class="sp-fill" :style="{ width: showProgress + '%', background: activeProd.color }" /></div>
-              <span class="sp-pct">{{ showProgress }}%</span>
+            <div class="prod-card">
+              <div class="prod-head">
+                <span class="prod-av" :style="{ background: activeProd.color }">{{ activeProd.avatar }}</span>
+                <span class="prod-name">{{ activeProd.project }}</span>
+                <span class="prod-status">进行中 · {{ activeProd.percent }}%</span>
+              </div>
+              <div class="prod-pipe">
+                <template v-for="(s, i) in mkStages(activeProd.current)" :key="s.name">
+                  <div class="prod-step" :class="s.state">
+                    <span class="prod-dot">{{ s.state === 'done' ? '✓' : s.state === 'current' ? '●' : i + 1 }}</span>
+                    <span class="prod-step-label">{{ s.name }}</span>
+                  </div>
+                  <span v-if="i < PROD_STAGES.length - 1" class="prod-conn" :class="{ on: s.state === 'done' }" />
+                </template>
+              </div>
+              <div class="prod-bar"><div class="prod-bar-fill" :style="{ width: activeProd.percent + '%', background: activeProd.color }" /></div>
+              <div class="prod-foot">
+                <span class="prod-assignee"><span class="prod-a-av" :style="{ background: activeProd.aColor }">{{ activeProd.aAvatar }}</span>{{ activeProd.assignee }}</span>
+                <span class="prod-date">{{ activeProd.dateRange }} · {{ activeProd.daysLeft }}</span>
+              </div>
             </div>
             <div class="show-tl">
               <div v-for="t in showTimeline" :key="t.id" class="tl-row" :class="t.status">
@@ -1659,13 +1681,28 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .prod-tab-av { width: 18px; height: 18px; border-radius: 5px; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
 .prod-tab-n { font-size: 10px; color: var(--text-3); background: var(--bg-hover); border-radius: 8px; padding: 0 5px; min-width: 14px; text-align: center; }
 .prod-tab.active .prod-tab-n { background: var(--accent); color: #fff; }
-/* 剧集进度条 + 时间线 */
+/* 剧集制作流水线卡 + 时间线 */
 .show-band { flex-shrink: 0; padding: 12px var(--content-pad-x) 6px; }
-.show-prog { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.sp-label { font-size: 12px; color: var(--text-2); font-weight: 600; flex-shrink: 0; }
-.sp-bar { flex: 1; height: 8px; border-radius: 6px; background: var(--bg-hover); overflow: hidden; }
-.sp-fill { height: 100%; border-radius: 6px; transition: width .3s ease; }
-.sp-pct { font-size: 12px; color: var(--text-2); font-weight: 600; min-width: 34px; text-align: right; }
+.prod-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; box-shadow: 0 4px 14px rgba(0,0,0,.05); margin-bottom: 12px; }
+.prod-head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
+.prod-av { width: 28px; height: 28px; border-radius: 8px; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+.prod-name { font-size: 15px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prod-status { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent); background: rgba(217,105,47,.12); padding: 3px 10px; border-radius: 20px; flex-shrink: 0; white-space: nowrap; }
+.prod-pipe { display: flex; align-items: flex-start; margin-bottom: 14px; }
+.prod-step { display: flex; flex-direction: column; align-items: center; gap: 5px; flex-shrink: 0; }
+.prod-dot { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: var(--bg-hover); color: var(--text-3); }
+.prod-step-label { font-size: 11px; color: var(--text-3); }
+.prod-step.done .prod-dot { background: #6b8e4e; color: #fff; }
+.prod-step.done .prod-step-label { color: #6b8e4e; }
+.prod-step.current .prod-dot { background: var(--accent); color: #fff; box-shadow: 0 0 0 4px rgba(217,105,47,.18); }
+.prod-step.current .prod-step-label { color: var(--accent); font-weight: 600; }
+.prod-conn { flex: 1; height: 2px; background: var(--border); margin: 12px 4px 0; border-radius: 1px; }
+.prod-conn.on { background: #6b8e4e; }
+.prod-bar { height: 7px; border-radius: 6px; background: var(--bg-hover); overflow: hidden; margin-bottom: 9px; }
+.prod-bar-fill { height: 100%; border-radius: 6px; transition: width .3s ease; }
+.prod-foot { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-3); }
+.prod-assignee { display: inline-flex; align-items: center; gap: 5px; }
+.prod-a-av { width: 18px; height: 18px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
 .show-tl { display: flex; flex-direction: column; padding-left: 3px; }
 .tl-row { display: flex; align-items: center; gap: 10px; padding: 5px 0 5px 18px; position: relative; font-size: 13px; }
 .tl-row::before { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; background: var(--border); }
