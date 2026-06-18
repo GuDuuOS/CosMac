@@ -378,6 +378,8 @@ export function listMessages(roomId: string): LiveMsg[] {
     .getLiveTimeline()
     .getEvents()
     .filter((e) => e.getType() === 'm.room.message')
+    // 已撤回(redacted)的消息 content 为空，跳过 → 不再显示空气泡
+    .filter((e) => !(e as any).isRedacted?.() && Object.keys(e.getContent() || {}).length > 0)
     .map((e) => {
       const c: any = e.getContent()
       const sender = e.getSender() || ''

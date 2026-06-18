@@ -425,6 +425,34 @@ function iconChar(name: string): string {
 function isBot(s: string) {
   return s === BOT_ID
 }
+
+// ── 安全的极简 Markdown 渲染（消息显示用）──
+// 先 HTML 转义（防 XSS：任何 <script> 都变成纯文本），再做有限的 markdown 替换。
+// 代码块/行内代码先抠出占位、避免里面的符号被二次处理。
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+function renderMd(raw: string): string {
+  let s = escapeHtml(raw || '')
+  const stash: string[] = []
+  const keep = (html: string) => ` ${stash.push(html) - 1} `
+  // 代码块 ```...```
+  s = s.replace(/```([\s\S]*?)```/g, (_m, c) => keep(`<pre class="md-pre">${c.replace(/^\n|\n$/g, '')}</pre>`))
+  // 行内代码 `...`
+  s = s.replace(/`([^`\n]+)`/g, (_m, c) => keep(`<code class="md-code">${c}</code>`))
+  // 加粗 / 斜体 / 删除线
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+  s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+  // 链接 [文字](url)，仅允许 http/https/mailto
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+  // 换行
+  s = s.replace(/\n/g, '<br>')
+  // 还原代码占位
+  s = s.replace(/ (\d+) /g, (_m, i) => stash[+i])
+  return s
+}
 function fmtTime(ts: number) {
   const d = new Date(ts)
   const h = String(d.getHours()).padStart(2, '0')
@@ -931,7 +959,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 <span class="role" :class="isBot(m.sender) ? 'bot' : 'human'">{{ isBot(m.sender) ? 'AI' : '成员' }}</span>
                 <span class="time">{{ fmtTime(m.ts) }}</span>
               </div>
-              <div v-if="!m.card" class="text">{{ m.body }}</div>
+              <div v-if="!m.card" class="text" v-html="renderMd(m.body)"></div>
               <div v-else class="rich info">
                 <div class="r-head"><span class="t">🗂 {{ m.card.title }}</span></div>
                 <p v-if="m.card.subtitle">{{ m.card.subtitle }}</p>
@@ -996,7 +1024,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </div>
         <div class="ai-body">
           <div v-for="m in aiMsgs" :key="m.id" class="ai-msg" :class="{ mine: isMe(m.sender) }">
-            <div v-if="!m.card" class="ai-bubble">{{ m.body }}</div>
+            <div v-if="!m.card" class="ai-bubble" v-html="renderMd(m.body)"></div>
             <div v-else class="rich info">
               <div class="r-head"><span class="t">🗂 {{ m.card.title }}</span></div>
               <p v-if="m.card.subtitle">{{ m.card.subtitle }}</p>
@@ -1432,7 +1460,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .msg .role.bot { color: var(--text-2); }
 .msg .role.human { background: var(--accent-soft); color: var(--accent); }
 .msg .time { font-size: var(--fs-75); color: var(--text-3); }
-.msg .text { color: var(--text); font-size: var(--fs-100); line-height: var(--lh-200); white-space: pre-wrap; word-break: break-word; }
+.msg .text { color: var(--text); font-size: var(--fs-100); line-height: var(--lh-200); word-break: break-word; }
+/* 消息里渲染出的 Markdown 元素 */
+.text :deep(a), .ai-bubble :deep(a) { color: var(--info); text-decoration: underline; }
+.text :deep(code.md-code), .ai-bubble :deep(code.md-code) { background: var(--bg-code); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: 12.5px; }
+.text :deep(pre.md-pre), .ai-bubble :deep(pre.md-pre) { background: var(--bg-code); padding: 10px 12px; border-radius: 8px; font-family: var(--mono); font-size: 12.5px; overflow-x: auto; margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
+.text :deep(strong), .ai-bubble :deep(strong) { font-weight: 700; }
+.text :deep(del), .ai-bubble :deep(del) { opacity: .7; }
 .rich { margin-top: 8px; border: 1px solid var(--border); background: var(--bg-panel); border-radius: 6px; padding: 14px 16px; }
 .rich.info { border-left: 3px solid var(--info); }
 .rich .r-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
