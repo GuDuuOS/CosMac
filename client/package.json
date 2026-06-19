@@ -1,9 +1,9 @@
 {
-  "name": "gudu-workbench",
+  "name": "cosmac-workbench",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "GuDuu · 行业 AI 工作台 Demo",
+  "description": "CosMac · 行业 AI 工作台 Demo",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",

@@ -1,7 +1,7 @@
 """provider 选择 + EchoProvider 的基础单元测试。
 
 不依赖运行中的 Synapse，也不需要任何 API key，纯逻辑验证，跑得快。
-运行：.venv/bin/python -m unittest guduu.tests.test_echo_provider
+运行：.venv/bin/python -m unittest cosmac.tests.test_echo_provider
 """
 
 from __future__ import annotations

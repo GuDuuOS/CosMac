@@ -11,7 +11,7 @@
 - 背景：负责人指出项目叫 CosMac，但服务器/运维层到处是 GuDuu（env 变量名、bot 账号、service 名）。当初 guduu→cosmac 改名没做干净。决定**彻底**改，但分两阶段保证不挂线上 bot。
 - **stage1（本次，代码层零停机）**：
   - **环境变量 `GUDUU_*`→`COSMAC_*`**：`config.py` 加 `_env()`（先查 `COSMAC_` 再回退 `GUDUU_`），`from_env` 全改走它；`db/engine.py` 的 `database_url()` 同样支持两前缀。**向后兼容**——生产 systemd 里现有的 `GUDUU_*` 仍生效，可从容迁移。
-  - **注释/文档/README**：`GuDuu`/`guduu` 品牌字样、stale 模块路径（`guduu.bots`/`guduu.ai`/`本包（guduu）`）、txn id 前缀、CLAUDE.md/AGENTS.md 的 env 示例 → 全改 CosMac/`COSMAC_*`。
+  - **注释/文档/README**：`GuDuu`/`guduu` 品牌字样、stale 模块路径（`guduu.bots`/`guduu.ai`/`guduu.tests`/`本包（guduu）`）、txn id 前缀、CLAUDE.md/AGENTS.md 的 env 示例、`client/package.json` 的 name/description（`gudu-workbench`/`GuDuu·…`→`cosmac-workbench`/`CosMac·…`，含 package-lock 同步）→ 全改 CosMac/`COSMAC_*`。（全仓库复扫确认：剩余 `guduu` 仅 = 故意保留的 stage2 标识符 + DEVLOG 历史流水，不再有漏网的品牌字样。）
   - **刻意保留**（属 stage2，和**线上 bot 账号强耦合**，改了会找不到账号）：bot id `@guduu`、本地域名 `guduu.local`、注册文件名 `guduu-bot.yaml`、前端 `BOT_LOCALPART='guduu'`、localStorage key。已在 config.py 加注释标明。
 - **stage2（待负责人择期，服务器侧迁移）**：把线上 bot `@guduu`→`@cosmac`（重注册 appservice + 重邀进所有房间）+ 改 systemd 用 `COSMAC_*` + 同步翻 `BOT_LOCALPART`。给 runbook。
 - 验证：cosmac 63 单测全过、ruff 通过；`from_env` 本地仍从 yaml 读到 token（不回归）。纯后端+文档，**无需发 dist**；prod 行为不变（GUDUU_* 仍认），重启可选。
