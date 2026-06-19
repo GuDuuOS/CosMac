@@ -23,6 +23,19 @@
       <div class="cam-body">
         <!-- 角色设定 -->
         <template v-if="tab === 'persona'">
+          <!-- 绑定全局智能体：选了就用它的人设/技能（覆盖下面的自定义人设）-->
+          <div v-if="isLive" class="cam-field">
+            <label class="cam-field-label">本群智能体</label>
+            <select v-model="state.persona.agentSlug" class="cam-select">
+              <option value="">不绑定（用下面的自定义人设）</option>
+              <option v-for="a in globalAgents" :key="a.slug" :value="a.slug">
+                {{ a.name || a.slug }}{{ a.enabled ? '' : '（已停用）' }}
+              </option>
+            </select>
+            <div class="cam-help">
+              绑定后，主 AI 在本群以该智能体的人设回应，并自动启用它绑定的技能（在「管理后台 → 智能体」里维护）。
+            </div>
+          </div>
           <div class="cam-field">
             <label class="cam-field-label">AI 名称</label>
             <input v-model="state.persona.aiName" class="cam-input" placeholder="如 CosMac Star" />
@@ -250,6 +263,7 @@ import {
   type Confidential,
   type AccessLevel
 } from '@/composables/useChannelAdmin'
+import { getGlobalAgents, type GlobalAgent } from '@/matrix/client'
 
 type TabKey = 'persona' | 'members' | 'skills' | 'knowledge' | 'dataScopes' | 'rules' | 'model' | 'memory'
 type CountKey = 'members' | 'skills' | 'knowledge' | 'rules' | 'dataScopes'
@@ -333,8 +347,14 @@ function doAddKnowledge() { addItem('knowledge', kLabel.value, kDesc.value); kLa
 function doAddRule() { addItem('rules', rLabel.value, rDesc.value); rLabel.value = ''; rDesc.value = '' }
 function doAddScope() { addScope(dLabel.value, dLevel.value, dAccess.value); dLabel.value = '' }
 
-// 每次打开弹窗时，从 Matrix 重新拉一遍真实成员（防 sync 期间有进出群没反映）
-watch(visible, (v) => { if (v && isLive.value) refreshLiveMembers() })
+// 可绑定的全局智能体（管理后台维护，存控制室 state event）
+const globalAgents = ref<GlobalAgent[]>([])
+async function loadGlobalAgents() {
+  try { globalAgents.value = await getGlobalAgents() } catch { globalAgents.value = [] }
+}
+
+// 每次打开弹窗时，从 Matrix 重新拉一遍真实成员（防 sync 期间有进出群没反映）+ 全局智能体列表
+watch(visible, (v) => { if (v && isLive.value) { refreshLiveMembers(); loadGlobalAgents() } })
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape' && visible.value) close()

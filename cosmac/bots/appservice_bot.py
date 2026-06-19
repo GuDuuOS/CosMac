@@ -28,7 +28,9 @@ from cosmac.ai.base import LLMProvider
 from cosmac.ai.tools import Toolbox, ToolContext
 from cosmac.bots.matrix_client import MatrixClient
 from cosmac.config import (
+    AGENTS_EVENT_TYPE,
     AI_CONFIG_EVENT_TYPE,
+    CHANNEL_CONFIG_EVENT_TYPE,
     CONTROL_ADMINS_EVENT_TYPE,
     SKILLS_EVENT_TYPE,
     CosmacConfig,
@@ -164,12 +166,83 @@ class CosmacBot:
         **绝不能因为它出问题就让主 AI 不回话**——任一来源异常都只是少注入、不抛出。
         """
         try:
-            items = self._global_skill_items() + self._db_skill_items(room_id, sender)
-            return render_skills(items)
+            # 本群绑定的智能体：贡献「人设文本」+「额外要启用的技能 slug」
+            persona, agent_slugs = self._group_persona(room_id)
+            items = (
+                self._global_skill_items()
+                + self._db_skill_items(room_id, sender)
+                + self._agent_skill_items(agent_slugs)
+            )
+            # 按 slug 去重（全局已注入的技能若又被 Agent 绑定，不重复注入；保留首次出现）
+            seen: Set[str] = set()
+            deduped: List[Dict[str, Any]] = []
+            for it in items:
+                slug = str(it.get("slug") or "")
+                if slug and slug in seen:
+                    continue
+                seen.add(slug)
+                deduped.append(it)
+            skills_text = render_skills(deduped)
+            # 人设在前、技能在后，合成本轮 addendum
+            return "\n\n".join(p for p in (persona, skills_text) if p)
         except Exception as e:
-            # 兜住**最终渲染**：脏技能数据绝不能让这条消息收不到回复（docstring 的承诺）
-            logger.debug("渲染技能失败（忽略，按无技能继续）：%s", e)
+            # 兜住**最终组装**：脏数据绝不能让这条消息收不到回复（docstring 的承诺）
+            logger.debug("组装技能/人设失败（忽略，按无附加继续）：%s", e)
             return ""
+
+    def _group_persona(self, room_id: str) -> Tuple[str, List[str]]:
+        """读本群频道配置，得出「人设文本」和「绑定智能体要启用的技能 slug」。
+
+        优先级：① 绑定了全局智能体(persona.agentSlug) → 用它的人设 + 它绑的技能；
+                ② 否则用本群自定义人设(persona.prompt)。都没有 → 空。
+        失败一律返回空（绝不阻断回复）。模型覆盖(agent.model)本期先不做。
+        """
+        try:
+            cfg = self.client.get_state_event(room_id, CHANNEL_CONFIG_EVENT_TYPE) or {}
+            persona = cfg.get("persona") or {}
+            slug = (persona.get("agentSlug") or "").strip()
+            if slug:
+                agent = self._find_global_agent(slug)
+                if agent:
+                    name = agent.get("name") or slug
+                    sp = (agent.get("system_prompt") or "").strip()
+                    text = f"本群已绑定智能体「{name}」，请始终以下述人设与职责回应：\n{sp}"
+                    slugs = [str(s) for s in (agent.get("skill_slugs") or [])]
+                    return text, slugs
+            # 退回自定义人设（自由文本）
+            free = (persona.get("prompt") or "").strip()
+            if free:
+                return f"本群人设：\n{free}", []
+            return "", []
+        except Exception as e:
+            logger.debug("读取本群人设失败（忽略）：%s", e)
+            return "", []
+
+    def _find_global_agent(self, slug: str) -> Optional[Dict[str, Any]]:
+        """在控制室「全局智能体」里按 slug 找一个**启用**的智能体（找不到返回 None）。"""
+        try:
+            ctrl = self.client.resolve_alias(self.config.control_room_alias)
+            if not ctrl:
+                return None
+            ev = self.client.get_state_event(ctrl, AGENTS_EVENT_TYPE) or {}
+            for a in ev.get("agents") or []:
+                if (
+                    isinstance(a, dict)
+                    and a.get("slug") == slug
+                    and a.get("enabled", True)
+                ):
+                    return a
+            return None
+        except Exception as e:
+            logger.debug("查找全局智能体失败（忽略）：%s", e)
+            return None  # 当作没找到
+
+    def _agent_skill_items(self, slugs: List[str]) -> List[Dict[str, Any]]:
+        """把「智能体绑定的技能 slug」解析成技能字典——取启用的全局技能里 slug 命中的。"""
+        if not slugs:
+            return []
+        want = set(slugs)
+        return [s for s in self._global_skill_items() if str(s.get("slug")) in want]
 
     def _global_skill_items(self) -> List[Dict[str, Any]]:
         """读控制室「全局技能」state event，返回启用的技能字典列表（失败返回空）。"""

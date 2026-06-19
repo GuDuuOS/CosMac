@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-19 — 模块2：群绑定智能体 + bot 应用（人设+技能；智能体真正"活"起来）
+- 让 Agent 真正生效:某群在「频道管理 → 角色」选一个**本群智能体**,主 AI 在该群就以它的人设回应、并自动启用它绑定的技能。
+- **前端**:`useChannelAdmin` 的 `ChannelPersona` 加 `agentSlug`(随既有 persona 自动存进频道 state event `cosmac.channel_config`,零新机制);`ChannelAdminModal` 角色 tab 加「本群智能体」下拉(选项来自 `getGlobalAgents`)。
+- **后端**:`config.py` 加 `CHANNEL_CONFIG_EVENT_TYPE`;`appservice_bot._skill_addendum` 扩展——读本群频道配置:① 绑了智能体→注入它的人设 + 绑定技能;② 否则用自定义人设 `persona.prompt`。技能按 slug **去重**(全局已注入的不重复)。模型覆盖(agent.model)本期先不做,留待下一步。全程兜异常,任何读取失败都只是少注入、不阻断回复。
+- 验证:新增 `test_group_agent.py` 5 例(绑定注入人设+技能 / 停用回退 / 自定义人设 / 无配置空 / 无绑定时全局技能照常);cosmac **72 单测全过**、ruff 通过、client build 通过;preview:频道管理→角色 tab 出现「本群智能体」下拉、无控制台报错。
+- 部署:发 dist + `restart guduu-bot`(bot 改了注入逻辑)。
+- 待续:① 模型按群覆盖(agent.model→per-room llm);② 知识库(pgvector·RAG)。
+
 ## 2026-06-19 — 模块2：管理后台「智能体」UI + §3 架构定调
 - 继「技能库」之后,管理后台加 **智能体** tab:定义可复用 AI 角色(人设 + 模型覆盖 + 绑定技能集),全局 Agent 同样存控制室 state event `cosmac.agents`。CRUD/启停齐活,绑定技能用技能库里的勾选列表。
 - **§3 架构定调(负责人拍板,解决上一条 DEVLOG 里 #3 待定项)**:全局 Skill/Agent 定义**走 Matrix state event**(浏览器够不到 DB),与「全局 AI 配置」同套路;DB 留给知识库(pgvector)/记忆/聊天命令建的群级·个人技能。已更新 CLAUDE.md §3 数据分层表。

@@ -188,3 +188,8 @@ SKILLS_EVENT_TYPE = "cosmac.skills"
 # "skill_slugs":[...],"enabled"}, ...]}。一个 Agent = 一套人设 + 模型覆盖 + 绑定的技能集。
 # 同样走 Matrix state event（浏览器够不到 DB），与技能/AI 配置一致。
 AGENTS_EVENT_TYPE = "cosmac.agents"
+
+# 每个频道(群)自己的配置 state event（前端「频道管理」写，存在该房间里）。
+# 这里 bot 只用到 content.persona：persona.agentSlug（本群绑定的全局智能体）
+# 与 persona.prompt（自定义人设）。与 client.ts 的 CHANNEL_CONFIG_EVENT 一致。
+CHANNEL_CONFIG_EVENT_TYPE = "cosmac.channel_config"
