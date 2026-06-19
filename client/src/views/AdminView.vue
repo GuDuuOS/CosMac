@@ -21,6 +21,9 @@
         <button class="adm-mi" :class="{ active: tab === 'ai' }" @click="switchToAi">
           <span class="adm-mi-ic">🤖</span> AI 配置
         </button>
+        <button class="adm-mi" :class="{ active: tab === 'skills' }" @click="switchToSkills">
+          <span class="adm-mi-ic">🛠</span> 技能库
+        </button>
         <button class="adm-mi" :class="{ active: tab === 'overview' }" @click="switchToOverview">
           <span class="adm-mi-ic">📊</span> 数据概览
         </button>
@@ -243,6 +246,81 @@
         </div>
       </template>
 
+      <!-- 技能库面板：编辑全局技能（写控制室 state event，主 AI 注入到所有群）-->
+      <template v-else-if="tab === 'skills'">
+        <header class="adm-head">
+          <div>
+            <h1 class="adm-h1">技能库</h1>
+            <p class="adm-hint">
+              全局技能 · 主 AI 在所有群回话时按需运用 · 保存后约 20 秒内热生效（无需重启）
+            </p>
+          </div>
+          <div class="adm-actions">
+            <button class="adm-btn ghost" :disabled="skLoading || skSaving" @click="loadSkills">
+              {{ skLoading ? '加载中…' : '重新加载' }}
+            </button>
+            <button class="adm-btn" :disabled="skLoading || skSaving" @click="startAddSkill">＋ 新建技能</button>
+          </div>
+        </header>
+
+        <div v-if="skLoading" class="adm-center"><div class="adm-spin" /> 加载技能…</div>
+
+        <div v-else class="adm-form">
+          <!-- 编辑/新建表单 -->
+          <div v-if="skEditing" class="adm-skill-edit">
+            <label class="adm-field">
+              <span>标识 slug（英文/数字/-，全局唯一）</span>
+              <input v-model.trim="skForm.slug" :disabled="skForm._isEdit" placeholder="weekly-report" />
+            </label>
+            <label class="adm-field">
+              <span>名称</span>
+              <input v-model.trim="skForm.name" placeholder="周报" />
+            </label>
+            <label class="adm-field">
+              <span>一句话说明</span>
+              <input v-model.trim="skForm.description" placeholder="生成本周数据周报" />
+            </label>
+            <label class="adm-field">
+              <span>技能正文（喂给主 AI 的提示/步骤）</span>
+              <textarea v-model="skForm.instructions" rows="5" placeholder="按…步骤生成…" />
+            </label>
+            <label class="adm-tool">
+              <input type="checkbox" v-model="skForm.enabled" />
+              <span class="adm-tool-l">启用</span>
+            </label>
+            <div class="adm-actions">
+              <button class="adm-btn ghost" :disabled="skSaving" @click="skEditing = false">取消</button>
+              <button class="adm-btn" :disabled="skSaving || !skForm.slug" @click="saveSkill">
+                {{ skSaving ? '保存中…' : '保存' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 技能列表 -->
+          <p v-if="!skills.length" class="adm-hint">还没有全局技能。点右上「新建技能」加一个。</p>
+          <table v-else class="adm-table">
+            <thead>
+              <tr><th>标识</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in skills" :key="s.slug">
+                <td><code>{{ s.slug }}</code></td>
+                <td>{{ s.name || '—' }}</td>
+                <td class="adm-skill-desc">{{ s.description || '—' }}</td>
+                <td>
+                  <span class="adm-badge" :class="{ on: s.enabled }">{{ s.enabled ? '启用' : '停用' }}</span>
+                </td>
+                <td class="adm-row-actions">
+                  <button class="adm-btn ghost sm" :disabled="skSaving" @click="startEditSkill(s)">编辑</button>
+                  <button class="adm-btn ghost sm" :disabled="skSaving" @click="toggleSkill(s)">{{ s.enabled ? '停用' : '启用' }}</button>
+                  <button class="adm-btn ghost sm danger" :disabled="skSaving" @click="removeSkill(s)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
       <!-- 数据概览面板 -->
       <template v-else-if="tab === 'overview'">
         <header class="adm-head">
@@ -382,10 +460,13 @@ import {
   getServerVersion,
   getAiConfig,
   setAiConfig,
+  getGlobalSkills,
+  setGlobalSkills,
   AI_TOOL_CATALOG,
   AI_PROVIDERS,
   type AdminUser,
   type AdminRoom,
+  type GlobalSkill,
 } from '@/matrix/client'
 import { useToast } from '@/composables/useToast'
 
@@ -394,8 +475,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { success, warn } = useToast()
 
-// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 数据概览
-const tab = ref<'users' | 'rooms' | 'ai' | 'overview'>('users')
+// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 技能库 / 数据概览
+const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'overview'>('users')
 
 // 页面状态机：checking 校验中 / denied 无权限 / ok 已是管理员
 const state = ref<'checking' | 'denied' | 'ok'>('checking')
@@ -654,6 +735,95 @@ async function saveAi() {
   }
 }
 
+/* —— 技能库（全局技能，写控制室 state event）—— */
+const skills = ref<GlobalSkill[]>([])
+const skLoading = ref(false)
+const skSaving = ref(false)
+const skLoaded = ref(false)
+const skEditing = ref(false)
+// _isEdit=true 表示编辑已有技能（slug 锁定不可改）
+const skForm = reactive<GlobalSkill & { _isEdit: boolean }>({
+  slug: '', name: '', description: '', instructions: '', enabled: true, _isEdit: false,
+})
+
+function switchToSkills() {
+  tab.value = 'skills'
+  if (!skLoaded.value) loadSkills()
+}
+
+async function loadSkills() {
+  skLoading.value = true
+  try {
+    skills.value = await getGlobalSkills()
+    skLoaded.value = true
+  } catch (e: any) {
+    warn('加载失败', e?.message || '无法读取技能')
+  } finally {
+    skLoading.value = false
+  }
+}
+
+function startAddSkill() {
+  Object.assign(skForm, {
+    slug: '', name: '', description: '', instructions: '', enabled: true, _isEdit: false,
+  })
+  skEditing.value = true
+}
+
+function startEditSkill(s: GlobalSkill) {
+  Object.assign(skForm, { ...s, _isEdit: true })
+  skEditing.value = true
+}
+
+/** 把当前 skills 列表整体写回控制室（全局技能是一个 state event 里的数组）。 */
+async function persistSkills(next: GlobalSkill[], okMsg: string) {
+  skSaving.value = true
+  try {
+    await setGlobalSkills(next)
+    skills.value = next
+    success('已保存', okMsg)
+  } catch (e: any) {
+    warn('保存失败', e?.message || '无法写入控制室')
+    throw e
+  } finally {
+    skSaving.value = false
+  }
+}
+
+async function saveSkill() {
+  const slug = skForm.slug.trim()
+  if (!slug) return
+  const item: GlobalSkill = {
+    slug,
+    name: skForm.name.trim(),
+    description: skForm.description.trim(),
+    instructions: skForm.instructions,
+    enabled: skForm.enabled,
+  }
+  // 已有同 slug → 覆盖；否则追加
+  const next = skills.value.slice()
+  const i = next.findIndex((s) => s.slug === slug)
+  if (i >= 0) next[i] = item
+  else next.push(item)
+  try {
+    await persistSkills(next, '主 AI 约 20 秒内热生效')
+    skEditing.value = false
+  } catch { /* persistSkills 已提示 */ }
+}
+
+async function toggleSkill(s: GlobalSkill) {
+  const next = skills.value.map((x) =>
+    x.slug === s.slug ? { ...x, enabled: !x.enabled } : x,
+  )
+  try { await persistSkills(next, s.enabled ? '已停用' : '已启用') } catch { /* 已提示 */ }
+}
+
+async function removeSkill(s: GlobalSkill) {
+  if (!confirm(`确认删除技能「${s.name || s.slug}」？`)) return
+  const next = skills.value.filter((x) => x.slug !== s.slug)
+  try { await persistSkills(next, '已删除') } catch { /* 已提示 */ }
+}
+
 /* —— 数据概览 —— */
 const ovLoading = ref(false)
 const ovLoaded = ref(false)
@@ -778,6 +948,36 @@ onMounted(check)
 .adm-btn:hover:not(:disabled) { opacity: 0.88; }
 .adm-btn:disabled { opacity: 0.5; cursor: default; }
 .adm-btn.ghost { background: var(--bg-soft); color: var(--text-2); font-weight: 400; }
+.adm-btn.sm { padding: 5px 10px; font-size: var(--fs-75); border-radius: 7px; }
+.adm-btn.danger { color: var(--danger); }
+.adm-btn.danger:hover:not(:disabled) { background: #fee2e2; opacity: 1; }
+
+/* 技能库 */
+.adm-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.adm-skill-desc { color: var(--text-2); max-width: 320px; }
+.adm-skill-edit {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: var(--bg-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.adm-badge {
+  font-size: var(--fs-75);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+.adm-badge.on {
+  color: var(--ok, #2e7d32);
+  border-color: color-mix(in srgb, var(--ok, #2e7d32) 40%, var(--border));
+  background: color-mix(in srgb, var(--ok, #2e7d32) 10%, transparent);
+}
 
 /* 表格 */
 .adm-table { width: 100%; border-collapse: collapse; font-size: var(--fs-100); }

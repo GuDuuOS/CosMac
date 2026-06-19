@@ -30,8 +30,10 @@ from cosmac.bots.matrix_client import MatrixClient
 from cosmac.config import (
     AI_CONFIG_EVENT_TYPE,
     CONTROL_ADMINS_EVENT_TYPE,
+    SKILLS_EVENT_TYPE,
     CosmacConfig,
 )
+from cosmac.skills_text import render_skills  # 纯渲染、不依赖 DB
 
 logger = logging.getLogger("cosmac.appservice_bot")
 
@@ -153,22 +155,55 @@ class CosmacBot:
             self.client.send_text(room_id, reply)
 
     def _skill_addendum(self, room_id: str, sender: str) -> str:
-        """取「本群 + 发起人」当前生效的技能说明，拼成 system addendum。
+        """拼出本轮注入主 AI 的技能说明 = 全局技能 + 本群/个人技能，合并渲染一次。
 
-        **绝不能因为它出问题就让主 AI 不回话**，所以全程包在 try/except 里、
-        且 ``cosmac.db`` 懒导入——生产服务器还没装 SQLAlchemy 时，import 失败也只是
-        退化成「无技能」，bot 照常回复，零回归。等真正配好 DB（COSMAC_DATABASE_URL）
-        并通过后台/接口建了技能，这里就会自动开始注入。
+        两个来源、各自兜异常、互不拖累：
+          - **全局技能**：控制室的 state event（管理后台写、bot 读），纯 Matrix、不需要 DB。
+          - **群级/个人技能**：cosmac DB（聊天命令写），``cosmac.db`` 懒导入；服务器没装
+            SQLAlchemy / 读失败时这部分降级为空，全局技能仍照常注入。
+        **绝不能因为它出问题就让主 AI 不回话**——任一来源异常都只是少注入、不抛出。
+        """
+        items = self._global_skill_items() + self._db_skill_items(room_id, sender)
+        return render_skills(items)
+
+    def _global_skill_items(self) -> List[Dict[str, Any]]:
+        """读控制室「全局技能」state event，返回启用的技能字典列表（失败返回空）。"""
+        try:
+            ctrl = self.client.resolve_alias(self.config.control_room_alias)
+            if not ctrl:
+                return []
+            ev = self.client.get_state_event(ctrl, SKILLS_EVENT_TYPE) or {}
+            skills = ev.get("skills") or []
+            return [
+                s for s in skills
+                if isinstance(s, dict) and s.get("enabled", True)
+            ]
+        except Exception as e:
+            logger.debug("读取全局技能失败（忽略）：%s", e)
+            return []
+
+    def _db_skill_items(self, room_id: str, sender: str) -> List[Dict[str, Any]]:
+        """从 cosmac DB 读本群/个人启用的技能（聊天命令建的），转成字典列表。
+
+        cosmac.db 懒导入 + 全程兜异常：服务器没装 SQLAlchemy/读失败就返回空。
         """
         try:
             from cosmac.db import session_scope
-            from cosmac.db.service import effective_skill_prompt
+            from cosmac.db.service import effective_skills
 
             with session_scope() as s:
-                return effective_skill_prompt(s, room_id=room_id, user_id=sender)
-        except Exception as e:  # 缺依赖 / 连不上 / 表不存在 / 任何异常
-            logger.debug("加载技能失败（忽略，按无技能继续）：%s", e)
-            return ""
+                return [
+                    {
+                        "slug": k.slug,
+                        "name": k.name,
+                        "description": k.description,
+                        "instructions": k.instructions,
+                    }
+                    for k in effective_skills(s, room_id=room_id, user_id=sender)
+                ]
+        except Exception as e:
+            logger.debug("读取 DB 技能失败（忽略）：%s", e)
+            return []
 
     # —— 控制室成员对齐：把已撤销的管理员降权 + 踢出（浏览器做不到，bot 用 100 权限做）——
 

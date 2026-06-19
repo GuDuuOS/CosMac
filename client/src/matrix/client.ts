@@ -749,6 +749,9 @@ const AI_CONFIG_EVENT_TYPE = 'cosmac.ai.config'
 const CONTROL_ADMINS_EVENT_TYPE = 'cosmac.ctrl.admins'
 /** 控制室别名 localpart（#cosmac-ctrl:<server>）。 */
 const CONTROL_ROOM_LOCALPART = 'cosmac-ctrl'
+/** 控制室里「全局技能」state event 的类型（与 bot 端 SKILLS_EVENT_TYPE 一致）。
+ *  管理后台写、主 AI 读；应用于所有群。群级/个人技能走聊天命令存 cosmac DB，不在这。 */
+const SKILLS_EVENT_TYPE = 'cosmac.skills'
 
 /** 主 AI 可用工具目录（工具开关 UI 用；name 要与 bot 端 Toolbox 注册的一致）。 */
 export const AI_TOOL_CATALOG: { name: string; label: string }[] = [
@@ -945,6 +948,42 @@ export async function setAiConfig(cfg: AiConfig): Promise<void> {
     },
     '',
   )
+}
+
+/** 一条「全局技能」定义（管理后台编辑、主 AI 注入）。slug 在全局内唯一。 */
+export interface GlobalSkill {
+  slug: string
+  name: string
+  description: string
+  instructions: string
+  enabled: boolean
+}
+
+/** 读全局技能列表（控制室 state event）；房间/事件不存在时返回 []。 */
+export async function getGlobalSkills(): Promise<GlobalSkill[]> {
+  if (!mx) return []
+  const rid = await resolveControlRoom()
+  if (!rid) return []
+  try {
+    const ev = await (mx as any).getStateEvent(rid, SKILLS_EVENT_TYPE, '')
+    const arr = Array.isArray(ev?.skills) ? ev.skills : []
+    return arr.map((s: any) => ({
+      slug: String(s?.slug || ''),
+      name: String(s?.name || ''),
+      description: String(s?.description || ''),
+      instructions: String(s?.instructions || ''),
+      enabled: s?.enabled !== false, // 缺省视为启用
+    })).filter((s: GlobalSkill) => s.slug)
+  } catch {
+    return [] // 房间在但还没写过技能
+  }
+}
+
+/** 整体写入全局技能列表（必要时先建控制室）。主 AI 约 20 秒内读到并热生效。 */
+export async function setGlobalSkills(skills: GlobalSkill[]): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  const rid = await ensureControlRoom()
+  await (mx as any).sendStateEvent(rid, SKILLS_EVENT_TYPE, { skills }, '')
 }
 
 /** 读某个频道当前时间线的消息（含发送者昵称与 cosmac.card 富卡）。 */

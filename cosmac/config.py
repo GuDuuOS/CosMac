@@ -175,3 +175,10 @@ AI_CONFIG_EVENT_TYPE = "cosmac.ai.config"
 # 浏览器只提交期望（管理员 power=50 够写 state）；真正的"降权/踢出非管理员"由拥有
 # power=100 的 bot 执行——因为 Matrix 里同级(50)用户互相无法降权/踢出。
 CONTROL_ADMINS_EVENT_TYPE = "cosmac.ctrl.admins"
+
+# 管理后台写、bot 读的「全局技能」state event 类型（存在控制室，应用于所有群）。
+# 内容形如 {"skills": [{"slug","name","description","instructions","enabled"}, ...]}。
+# 走 Matrix state event 而非 DB，是因为浏览器只能通过 Matrix 跟后端通信、够不到 cosmac
+# 的 DB——与 AI 配置同一套路（见 CLAUDE.md §3 数据存储分层）。群级/个人技能仍在 DB
+# （聊天命令管理），bot 注入时把两边合并。
+SKILLS_EVENT_TYPE = "cosmac.skills"

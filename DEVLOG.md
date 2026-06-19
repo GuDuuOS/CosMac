@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-19 — 模块2：管理后台「技能库」UI（全局技能，走控制室 state event）
+- 让技能"可视":管理后台加 **技能库** tab,增删改/启停全局技能,**主 AI 在所有群回话时注入**。
+- **架构定调（负责人选 Matrix state event 方案）**:浏览器够不到 cosmac 的 DB(bot 进程私有、没开 API),所以全局技能跟「AI 配置」同套路——存控制室 state event `cosmac.skills`,浏览器写、bot 读。零新基建、立刻可视。群级/个人技能仍走聊天命令存 DB,bot 注入时两边合并。
+- 后端:`config.py` 加 `SKILLS_EVENT_TYPE`;新增 `cosmac/skills_text.py`(纯渲染、**不依赖 DB/SQLAlchemy**,带总长上限);`appservice_bot._skill_addendum` 重写为 **全局(控制室 state event) + 群/个人(DB) 合并渲染**,两来源各自兜异常、互不拖累——全局技能纯 Matrix 读,服务器没装 SQLAlchemy 也能用。
+- 前端:`client.ts` 加 `getGlobalSkills/setGlobalSkills`(读写控制室 state event,同 getAiConfig 套路)+ `GlobalSkill` 类型;`AdminView.vue` 加技能库 tab(表格 + 新建/编辑表单 + 启停/删除)。
+- 验证:cosmac **63 单测全过、ruff 通过**;client build 通过;**preview 直连生产**:技能库渲染→新建写入控制室→重新加载读回(round-trip)→删除清理,生产无残留、无控制台报错。
+- 部署:**前端发 dist + 后端 restart guduu-bot**(bot 改了注入逻辑;全局技能只读 state event、不需要 SQLAlchemy)。
+
 ## 2026-06-19 — 品牌清理 GuDuu→CosMac（stage1：环境变量 + 注释/文档，零停机）
 - 背景：负责人指出项目叫 CosMac，但服务器/运维层到处是 GuDuu（env 变量名、bot 账号、service 名）。当初 guduu→cosmac 改名没做干净。决定**彻底**改，但分两阶段保证不挂线上 bot。
 - **stage1（本次，代码层零停机）**：
