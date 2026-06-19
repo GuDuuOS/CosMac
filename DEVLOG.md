@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-19 — 模块2：管理后台「智能体」UI + §3 架构定调
+- 继「技能库」之后,管理后台加 **智能体** tab:定义可复用 AI 角色(人设 + 模型覆盖 + 绑定技能集),全局 Agent 同样存控制室 state event `cosmac.agents`。CRUD/启停齐活,绑定技能用技能库里的勾选列表。
+- **§3 架构定调(负责人拍板,解决上一条 DEVLOG 里 #3 待定项)**:全局 Skill/Agent 定义**走 Matrix state event**(浏览器够不到 DB),与「全局 AI 配置」同套路;DB 留给知识库(pgvector)/记忆/聊天命令建的群级·个人技能。已更新 CLAUDE.md §3 数据分层表。
+- 后端:`config.py` 加 `AGENTS_EVENT_TYPE`(bot 暂未消费——下一步做"群绑定 Agent + bot 应用其人设/模型/技能")。前端:`client.ts` 加 `getGlobalAgents/setGlobalAgents` + `GlobalAgent` 类型;`AdminView.vue` 加智能体 tab。
+- 验证:client build 通过;**preview 直连生产**:智能体新建写控制室→重新加载读回(round-trip)→删除清理,生产无残留、无控制台报错。
+- 部署:**仅发 dist**(后端只加了个常量、bot 还没用 Agent → 无需 restart)。
+- 待续:① 群绑定 Agent + bot 应用;② 知识库(pgvector·RAG)。
+
 ## 2026-06-19 — 全局技能健壮性修复（脏数据不致哑 + 首条也限长 + 写校验）
 - **#1【P1】坏技能能让 bot 不回话**：`skills_text.render_skills` 假设字段是字符串、直接 `.strip()`，`name:123` → AttributeError；且 bot 的 `_skill_addendum` 兜了两个数据源、却**没兜最后的 render 调用**，于是整条消息收不到回复（与 docstring 承诺相反）。修：render 里字段一律 `str()` 安全转换 + 非 dict 跳过；bot 把 `render_skills` 也包进 try/except。
 - **#2【P2】6000 字上限被第一条绕过**：`used>0` 判断让首条技能永不截断，单条 12000 字直接全量注入。修：改成"预算用尽即停 + 单条超长就**截断这一条**（含第一条）"，总长度恒 ≤ 上限。`db/service.render_skill_prompt` 改为**委托** `render_skills`（两份渲染合一，不再各踩各的坑；`MAX_TOTAL_PROMPT_CHARS` 单一来源）。前端 `setGlobalSkills` 加**写校验+规范化**：数量 ≤50、正文 ≤2000、字段强制转字符串——脏数据从源头就写不进去。
