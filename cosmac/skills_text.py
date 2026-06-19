@@ -16,8 +16,17 @@ from typing import Dict, List
 MAX_TOTAL_PROMPT_CHARS = 6000
 
 
+def _s(v: object) -> str:
+    """把任意字段值安全转成字符串再去空白——脏数据（如 name 是数字/None）也不崩。"""
+    return ("" if v is None else str(v)).strip()
+
+
 def render_skills(items: List[Dict]) -> str:
-    """把若干技能字典渲染成一段 system 提示；没有技能返回空串。"""
+    """把若干技能字典渲染成一段 system 提示；没有技能返回空串。
+
+    健壮性：字段值不假设是字符串（脏数据 name:123 也只是被转成 "123"，绝不抛异常）；
+    总长度有上限，**含第一条**——单条超长会被截断，不会因 used>0 而漏过预算。
+    """
     if not items:
         return ""
     header = "你已装载以下技能，按需运用："
@@ -25,19 +34,25 @@ def render_skills(items: List[Dict]) -> str:
     total = len(header)
     used = 0
     for it in items:
-        title = (it.get("name") or it.get("slug") or "").strip()
+        if not isinstance(it, dict):
+            continue
+        title = _s(it.get("name")) or _s(it.get("slug"))
         if not title:
             continue
-        head = f"## 技能：{title}"
-        desc = (it.get("description") or "").strip()
-        if desc:
-            head += f"（{desc}）"
-        instr = (it.get("instructions") or "").strip()
-        block = head + (f"\n{instr}" if instr else "")
-        # 超预算且已注入过至少一条：停下并说明还剩多少没注入
-        if total + len(block) + 1 > MAX_TOTAL_PROMPT_CHARS and used > 0:
+        # 预算已用尽 → 停止注入剩余，给出提示（不静默吞）
+        if total >= MAX_TOTAL_PROMPT_CHARS:
             lines.append(f"（另有 {len(items) - used} 个技能因超出长度预算未注入）")
             break
+        head = f"## 技能：{title}"
+        desc = _s(it.get("description"))
+        if desc:
+            head += f"（{desc}）"
+        instr = _s(it.get("instructions"))
+        block = head + (f"\n{instr}" if instr else "")
+        # 单条若超出剩余预算就**截断这一条**（含第一条），保证总长度恒 ≤ 上限
+        remaining = MAX_TOTAL_PROMPT_CHARS - total
+        if len(block) + 1 > remaining:
+            block = block[: max(0, remaining - 12)].rstrip() + "…（已截断）"
         lines.append(block)
         total += len(block) + 1
         used += 1

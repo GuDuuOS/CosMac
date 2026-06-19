@@ -17,9 +17,8 @@ from sqlalchemy.orm import Session
 from cosmac.db import repo
 from cosmac.db.models import SCOPE_GLOBAL, SCOPE_ROOM, SCOPE_USER, Skill
 
-# 注入主 AI 的技能提示**总长度**上限：即便单条已限长，启用的技能多了也会撑爆上下文，
-# 这里再兜一层——超预算就停止注入剩余技能并给出提示（不静默截断）。
-MAX_TOTAL_PROMPT_CHARS = 6000
+# 单一来源：渲染总长度上限定义在 skills_text，这里 re-export 兼容旧引用（含测试）。
+from cosmac.skills_text import MAX_TOTAL_PROMPT_CHARS  # noqa: F401
 
 
 def effective_skills(
@@ -46,28 +45,22 @@ def effective_skills(
 def render_skill_prompt(skills: List[Skill]) -> str:
     """把若干技能渲染成一段 system 提示文本；没有技能返回空串。
 
-    总长度有上限（MAX_TOTAL_PROMPT_CHARS）：超预算就停止注入剩余技能、附一句提示，
-    避免技能一多就把模型上下文/费用撑爆。
+    渲染逻辑（含总长度上限、首条也截断、脏数据不崩）统一走 `skills_text.render_skills`，
+    这里只把 ORM Skill 转成它认的字典——避免两份渲染各自实现、各自踩同一个坑。
     """
-    if not skills:
-        return ""
-    header = "你已装载以下技能，按需运用："
-    lines = [header]
-    total = len(header)
-    used = 0
-    for sk in skills:
-        title = sk.name or sk.slug
-        head = f"## 技能：{title}"
-        if sk.description:
-            head += f"（{sk.description}）"
-        block = head + (f"\n{sk.instructions}" if sk.instructions else "")
-        if total + len(block) + 1 > MAX_TOTAL_PROMPT_CHARS and used > 0:
-            lines.append(f"（另有 {len(skills) - used} 个技能因超出长度预算未注入）")
-            break
-        lines.append(block)
-        total += len(block) + 1
-        used += 1
-    return "\n".join(lines)
+    from cosmac.skills_text import render_skills
+
+    return render_skills(
+        [
+            {
+                "slug": sk.slug,
+                "name": sk.name,
+                "description": sk.description,
+                "instructions": sk.instructions,
+            }
+            for sk in skills
+        ]
+    )
 
 
 def effective_skill_prompt(

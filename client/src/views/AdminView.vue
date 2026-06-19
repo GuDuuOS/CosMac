@@ -24,6 +24,9 @@
         <button class="adm-mi" :class="{ active: tab === 'skills' }" @click="switchToSkills">
           <span class="adm-mi-ic">🛠</span> 技能库
         </button>
+        <button class="adm-mi" :class="{ active: tab === 'agents' }" @click="switchToAgents">
+          <span class="adm-mi-ic">🧑‍🚀</span> 智能体
+        </button>
         <button class="adm-mi" :class="{ active: tab === 'overview' }" @click="switchToOverview">
           <span class="adm-mi-ic">📊</span> 数据概览
         </button>
@@ -321,6 +324,96 @@
         </div>
       </template>
 
+      <!-- 智能体面板：编辑全局 Agent（人设+模型+绑定技能，写控制室 state event）-->
+      <template v-else-if="tab === 'agents'">
+        <header class="adm-head">
+          <div>
+            <h1 class="adm-h1">智能体</h1>
+            <p class="adm-hint">
+              定义可复用的 AI 角色（人设 + 模型 + 绑定技能）· 后续可把某群绑定到一个智能体
+            </p>
+          </div>
+          <div class="adm-actions">
+            <button class="adm-btn ghost" :disabled="agLoading || agSaving" @click="loadAgents">
+              {{ agLoading ? '加载中…' : '重新加载' }}
+            </button>
+            <button class="adm-btn" :disabled="agLoading || agSaving" @click="startAddAgent">＋ 新建智能体</button>
+          </div>
+        </header>
+
+        <div v-if="agLoading" class="adm-center"><div class="adm-spin" /> 加载智能体…</div>
+
+        <div v-else class="adm-form">
+          <!-- 编辑/新建表单 -->
+          <div v-if="agEditing" class="adm-skill-edit">
+            <label class="adm-field">
+              <span>标识 slug（英文/数字/-，全局唯一）</span>
+              <input v-model.trim="agForm.slug" :disabled="agForm._isEdit" placeholder="planner" />
+            </label>
+            <label class="adm-field">
+              <span>名称</span>
+              <input v-model.trim="agForm.name" placeholder="策划助手" />
+            </label>
+            <label class="adm-field">
+              <span>一句话说明</span>
+              <input v-model.trim="agForm.description" placeholder="负责选题与排期" />
+            </label>
+            <label class="adm-field">
+              <span>人设（system prompt）</span>
+              <textarea v-model="agForm.system_prompt" rows="4" placeholder="你是…，说话风格…" />
+            </label>
+            <label class="adm-field">
+              <span>模型覆盖（留空 = 跟随全局 AI 配置）</span>
+              <input v-model.trim="agForm.model" placeholder="如 claude-opus-4-8（可留空）" />
+            </label>
+            <div class="adm-field">
+              <span>绑定技能（勾选全局技能库里的技能）</span>
+              <div v-if="!skills.length" class="adm-note">技能库为空，可先去「技能库」建技能。</div>
+              <div v-else class="adm-tools">
+                <label v-for="s in skills" :key="s.slug" class="adm-tool">
+                  <input type="checkbox" :checked="agForm.skill_slugs.includes(s.slug)"
+                    @change="toggleAgentSkill(s.slug, ($event.target as HTMLInputElement).checked)" />
+                  <span class="adm-tool-l">{{ s.name || s.slug }}</span>
+                  <code>{{ s.slug }}</code>
+                </label>
+              </div>
+            </div>
+            <label class="adm-tool">
+              <input type="checkbox" v-model="agForm.enabled" />
+              <span class="adm-tool-l">启用</span>
+            </label>
+            <div class="adm-actions">
+              <button class="adm-btn ghost" :disabled="agSaving" @click="agEditing = false">取消</button>
+              <button class="adm-btn" :disabled="agSaving || !agForm.slug" @click="saveAgent">
+                {{ agSaving ? '保存中…' : '保存' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 智能体列表 -->
+          <p v-if="!agents.length" class="adm-hint">还没有智能体。点右上「新建智能体」加一个。</p>
+          <table v-else class="adm-table">
+            <thead>
+              <tr><th>标识</th><th>名称</th><th>模型</th><th>技能</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="a in agents" :key="a.slug">
+                <td><code>{{ a.slug }}</code></td>
+                <td>{{ a.name || '—' }}</td>
+                <td>{{ a.model || '默认' }}</td>
+                <td class="adm-skill-desc">{{ a.skill_slugs.length ? a.skill_slugs.join('、') : '—' }}</td>
+                <td><span class="adm-badge" :class="{ on: a.enabled }">{{ a.enabled ? '启用' : '停用' }}</span></td>
+                <td class="adm-row-actions">
+                  <button class="adm-btn ghost sm" :disabled="agSaving" @click="startEditAgent(a)">编辑</button>
+                  <button class="adm-btn ghost sm" :disabled="agSaving" @click="toggleAgent(a)">{{ a.enabled ? '停用' : '启用' }}</button>
+                  <button class="adm-btn ghost sm danger" :disabled="agSaving" @click="removeAgent(a)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
       <!-- 数据概览面板 -->
       <template v-else-if="tab === 'overview'">
         <header class="adm-head">
@@ -462,11 +555,14 @@ import {
   setAiConfig,
   getGlobalSkills,
   setGlobalSkills,
+  getGlobalAgents,
+  setGlobalAgents,
   AI_TOOL_CATALOG,
   AI_PROVIDERS,
   type AdminUser,
   type AdminRoom,
   type GlobalSkill,
+  type GlobalAgent,
 } from '@/matrix/client'
 import { useToast } from '@/composables/useToast'
 
@@ -475,8 +571,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { success, warn } = useToast()
 
-// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 技能库 / 数据概览
-const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'overview'>('users')
+// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 技能库 / 智能体 / 数据概览
+const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'agents' | 'overview'>('users')
 
 // 页面状态机：checking 校验中 / denied 无权限 / ok 已是管理员
 const state = ref<'checking' | 'denied' | 'ok'>('checking')
@@ -822,6 +918,103 @@ async function removeSkill(s: GlobalSkill) {
   if (!confirm(`确认删除技能「${s.name || s.slug}」？`)) return
   const next = skills.value.filter((x) => x.slug !== s.slug)
   try { await persistSkills(next, '已删除') } catch { /* 已提示 */ }
+}
+
+/* —— 智能体（全局 Agent，写控制室 state event）—— */
+const agents = ref<GlobalAgent[]>([])
+const agLoading = ref(false)
+const agSaving = ref(false)
+const agLoaded = ref(false)
+const agEditing = ref(false)
+const agForm = reactive<GlobalAgent & { _isEdit: boolean }>({
+  slug: '', name: '', description: '', system_prompt: '', model: '',
+  skill_slugs: [], enabled: true, _isEdit: false,
+})
+
+function switchToAgents() {
+  tab.value = 'agents'
+  if (!agLoaded.value) loadAgents()
+  if (!skLoaded.value) loadSkills() // 绑定技能用的勾选列表
+}
+
+async function loadAgents() {
+  agLoading.value = true
+  try {
+    agents.value = await getGlobalAgents()
+    agLoaded.value = true
+  } catch (e: any) {
+    warn('加载失败', e?.message || '无法读取智能体')
+  } finally {
+    agLoading.value = false
+  }
+}
+
+function startAddAgent() {
+  Object.assign(agForm, {
+    slug: '', name: '', description: '', system_prompt: '', model: '',
+    skill_slugs: [], enabled: true, _isEdit: false,
+  })
+  agEditing.value = true
+}
+
+function startEditAgent(a: GlobalAgent) {
+  Object.assign(agForm, { ...a, skill_slugs: [...a.skill_slugs], _isEdit: true })
+  agEditing.value = true
+}
+
+function toggleAgentSkill(slug: string, on: boolean) {
+  const i = agForm.skill_slugs.indexOf(slug)
+  if (on && i < 0) agForm.skill_slugs.push(slug)
+  else if (!on && i >= 0) agForm.skill_slugs.splice(i, 1)
+}
+
+async function persistAgents(next: GlobalAgent[], okMsg: string) {
+  agSaving.value = true
+  try {
+    await setGlobalAgents(next)
+    agents.value = next
+    success('已保存', okMsg)
+  } catch (e: any) {
+    warn('保存失败', e?.message || '无法写入控制室')
+    throw e
+  } finally {
+    agSaving.value = false
+  }
+}
+
+async function saveAgent() {
+  const slug = agForm.slug.trim()
+  if (!slug) return
+  const item: GlobalAgent = {
+    slug,
+    name: agForm.name.trim(),
+    description: agForm.description.trim(),
+    system_prompt: agForm.system_prompt,
+    model: agForm.model.trim(),
+    skill_slugs: [...agForm.skill_slugs],
+    enabled: agForm.enabled,
+  }
+  const next = agents.value.slice()
+  const i = next.findIndex((a) => a.slug === slug)
+  if (i >= 0) next[i] = item
+  else next.push(item)
+  try {
+    await persistAgents(next, '已保存智能体')
+    agEditing.value = false
+  } catch { /* 已提示 */ }
+}
+
+async function toggleAgent(a: GlobalAgent) {
+  const next = agents.value.map((x) =>
+    x.slug === a.slug ? { ...x, enabled: !x.enabled } : x,
+  )
+  try { await persistAgents(next, a.enabled ? '已停用' : '已启用') } catch { /* 已提示 */ }
+}
+
+async function removeAgent(a: GlobalAgent) {
+  if (!confirm(`确认删除智能体「${a.name || a.slug}」？`)) return
+  const next = agents.value.filter((x) => x.slug !== a.slug)
+  try { await persistAgents(next, '已删除') } catch { /* 已提示 */ }
 }
 
 /* —— 数据概览 —— */

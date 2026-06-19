@@ -163,8 +163,13 @@ class CosmacBot:
             SQLAlchemy / 读失败时这部分降级为空，全局技能仍照常注入。
         **绝不能因为它出问题就让主 AI 不回话**——任一来源异常都只是少注入、不抛出。
         """
-        items = self._global_skill_items() + self._db_skill_items(room_id, sender)
-        return render_skills(items)
+        try:
+            items = self._global_skill_items() + self._db_skill_items(room_id, sender)
+            return render_skills(items)
+        except Exception as e:
+            # 兜住**最终渲染**：脏技能数据绝不能让这条消息收不到回复（docstring 的承诺）
+            logger.debug("渲染技能失败（忽略，按无技能继续）：%s", e)
+            return ""
 
     def _global_skill_items(self) -> List[Dict[str, Any]]:
         """读控制室「全局技能」state event，返回启用的技能字典列表（失败返回空）。"""

@@ -752,6 +752,8 @@ const CONTROL_ROOM_LOCALPART = 'cosmac-ctrl'
 /** 控制室里「全局技能」state event 的类型（与 bot 端 SKILLS_EVENT_TYPE 一致）。
  *  管理后台写、主 AI 读；应用于所有群。群级/个人技能走聊天命令存 cosmac DB，不在这。 */
 const SKILLS_EVENT_TYPE = 'cosmac.skills'
+/** 控制室里「全局智能体(Agent)」state event 的类型（与 bot 端 AGENTS_EVENT_TYPE 一致）。 */
+const AGENTS_EVENT_TYPE = 'cosmac.agents'
 
 /** 主 AI 可用工具目录（工具开关 UI 用；name 要与 bot 端 Toolbox 注册的一致）。 */
 export const AI_TOOL_CATALOG: { name: string; label: string }[] = [
@@ -979,11 +981,81 @@ export async function getGlobalSkills(): Promise<GlobalSkill[]> {
   }
 }
 
-/** 整体写入全局技能列表（必要时先建控制室）。主 AI 约 20 秒内读到并热生效。 */
+// 全局技能容量上限（与 bot 端 skill_cmd 一致；防刷爆模型上下文 / state event 过大）
+const MAX_GLOBAL_SKILLS = 50
+const MAX_SKILL_INSTRUCTIONS = 2000
+const MAX_SKILL_NAME = 80
+const MAX_SKILL_SLUG = 64
+
+/**
+ * 整体写入全局技能列表（必要时先建控制室）。主 AI 约 20 秒内读到并热生效。
+ * 写前**校验 + 规范化**：数量/正文长度上限，且把每个字段强制成字符串——脏数据
+ * （如 name 是数字）从源头就写不进去，bot 渲染时也不会因此崩/不回复。
+ */
 export async function setGlobalSkills(skills: GlobalSkill[]): Promise<void> {
   if (!mx) throw new Error('未登录')
+  if (skills.length > MAX_GLOBAL_SKILLS) {
+    throw new Error(`全局技能最多 ${MAX_GLOBAL_SKILLS} 个（当前 ${skills.length}）`)
+  }
+  const clean = skills.map((s) => {
+    const slug = String(s.slug ?? '').trim().slice(0, MAX_SKILL_SLUG)
+    if (!slug) throw new Error('技能标识（slug）不能为空')
+    const instructions = String(s.instructions ?? '')
+    if (instructions.length > MAX_SKILL_INSTRUCTIONS) {
+      throw new Error(
+        `技能「${slug}」正文超长（最多 ${MAX_SKILL_INSTRUCTIONS} 字，当前 ${instructions.length}）`,
+      )
+    }
+    return {
+      slug,
+      name: String(s.name ?? '').trim().slice(0, MAX_SKILL_NAME),
+      description: String(s.description ?? '').trim(),
+      instructions,
+      enabled: s.enabled !== false,
+    }
+  })
   const rid = await ensureControlRoom()
-  await (mx as any).sendStateEvent(rid, SKILLS_EVENT_TYPE, { skills }, '')
+  await (mx as any).sendStateEvent(rid, SKILLS_EVENT_TYPE, { skills: clean }, '')
+}
+
+/** 一个「智能体(Agent)」定义 = 一套人设 + 模型覆盖 + 绑定的技能集。slug 全局唯一。 */
+export interface GlobalAgent {
+  slug: string
+  name: string
+  description: string
+  system_prompt: string
+  model: string
+  skill_slugs: string[]
+  enabled: boolean
+}
+
+/** 读全局智能体列表（控制室 state event）；房间/事件不存在时返回 []。 */
+export async function getGlobalAgents(): Promise<GlobalAgent[]> {
+  if (!mx) return []
+  const rid = await resolveControlRoom()
+  if (!rid) return []
+  try {
+    const ev = await (mx as any).getStateEvent(rid, AGENTS_EVENT_TYPE, '')
+    const arr = Array.isArray(ev?.agents) ? ev.agents : []
+    return arr.map((a: any) => ({
+      slug: String(a?.slug || ''),
+      name: String(a?.name || ''),
+      description: String(a?.description || ''),
+      system_prompt: String(a?.system_prompt || ''),
+      model: String(a?.model || ''),
+      skill_slugs: Array.isArray(a?.skill_slugs) ? a.skill_slugs.map(String) : [],
+      enabled: a?.enabled !== false,
+    })).filter((a: GlobalAgent) => a.slug)
+  } catch {
+    return []
+  }
+}
+
+/** 整体写入全局智能体列表（必要时先建控制室）。 */
+export async function setGlobalAgents(agents: GlobalAgent[]): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  const rid = await ensureControlRoom()
+  await (mx as any).sendStateEvent(rid, AGENTS_EVENT_TYPE, { agents }, '')
 }
 
 /** 读某个频道当前时间线的消息（含发送者昵称与 cosmac.card 富卡）。 */

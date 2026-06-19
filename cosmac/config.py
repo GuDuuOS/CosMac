@@ -182,3 +182,9 @@ CONTROL_ADMINS_EVENT_TYPE = "cosmac.ctrl.admins"
 # 的 DB——与 AI 配置同一套路（见 CLAUDE.md §3 数据存储分层）。群级/个人技能仍在 DB
 # （聊天命令管理），bot 注入时把两边合并。
 SKILLS_EVENT_TYPE = "cosmac.skills"
+
+# 管理后台写、bot 读的「全局智能体(Agent)」state event 类型（存控制室）。
+# 内容形如 {"agents": [{"slug","name","description","system_prompt","model",
+# "skill_slugs":[...],"enabled"}, ...]}。一个 Agent = 一套人设 + 模型覆盖 + 绑定的技能集。
+# 同样走 Matrix state event（浏览器够不到 DB），与技能/AI 配置一致。
+AGENTS_EVENT_TYPE = "cosmac.agents"

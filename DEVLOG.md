@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-19 — 全局技能健壮性修复（脏数据不致哑 + 首条也限长 + 写校验）
+- **#1【P1】坏技能能让 bot 不回话**：`skills_text.render_skills` 假设字段是字符串、直接 `.strip()`，`name:123` → AttributeError；且 bot 的 `_skill_addendum` 兜了两个数据源、却**没兜最后的 render 调用**，于是整条消息收不到回复（与 docstring 承诺相反）。修：render 里字段一律 `str()` 安全转换 + 非 dict 跳过；bot 把 `render_skills` 也包进 try/except。
+- **#2【P2】6000 字上限被第一条绕过**：`used>0` 判断让首条技能永不截断，单条 12000 字直接全量注入。修：改成"预算用尽即停 + 单条超长就**截断这一条**（含第一条）"，总长度恒 ≤ 上限。`db/service.render_skill_prompt` 改为**委托** `render_skills`（两份渲染合一，不再各踩各的坑；`MAX_TOTAL_PROMPT_CHARS` 单一来源）。前端 `setGlobalSkills` 加**写校验+规范化**：数量 ≤50、正文 ≤2000、字段强制转字符串——脏数据从源头就写不进去。
+- 验证：新增 `test_skills_text.py`（脏类型不崩 / 首条超长被截 / 多条总预算）；cosmac **64 单测全过**、ruff 通过、client build 通过。
+- 部署：改了 `cosmac/`+前端 → 发 dist + `restart guduu-bot`。
+- **#3【P1 架构】待负责人定**：全局技能/Agent 现存控制室 **state event**（`cosmac.skills`/`cosmac.agents`），与 §3「Skill/Agent 定义存 CosMac DB」冲突。并行会话选 state event 是因"浏览器够不到 DB"。两条路：(a) 保留 state event 并把 §3 加一条例外（像 AI 配置那样）；(b) 移到 DB + bot 开一个鉴权 REST 端点给浏览器 CRUD。见下方讨论，未动。
+
 ## 2026-06-19 — 模块2：管理后台「技能库」UI（全局技能，走控制室 state event）
 - 让技能"可视":管理后台加 **技能库** tab,增删改/启停全局技能,**主 AI 在所有群回话时注入**。
 - **架构定调（负责人选 Matrix state event 方案）**:浏览器够不到 cosmac 的 DB(bot 进程私有、没开 API),所以全局技能跟「AI 配置」同套路——存控制室 state event `cosmac.skills`,浏览器写、bot 读。零新基建、立刻可视。群级/个人技能仍走聊天命令存 DB,bot 注入时两边合并。
