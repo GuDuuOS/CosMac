@@ -107,6 +107,22 @@ class TestGroupAgent(unittest.TestCase):
         bot = _bot(channel_cfg=None, agents=None, skills=None)
         self.assertEqual(bot._skill_addendum(ROOM, "@u:host"), "")
 
+    def test_group_model_override_picks_distinct_agent(self) -> None:
+        bot = _bot(
+            channel_cfg={"persona": {"agentSlug": "planner"}},
+            agents={"agents": [
+                {"slug": "planner", "name": "策划", "model": "deepseek-v3.2", "enabled": True},
+            ]},
+        )
+        gctx = bot._group_context(ROOM)
+        self.assertEqual(gctx["model"], "deepseek-v3.2")
+        # 指定了模型 → 拿到一个不同于默认的 Agent，且会被缓存（同一对象复用）
+        a1 = bot._agent_for_model(gctx["model"])
+        self.assertIsNot(a1, bot.agent)
+        self.assertIs(a1, bot._agent_for_model(gctx["model"]))
+        # 没指定模型 → 用默认 Agent
+        self.assertIs(bot._agent_for_model(""), bot.agent)
+
     def test_recent_history_maps_roles_and_drops_current(self) -> None:
         bot_id = "@guduu:guduu.local"  # 默认 config 的 bot_user_id
         msgs = [

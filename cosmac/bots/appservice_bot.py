@@ -63,6 +63,9 @@ class CosmacBot:
         )
         # 已处理过的事务 id，用于去重（Synapse 可能重发同一批事件）
         self._seen_txns: Set[str] = set()
+        # 「按群模型覆盖」用的 Agent 缓存：model_id → Agent（同 provider 换 model）。
+        # 全局配置(provider/人设)变化时清空，避免用到旧 provider/人设构建的实例。
+        self._model_agents: Dict[str, Agent] = {}
 
         # —— 运行时 AI 配置（管理后台「AI 配置」下发）——
         self._control_room: Optional[str] = None  # 控制室 room_id（别名解析一次后缓存）
@@ -147,12 +150,18 @@ class CosmacBot:
             #     最后把结论发回群。（echo 后端不支持工具，会自动退化为纯文本回复。）
             # 回复前先按管理后台下发的运行时配置（人设/模型/工具开关）对齐一次。
             self._apply_runtime_config()
+            # 本群上下文读一次（人设/绑定技能/模型覆盖），供 addendum 与选模型共用。
+            gctx = self._group_context(room_id)
             # 按 (本群, 发起人) 算出本轮 system addendum：人设 + 技能 + 知识库检索片段(RAG)。
             # 任何失败（DB 没装/没数据/出错）都返回空串、绝不阻断回复（见 _skill_addendum）。
-            extra_system = self._skill_addendum(room_id, sender, query=text or user_text)
+            extra_system = self._skill_addendum(
+                room_id, sender, query=text or user_text, gctx=gctx
+            )
             # 短期记忆：把本房间最近的对话(不含当前这条)喂给模型，主 AI 才"记得"上文。
             history = self._recent_history(room_id, sender, user_text)
-            reply = self.agent.run(
+            # 本群若绑定的智能体指定了模型 → 用该模型的 Agent 回这条（否则用默认 Agent）。
+            agent = self._agent_for_model(gctx.get("model", ""))
+            reply = agent.run(
                 text or user_text,
                 ToolContext(room_id=room_id, sender=sender),
                 extra_system=extra_system,
@@ -194,7 +203,13 @@ class CosmacBot:
             out.append(Message(role=role, content=body))
         return out[-self._HISTORY_LIMIT:]
 
-    def _skill_addendum(self, room_id: str, sender: str, query: str = "") -> str:
+    def _skill_addendum(
+        self,
+        room_id: str,
+        sender: str,
+        query: str = "",
+        gctx: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """拼出本轮注入主 AI 的 system addendum = 人设 + 技能 + 知识库检索片段(RAG)。
 
         多来源、各自兜异常、互不拖累：
@@ -205,8 +220,11 @@ class CosmacBot:
         try:
             # 平台级硬约束（全局规则）——放最前、优先级最高
             rules_text = self._global_rules_text()
-            # 本群绑定的智能体：贡献「人设文本」+「额外要启用的技能 slug」
-            persona, agent_slugs = self._group_persona(room_id)
+            # 本群上下文（人设/绑定技能/模型）——_handle_event 已读则复用，避免重复读
+            if gctx is None:
+                gctx = self._group_context(room_id)
+            persona = gctx.get("persona", "")
+            agent_slugs = gctx.get("skill_slugs", [])
             items = (
                 self._global_skill_items()
                 + self._db_skill_items(room_id, sender)
@@ -281,13 +299,14 @@ class CosmacBot:
             logger.debug("知识库检索失败（忽略，无 RAG 继续）：%s", e)
             return ""
 
-    def _group_persona(self, room_id: str) -> Tuple[str, List[str]]:
-        """读本群频道配置，得出「人设文本」和「绑定智能体要启用的技能 slug」。
+    def _group_context(self, room_id: str) -> Dict[str, Any]:
+        """读本群频道配置**一次**，得出 {persona, skill_slugs, model}。
 
-        优先级：① 绑定了全局智能体(persona.agentSlug) → 用它的人设 + 它绑的技能；
+        优先级：① 绑定了全局智能体(persona.agentSlug) → 用它的人设 + 绑定技能 + 模型覆盖；
                 ② 否则用本群自定义人设(persona.prompt)。都没有 → 空。
-        失败一律返回空（绝不阻断回复）。模型覆盖(agent.model)本期先不做。
+        失败一律返回空 dict（绝不阻断回复）。
         """
+        out: Dict[str, Any] = {"persona": "", "skill_slugs": [], "model": ""}
         try:
             cfg = self.client.get_state_event(room_id, CHANNEL_CONFIG_EVENT_TYPE) or {}
             persona = cfg.get("persona") or {}
@@ -297,17 +316,43 @@ class CosmacBot:
                 if agent:
                     name = agent.get("name") or slug
                     sp = (agent.get("system_prompt") or "").strip()
-                    text = f"本群已绑定智能体「{name}」，请始终以下述人设与职责回应：\n{sp}"
-                    slugs = [str(s) for s in (agent.get("skill_slugs") or [])]
-                    return text, slugs
+                    out["persona"] = (
+                        f"本群已绑定智能体「{name}」，请始终以下述人设与职责回应：\n{sp}"
+                    )
+                    out["skill_slugs"] = [str(s) for s in (agent.get("skill_slugs") or [])]
+                    out["model"] = (agent.get("model") or "").strip()
+                    return out
             # 退回自定义人设（自由文本）
             free = (persona.get("prompt") or "").strip()
             if free:
-                return f"本群人设：\n{free}", []
-            return "", []
+                out["persona"] = f"本群人设：\n{free}"
+            return out
         except Exception as e:
-            logger.debug("读取本群人设失败（忽略）：%s", e)
-            return "", []
+            logger.debug("读取本群上下文失败（忽略）：%s", e)
+            return out
+
+    def _agent_for_model(self, model: str) -> Agent:
+        """按「本群模型覆盖」拿一个 Agent：没覆盖或与当前一致 → 用 self.agent；
+        否则用**同 provider、换 model**构建一个并缓存（人设走 addendum、不在此设）。
+        构建失败回退 self.agent，绝不阻断回复。"""
+        model = (model or "").strip()
+        provider, applied_model, applied_sys, _ = self._applied_sig
+        if not model or model == applied_model:
+            return self.agent
+        cached = self._model_agents.get(model)
+        if cached is not None:
+            return cached
+        try:
+            llm = build_provider(
+                provider, api_key="", model=model, system_prompt=applied_sys
+            )
+            ag = Agent(llm=llm, toolbox=self.toolbox, system_prompt=applied_sys)
+            self._model_agents[model] = ag
+            logger.info("按群模型构建 Agent: provider=%s model=%s", provider, model)
+            return ag
+        except Exception:
+            logger.exception("按群模型 %s 构建失败，回退默认模型", model)
+            return self.agent
 
     def _find_global_agent(self, slug: str) -> Optional[Dict[str, Any]]:
         """在控制室「全局智能体」里按 slug 找一个**启用**的智能体（找不到返回 None）。"""
@@ -527,6 +572,7 @@ class CosmacBot:
                     llm=self.llm, toolbox=self.toolbox, system_prompt=system_prompt
                 )
                 self._applied_sig = sig
+                self._model_agents.clear()  # provider/人设变了，按群模型缓存作废
                 logger.info(
                     "已应用运行时 AI 配置: provider=%s model=%s 人设已更新",
                     provider, model or "默认",

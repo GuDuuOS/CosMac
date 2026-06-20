@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-19 — 模块2：模型按群覆盖（Agent.model 接活，智能体功能补齐）
+- 补上 Agent 最后没接的点:智能体定义里的 `model` 字段(UI 早能填、bot 一直忽略)现在生效——某群绑定的智能体若指定模型,主 AI 在该群就用那个模型回话。
+- **顺手做了读优化**:把"本群人设/绑定技能/模型"收敛成 `_group_context(room_id)` **一次读**(原 `_group_persona` 拆成它),`_handle_event` 读一次、传给 addendum 复用,少几次 Synapse state 读。
+- **按群模型**:`_agent_for_model(model)` 同 provider 换 model 构建 Agent 并缓存(`_model_agents`);全局配置(provider/人设)变更时清缓存。没覆盖/与当前一致→用默认 Agent;构建失败→回退默认,绝不阻断回复。人设仍走 addendum、不在此设。
+- 验证:`test_group_agent` 加模型覆盖例(取到 model、拿到不同且被缓存的 Agent、无覆盖用默认);cosmac **92 单测全过、ruff 通过**。
+- 部署:**仅 `restart guduu-bot`**(纯后端、无前端)。
+
 ## 2026-06-19 — 模块2：主 AI 短期记忆（带最近对话上文，治"失忆")
 - **修缺口**:此前 `agent.run` 每条消息只喂 `[system, 当前用户话]`,主 AI 记不住同群/私聊里刚说过什么(连 DM 都没上下文)。
 - **做法(贴 §3:聊天记录在 Synapse、不重存)**:bot 回话前用 `client.get_messages` **实时读本房间最近 N 条**,映射成对话历史(bot 自己发的→assistant,其它人→user),喂给模型;**不进 cosmac DB**。
