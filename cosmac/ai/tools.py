@@ -329,9 +329,10 @@ class Toolbox:
         name = conn.get("name") or slug
         platform = conn.get("platform", "webhook")
 
-        # #1：异步连接器(async=true 且 bot 注入了 dispatch_async) → 走回调协议（登记 pending +
-        # 回调地址），平台跑完反向通知；否则自然语言触发的异步工作流永远收不到最终回调。
-        if conn.get("async") and self.dispatch_async:
+        # #1/#3：异步连接器(async=true、bot 注入了 dispatch_async、**且平台支持回调**) → 走回调
+        # 协议；dify/coze/comfyui 没有回调通道，即便误存 async=true 也按后台同步跑（不挂 pending）。
+        from cosmac.wf import supports_async_callback
+        if conn.get("async") and self.dispatch_async and supports_async_callback(platform):
             return self.dispatch_async(conn, user_input, ctx.room_id, ctx.sender, name)
 
         # #1/#4/#5：**其余所有连接器**都放有界后台池跑、立即给 Agent 一个"已开始"让它继续——
@@ -355,7 +356,7 @@ class Toolbox:
             except Exception:
                 logger.exception("后台工作流执行出错：%s", name)
 
-        if submit_background(_work):
+        if submit_background(_work, slow=platform == "comfyui"):  # ComfyUI 走慢池(#5)
             return f"工作流「{name}」已开始，完成后我会把结果发到群里。"
         return "任务太多、系统繁忙，请稍后再让我跑。"
 

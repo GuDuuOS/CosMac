@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-19 — 工作流安全（再再收口）：Slowloris / 事务去重持久化 / 异步只限webhook / 提交异常结清 / 双池
+- **#1【P1 Slowloris 打满线程】**：ThreadingHTTPServer 每请求开线程，回调按 Content-Length 阻塞读、无 socket/read deadline——攻击者慢发/不发正文即占住线程，512KB 上限无效。修：Handler 设 `timeout=20`（socket 级超时）+ 新增 `_read_body` **按总时限分块读**（慢速 drip 也被 deadline 卡死），回调和事务端点都用，超时回 408。
+- **#2【P1 事务去重只在内存】**：`_seen_txns` 重启即丢→Synapse 重放可再触发付费工作流，且无限增长。修：内存改**有界 LRU**(4096)；新增 `cosmac_seen_txn` 表 + `db/dedup.py`，**先记后处理**（at-most-once）持久化去重，重启后识别重放；DB 不可用则退回内存（不阻断收消息）。
+- **#3【P2 非 webhook 被存为异步】**：切到 Dify/Coze/ComfyUI 时 async 复选框隐藏但值没清→后端挂永远等不到回调的 pending。修：前端保存时 `platform!=webhook` 强制 `async=false`；后端 `supports_async_callback` 双保险（只 webhook 走回调，其余即便 async=true 也按后台跑）。
+- **#4【P2 异步提交异常留永久 pending】**：`_submit` 捕获异常只记日志，不结清/通知。修：异常也 `complete_run(error)` + 通知群。
+- **#5【P2 单池队头阻塞】**：4 个长 ComfyUI 占满 worker，异步 webhook 的"提交"只能排队。修：拆 **fast/slow 两个池**——ComfyUI 走 slow，提交/快连接器走 fast，互不堵。
+- 验证：加 持久化去重/LRU上界/async非webhook不挂pending/提交异常结清 等用例；cosmac **141 单测全过**、ruff、build 通过。
+- 部署：改了 `cosmac/`+前端 → 发 dist + `restart guduu-bot`。⚠️ 建议 nginx 给回调端点也加 `limit_req`/`limit_conn`（应用层挡住单连接慢占线程，海量连接仍靠网关限流）。
+
 ## 2026-06-19 — 工作流模块**彻底自审**（主动一次挖完，不再被动挤牙膏）
 - 不再等审查工具一批批喂：把整个工作流链路（HTTP 入口 + 鉴权 + 回调 + 后台池 + 4 连接器 + 凭据 + DB）系统性对抗性过了一遍。结论 + 这次主动补的：
 - **自审确认无问题的**：① 全工作流外呼**只此 `wf.py` 一处**（grep 确认无散落的 requests 调用），SSRF/凭据绑定/响应限流覆盖完整；② 无死代码（`_sender_can_run_workflow` 已清）；③ gzip 解压炸弹被 `_fetch` 的**累计字节封顶**接住（cap 在解压后字节上）；④ 凭据/密钥无日志泄露；⑤ ComfyUI 图注入已 json 转义、图数/单图都限。

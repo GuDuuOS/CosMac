@@ -57,7 +57,8 @@ class TestWfCommand(unittest.TestCase):
         init_engine("sqlite://", create_all=True)
         # 同步连接器现在走有界后台池（#4/#5）。测试里让 submit_background **同步**执行，
         # 便于断言结果（否则线程异步、不确定）。
-        p = mock.patch("cosmac.wf.submit_background", lambda fn: (fn(), True)[1])
+        p = mock.patch("cosmac.wf.submit_background",
+                       lambda fn, **_k: (fn(), True)[1])
         p.start()
         self.addCleanup(p.stop)
 
@@ -166,6 +167,43 @@ class TestWfCommand(unittest.TestCase):
         self.assertEqual(code, 500)
         with session_scope() as s:
             self.assertEqual(recent_runs(s, slug="cover")[0].status, "pending")  # 仍可重试
+
+    def test_txn_dedup_persists_across_restart(self) -> None:
+        # #2：重启(新 bot 实例、内存空)后，DB 去重仍能识别 Synapse 重放的事务
+        bot1 = _bot()
+        bot1.handle_transaction("txn-xyz", [])  # 处理一次 → 落库
+        bot2 = _bot()  # 模拟重启：内存 _seen_txns 空
+        self.assertNotIn("txn-xyz", bot2._seen_txns)
+        self.assertTrue(bot2._txn_seen_persisted("txn-xyz"))  # 但 DB 里有 → 能识别重放
+
+    def test_seen_txn_lru_bounded(self) -> None:
+        # #2：内存去重有界，不会无限增长
+        bot = _bot()
+        for i in range(bot._SEEN_TXN_MAX + 200):
+            bot._remember_txn(f"t{i}")
+        self.assertLessEqual(len(bot._seen_txns), bot._SEEN_TXN_MAX)
+
+    def test_async_non_webhook_not_dispatched(self) -> None:
+        # #3：async=true 但平台 comfyui → 不走回调协议(不挂 pending)，按后台跑
+        wf2 = {"slug": "img", "name": "图", "platform": "comfyui",
+               "url": "http://c", "graph": "{}", "async": True, "enabled": True}
+        bot = _bot(workflows=[wf2])
+        with mock.patch("cosmac.wf.run_connector",
+                        return_value={"ok": True, "output": ""}):
+            out = bot._run_wf_command(ROOM, "@u:host", "工作流 跑 img x")
+        self.assertIn("已开始", out)  # 后台，不是"已提交"
+        with session_scope() as s:
+            pend = [r for r in recent_runs(s, slug="img") if r.status == "pending"]
+            self.assertEqual(pend, [])  # 没有永久等不到回调的 pending
+
+    def test_async_submit_exception_completes_and_notifies(self) -> None:
+        # #4：异步提交抛异常 → 结清 pending(error) + 通知群，不留永久 pending
+        bot = _bot(workflows=[{**WF, "async": True}])
+        with mock.patch("cosmac.wf.run_connector", side_effect=RuntimeError("boom")):
+            bot._run_wf_command(ROOM, "@u:host", "工作流 跑 cover x")
+        with session_scope() as s:
+            self.assertEqual(recent_runs(s, slug="cover")[0].status, "error")
+        self.assertTrue(any("提交失败" in t for _r, t in bot.client.sent))
 
     def test_atomic_claim_only_once(self) -> None:
         # #3：claim_pending 原子 CAS——只有一个并发回调能把 pending 抢成 processing

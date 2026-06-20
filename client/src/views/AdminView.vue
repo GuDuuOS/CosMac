@@ -1292,7 +1292,10 @@ async function saveWorkflow() {
     url: wfForm.url.trim(), method: wfForm.method, cred: wfForm.cred.trim(),
     input_hint: wfForm.input_hint.trim(), enabled: wfForm.enabled,
     mode: wfForm.mode, ref_id: wfForm.ref_id.trim(), input_key: wfForm.input_key.trim(),
-    graph: wfForm.graph, async: wfForm.async,
+    graph: wfForm.graph,
+    // #3：只有 webhook 支持异步回调；切到 dify/coze/comfyui 时 async 复选框是隐藏的，
+    // 这里强制清成 false，免得残留 async=true 让后端挂一个永远等不到回调的 pending。
+    async: wfForm.platform === 'webhook' ? wfForm.async : false,
   }
   const next = workflows.value.slice()
   const i = next.findIndex((w) => w.slug === slug)

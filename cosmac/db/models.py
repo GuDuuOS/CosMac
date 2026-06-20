@@ -197,3 +197,15 @@ class WorkflowRun(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<WorkflowRun {self.slug} {self.status} #{self.id}>"
+
+
+class SeenTxn(Base, TimestampMixin):
+    """已处理过的 appservice 事务 id（去重，#2）。
+
+    内存去重重启即丢、且无界增长；这里持久化最近处理过的 txn，重启后 Synapse 重放
+    同一事务也能识别并跳过——避免重复触发付费工作流。定期按时间清理旧记录控制表大小。
+    """
+
+    __tablename__ = "cosmac_seen_txn"
+
+    txn_id: Mapped[str] = mapped_column(String(255), primary_key=True)

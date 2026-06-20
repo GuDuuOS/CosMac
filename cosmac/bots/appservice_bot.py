@@ -19,6 +19,7 @@ import hmac
 import json
 import logging
 import time
+from collections import OrderedDict
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -85,8 +86,10 @@ class CosmacBot:
             toolbox=self.toolbox,
             system_prompt=config.system_prompt,
         )
-        # 已处理过的事务 id，用于去重（Synapse 可能重发同一批事件）
-        self._seen_txns: Set[str] = set()
+        # 已处理过的事务 id，用于去重（Synapse 可能重发同一批事件）。
+        # #2：用有界 LRU(OrderedDict) 防无限增长；并尽力持久化到 DB，重启后也能识别重放。
+        self._seen_txns: "OrderedDict[str, None]" = OrderedDict()
+        self._seen_txn_calls = 0  # 计数器，偶尔触发一次 DB 旧记录清理
         # 「按群模型覆盖」用的 Agent 缓存：model_id → Agent（同 provider 换 model）。
         # 全局配置(provider/人设)变化时清空，避免用到旧 provider/人设构建的实例。
         self._model_agents: Dict[str, Agent] = {}
@@ -105,19 +108,63 @@ class CosmacBot:
 
     # —— 事件分发 ——
 
+    _SEEN_TXN_MAX = 4096  # 内存去重 LRU 上限（防无限增长）
+
     def handle_transaction(self, txn_id: str, events: List[Dict[str, Any]]) -> None:
-        """处理 Synapse 推来的一批事件（一个事务）。"""
-        # 同一个事务只处理一次，避免重复回复
+        """处理 Synapse 推来的一批事件（一个事务）。
+
+        去重双保险（#2）：内存有界 LRU + 尽力持久化。**先记下再处理**(at-most-once)——
+        宁可极端崩溃时漏处理一批，也不要重启后重放、重复触发付费工作流。
+        """
         if txn_id in self._seen_txns:
-            logger.info("事务 %s 已处理过，跳过", txn_id)
+            logger.info("事务 %s 已处理过（内存），跳过", txn_id)
             return
-        self._seen_txns.add(txn_id)
+        # 持久化去重：重启后内存空，但 DB 里有记录就能识别 Synapse 的重放（尽力而为）
+        if self._txn_seen_persisted(txn_id):
+            self._remember_txn(txn_id)
+            logger.info("事务 %s 已处理过（持久化），跳过重放", txn_id)
+            return
+        # 先标记(内存+DB)再处理：避免处理中崩溃→重启重放→重复触发
+        self._remember_txn(txn_id)
+        self._persist_txn(txn_id)
 
         for event in events:
             try:
                 self._handle_event(event)
             except Exception:  # 单条事件出错不应拖垮整批
                 logger.exception("处理事件出错: %s", event.get("event_id"))
+
+    def _remember_txn(self, txn_id: str) -> None:
+        """记进内存有界 LRU；超上限淘汰最旧的。"""
+        self._seen_txns[txn_id] = None
+        self._seen_txns.move_to_end(txn_id)
+        while len(self._seen_txns) > self._SEEN_TXN_MAX:
+            self._seen_txns.popitem(last=False)
+
+    def _txn_seen_persisted(self, txn_id: str) -> bool:
+        """查 DB 是否处理过该事务（尽力而为；DB 不可用/没装返回 False，退回内存去重）。"""
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.dedup import txn_seen
+
+            with session_scope() as s:
+                return txn_seen(s, txn_id)
+        except Exception:
+            return False
+
+    def _persist_txn(self, txn_id: str) -> None:
+        """把事务 id 落库去重（尽力而为）；偶尔顺手清理过期记录控制表大小。"""
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.dedup import mark_txn, prune_old
+
+            with session_scope() as s:
+                mark_txn(s, txn_id)
+                self._seen_txn_calls += 1
+                if self._seen_txn_calls % 500 == 0:
+                    prune_old(s)
+        except Exception:
+            pass  # 没 DB 就只靠内存去重，不阻断收消息
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         """处理单条事件。"""
@@ -766,8 +813,11 @@ class CosmacBot:
             if conn is None:
                 return f"没找到工作流「{slug}」。用「工作流 列表」看可用的。"
             name = conn.get("name") or slug
-            # 异步连接器（长任务）：登记 pending + 回调 URL，提交后即返回，等平台回调
-            if conn.get("async") and self.config.public_url:
+            # 异步连接器（长任务）：登记 pending + 回调 URL，提交后即返回，等平台回调。
+            # #3：只有 webhook 家族支持回调；dify/coze/comfyui 即便误存了 async=true 也走后台同步。
+            from cosmac.wf import supports_async_callback
+            if (conn.get("async") and self.config.public_url
+                    and supports_async_callback(conn.get("platform"))):
                 return self._dispatch_async(conn, user_input, room_id, sender, name)
             # #4/#5：**所有同步连接器**都放有界后台池跑、立即返回——webhook/dify/coze 也可能
             # 等到 30s、ComfyUI 更到 120s，同步执行会卡住 appservice 事务响应（Synapse 超时重试）。
@@ -801,7 +851,8 @@ class CosmacBot:
             except Exception:
                 logger.exception("后台工作流执行出错：%s", name)
 
-        return submit_background(work)
+        # ComfyUI 走慢池，避免长生成把快连接器/提交堵在队尾（#5）
+        return submit_background(work, slow=conn.get("platform") == "comfyui")
 
     def _dispatch_async(self, conn, user_input, room_id, sender, name) -> str:
         """异步连接器：建 pending 运行(带一次性 token)+ 回调 URL，提交给平台后即返回。
@@ -834,18 +885,24 @@ class CosmacBot:
             # #3：**提交也放后台**——webhook 提交本身可能等到 30s，同步会卡住 appservice 事务。
             # 提交成功就等平台回调；提交失败则结清 pending + 通知群。
             def _submit() -> None:
+                err = ""
                 try:
                     r = run_connector(
                         conn, user_input, callback_url=cb, callback_token=token
                     )
                     if not r.get("ok"):
-                        with session_scope() as s2:
-                            complete_run(s2, run_id, error=r.get("error") or "提交失败")
-                        self.client.send_text(
-                            room_id, f"⚠️ 工作流「{name}」提交失败：{r.get('error')}"
-                        )
-                except Exception:
+                        err = r.get("error") or "提交失败"
+                except Exception as exc:
+                    # #4：提交抛异常也要结清 pending + 通知，否则平台没收到任务、用户却看到"已提交"，
+                    # 这条 run 永久卡 pending。
                     logger.exception("异步工作流提交出错：%s", name)
+                    err = f"提交异常：{exc}"
+                if err:
+                    with session_scope() as s2:
+                        complete_run(s2, run_id, error=err)
+                    self.client.send_text(
+                        room_id, f"⚠️ 工作流「{name}」提交失败：{err}"
+                    )
 
             if submit_background(_submit):
                 return f"⏳ 工作流「{name}」已提交（#{run_id}），完成后结果会自动发到本群。"
@@ -1082,9 +1139,35 @@ class _Handler(BaseHTTPRequestHandler):
     bot: CosmacBot
     hs_token: str
 
+    # #1 防 Slowloris：socket 级超时——慢/停的客户端(慢发头、不发正文)最多占住线程这么久。
+    # BaseHTTPRequestHandler.setup() 会据此 settimeout，读请求行/头/正文都受它管。
+    timeout = 20
+
     # 关掉默认那行嘈杂的访问日志，改用我们自己的 logger
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: N802
         logger.debug("HTTP " + fmt, *args)
+
+    def _read_body(self, length: int) -> Optional[bytes]:
+        """按总时限分块读 length 字节的请求体（配合 socket timeout 防 Slowloris 慢速占线程）。
+
+        即便攻击者每隔几秒挤一个字节（每次 read 都重置 socket 计时器），总时长也被 deadline 卡死。
+        超时/读断返回 None（调用方回 408），不会无限阻塞这个线程。
+        """
+        deadline = time.monotonic() + self.timeout
+        out = bytearray()
+        remaining = length
+        while remaining > 0:
+            if time.monotonic() > deadline:
+                return None
+            try:
+                chunk = self.rfile.read(min(remaining, 65536))
+            except OSError:  # socket.timeout 等
+                return None
+            if not chunk:
+                break
+            out += chunk
+            remaining -= len(chunk)
+        return bytes(out)
 
     def _check_auth(self) -> bool:
         """校验请求确实来自我们的 Synapse（比对 hs_token）。
@@ -1132,7 +1215,10 @@ class _Handler(BaseHTTPRequestHandler):
         if length < 0 or length > _MAX_TXN_BODY:
             self._send_json(413, {"errcode": "M_TOO_LARGE"})
             return
-        raw = self.rfile.read(length) if length else b"{}"
+        raw = self._read_body(length) if length else b"{}"  # #1 防 Slowloris
+        if raw is None:
+            self._send_json(408, {"errcode": "M_REQUEST_TIMEOUT"})
+            return
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
@@ -1186,7 +1272,11 @@ class _Handler(BaseHTTPRequestHandler):
         if length < 0 or length > _MAX_CALLBACK_BODY:
             self._send_json(413, {"error": "bad body length"})
             return
-        raw = self.rfile.read(length) if length else b"{}"
+        # #1：按总时限分块读，防 Slowloris 慢速占住线程
+        raw = self._read_body(length) if length else b"{}"
+        if raw is None:
+            self._send_json(408, {"error": "request timeout"})
+            return
         try:
             body = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
