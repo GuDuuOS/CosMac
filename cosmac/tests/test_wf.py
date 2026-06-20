@@ -84,6 +84,60 @@ class TestWfEngine(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("暂不支持", r["error"])
 
+    # —— Dify ——
+    def test_dify_workflow_success(self) -> None:
+        conn = {"platform": "dify", "url": "https://api.dify.ai", "cred": "d", "mode": "workflow"}
+        with mock.patch.dict(os.environ, {"COSMAC_WF_D": "k"}), \
+             mock.patch.object(wf.requests, "post",
+                               return_value=FakeResp(200, {"data": {"outputs": {"text": "结果X"}}})) as m:
+            r = wf.run_connector(conn, "做封面")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["output"], "结果X")
+        _, kw = m.call_args
+        self.assertEqual(kw["json"]["inputs"]["input"], "做封面")
+        self.assertEqual(kw["headers"]["Authorization"], "Bearer k")
+
+    def test_dify_chat_mode(self) -> None:
+        conn = {"platform": "dify", "cred": "d", "mode": "chat"}
+        with mock.patch.dict(os.environ, {"COSMAC_WF_D": "k"}), \
+             mock.patch.object(wf.requests, "post", return_value=FakeResp(200, {"answer": "答X"})) as m:
+            r = wf.run_connector(conn, "问题")
+        self.assertEqual(r["output"], "答X")
+        self.assertTrue(m.call_args[0][0].endswith("/v1/chat-messages"))
+
+    def test_dify_no_cred(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COSMAC_WF_D", None)
+            r = wf.run_connector({"platform": "dify", "cred": "d"}, "x")
+        self.assertFalse(r["ok"])
+        self.assertIn("凭据", r["error"])
+
+    # —— Coze ——
+    def test_coze_success(self) -> None:
+        conn = {"platform": "coze", "cred": "c", "ref_id": "wf123"}
+        with mock.patch.dict(os.environ, {"COSMAC_WF_C": "tok"}), \
+             mock.patch.object(wf.requests, "post",
+                               return_value=FakeResp(200, {"code": 0, "data": "结果Y"})) as m:
+            r = wf.run_connector(conn, "跑")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["output"], "结果Y")
+        self.assertEqual(m.call_args[1]["json"]["workflow_id"], "wf123")
+
+    def test_coze_needs_workflow_id(self) -> None:
+        with mock.patch.dict(os.environ, {"COSMAC_WF_C": "tok"}):
+            r = wf.run_connector({"platform": "coze", "cred": "c"}, "x")
+        self.assertFalse(r["ok"])
+        self.assertIn("workflow_id", r["error"])
+
+    def test_coze_business_error(self) -> None:
+        conn = {"platform": "coze", "cred": "c", "ref_id": "w"}
+        with mock.patch.dict(os.environ, {"COSMAC_WF_C": "tok"}), \
+             mock.patch.object(wf.requests, "post",
+                               return_value=FakeResp(200, {"code": 700, "msg": "参数错"})):
+            r = wf.run_connector(conn, "x")
+        self.assertFalse(r["ok"])
+        self.assertIn("参数错", r["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

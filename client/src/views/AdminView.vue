@@ -485,19 +485,36 @@
               <span>平台</span>
               <select v-model="wfForm.platform" class="cam-select">
                 <option value="webhook">Webhook（n8n / Make / 自建）</option>
+                <option value="dify">Dify</option>
+                <option value="coze">Coze</option>
               </select>
-              <em class="adm-note">目前支持 Webhook 型；Dify/Coze/ComfyUI 后续加。</em>
+              <em class="adm-note">ComfyUI 后续加。</em>
             </label>
             <label class="adm-field">
-              <span>Webhook URL</span>
-              <input v-model.trim="wfForm.url" placeholder="https://n8n.example.com/webhook/xxx" />
+              <span>{{ wfForm.platform === 'webhook' ? 'Webhook URL' : '服务地址（base url）' }}</span>
+              <input v-model.trim="wfForm.url" :placeholder="wfUrlPlaceholder" />
             </label>
-            <label class="adm-field">
+            <label v-if="wfForm.platform === 'webhook'" class="adm-field">
               <span>请求方法</span>
               <select v-model="wfForm.method" class="cam-select">
                 <option value="POST">POST</option>
                 <option value="GET">GET</option>
               </select>
+            </label>
+            <label v-if="wfForm.platform === 'dify'" class="adm-field">
+              <span>Dify 应用类型</span>
+              <select v-model="wfForm.mode" class="cam-select">
+                <option value="workflow">workflow（工作流应用）</option>
+                <option value="chat">chat（对话应用）</option>
+              </select>
+            </label>
+            <label v-if="wfForm.platform === 'coze'" class="adm-field">
+              <span>Coze workflow_id</span>
+              <input v-model.trim="wfForm.ref_id" placeholder="如 7401234567890" />
+            </label>
+            <label v-if="wfForm.platform !== 'webhook'" class="adm-field">
+              <span>输入变量名（可选）</span>
+              <input v-model.trim="wfForm.input_key" placeholder="默认 input（要与平台里定义的输入变量名一致）" />
             </label>
             <label class="adm-field">
               <span>凭据名（可选）</span>
@@ -1200,8 +1217,15 @@ const wfLoaded = ref(false)
 const wfEditing = ref(false)
 const wfForm = reactive<WorkflowDef & { _isEdit: boolean }>({
   slug: '', name: '', platform: 'webhook', url: '', method: 'POST',
-  cred: '', input_hint: '', enabled: true, _isEdit: false,
+  cred: '', input_hint: '', enabled: true,
+  mode: 'workflow', ref_id: '', input_key: '', _isEdit: false,
 })
+
+const wfUrlPlaceholder = computed(() => ({
+  webhook: 'https://n8n.example.com/webhook/xxx',
+  dify: 'https://api.dify.ai（或自建 Dify 地址）',
+  coze: 'https://api.coze.cn（国际版 https://api.coze.com）',
+}[wfForm.platform] || ''))
 
 function switchToWorkflows() {
   tab.value = 'workflows'
@@ -1223,7 +1247,8 @@ async function loadWorkflows() {
 function startAddWorkflow() {
   Object.assign(wfForm, {
     slug: '', name: '', platform: 'webhook', url: '', method: 'POST',
-    cred: '', input_hint: '', enabled: true, _isEdit: false,
+    cred: '', input_hint: '', enabled: true,
+    mode: 'workflow', ref_id: '', input_key: '', _isEdit: false,
   })
   wfEditing.value = true
 }
@@ -1254,6 +1279,7 @@ async function saveWorkflow() {
     slug, name: wfForm.name.trim(), platform: wfForm.platform,
     url: wfForm.url.trim(), method: wfForm.method, cred: wfForm.cred.trim(),
     input_hint: wfForm.input_hint.trim(), enabled: wfForm.enabled,
+    mode: wfForm.mode, ref_id: wfForm.ref_id.trim(), input_key: wfForm.input_key.trim(),
   }
   const next = workflows.value.slice()
   const i = next.findIndex((w) => w.slug === slug)

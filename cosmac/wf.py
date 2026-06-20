@@ -88,7 +88,109 @@ def _extract_text(resp: requests.Response) -> str:
     return json.dumps(data, ensure_ascii=False)[:_MAX_OUT]
 
 
-# 目前只支持 webhook 平台；Dify/Coze/ComfyUI 后续在这里分派到各自适配器
+def run_dify(
+    conn: Dict[str, Any], user_input: str, *, timeout: int = DEFAULT_TIMEOUT
+) -> Dict[str, Any]:
+    """调用 Dify 应用：mode=workflow 走 /v1/workflows/run，mode=chat 走 /v1/chat-messages。
+
+    连接器字段：url=Dify 服务地址(默认 https://api.dify.ai)、cred=App API Key、
+    mode=workflow|chat、input_key=workflow 输入变量名(默认 input)。
+    """
+    base = (conn.get("url") or "https://api.dify.ai").rstrip("/")
+    key = resolve_credential(conn.get("cred") or "")
+    if not key:
+        return _err("Dify 连接器缺凭据（服务端 env COSMAC_WF_<CRED> 未配）")
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    mode = (conn.get("mode") or "workflow").lower()
+    if mode == "chat":
+        url = f"{base}/v1/chat-messages"
+        payload: Dict[str, Any] = {
+            "query": user_input, "inputs": {},
+            "response_mode": "blocking", "user": "cosmac",
+        }
+    else:
+        url = f"{base}/v1/workflows/run"
+        ikey = conn.get("input_key") or "input"
+        payload = {
+            "inputs": {ikey: user_input},
+            "response_mode": "blocking", "user": "cosmac",
+        }
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    except requests.RequestException as exc:
+        logger.warning("Dify 调用失败: %s", exc)
+        return _err(f"请求失败：{exc}")
+    ok = 200 <= resp.status_code < 300
+    text = _extract_dify(resp, mode) if ok else _extract_text(resp)
+    return {"ok": ok, "status": resp.status_code, "output": text,
+            "error": "" if ok else f"Dify 返回 {resp.status_code}"}
+
+
+def _extract_dify(resp: "requests.Response", mode: str) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        return (resp.text or "").strip()[:_MAX_OUT]
+    if not isinstance(data, dict):
+        return str(data)[:_MAX_OUT]
+    if mode == "chat":
+        return (data.get("answer") or json.dumps(data, ensure_ascii=False))[:_MAX_OUT]
+    outs = (data.get("data") or {}).get("outputs")
+    if isinstance(outs, dict) and outs:
+        for v in outs.values():
+            if isinstance(v, str) and v.strip():
+                return v[:_MAX_OUT]
+        return json.dumps(outs, ensure_ascii=False)[:_MAX_OUT]
+    return json.dumps(data, ensure_ascii=False)[:_MAX_OUT]
+
+
+def run_coze(
+    conn: Dict[str, Any], user_input: str, *, timeout: int = DEFAULT_TIMEOUT
+) -> Dict[str, Any]:
+    """调用 Coze 工作流：POST {base}/v1/workflow/run。
+
+    连接器字段：url=Coze 服务地址(默认 https://api.coze.cn)、cred=PAT/OAuth token、
+    ref_id=workflow_id、input_key=参数名(默认 input)。
+    """
+    base = (conn.get("url") or "https://api.coze.cn").rstrip("/")
+    key = resolve_credential(conn.get("cred") or "")
+    if not key:
+        return _err("Coze 连接器缺凭据（服务端 env COSMAC_WF_<CRED> 未配）")
+    wfid = (conn.get("ref_id") or "").strip()
+    if not wfid:
+        return _err("Coze 连接器需填 workflow_id（连接器的 ref_id 字段）")
+    ikey = conn.get("input_key") or "input"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    payload = {"workflow_id": wfid, "parameters": {ikey: user_input}}
+    try:
+        resp = requests.post(
+            f"{base}/v1/workflow/run", json=payload, headers=headers, timeout=timeout
+        )
+    except requests.RequestException as exc:
+        logger.warning("Coze 调用失败: %s", exc)
+        return _err(f"请求失败：{exc}")
+    if not (200 <= resp.status_code < 300):
+        return {"ok": False, "status": resp.status_code, "output": "",
+                "error": f"Coze 返回 {resp.status_code}"}
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"ok": True, "status": resp.status_code,
+                "output": (resp.text or "")[:_MAX_OUT], "error": ""}
+    # Coze 业务码：code==0 才算成功，data 常是 JSON 字符串
+    if isinstance(data, dict) and data.get("code") not in (0, None):
+        return {"ok": False, "status": resp.status_code, "output": "",
+                "error": f"Coze 错误：{data.get('msg') or data.get('code')}"}
+    out = data.get("data") if isinstance(data, dict) else data
+    text = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False)
+    return {"ok": True, "status": resp.status_code, "output": text[:_MAX_OUT], "error": ""}
+
+
+def _err(msg: str) -> Dict[str, Any]:
+    return {"ok": False, "status": None, "output": "", "error": msg}
+
+
+# 按 platform 分派到各自适配器
 def run_connector(
     conn: Dict[str, Any], user_input: str, *, timeout: int = DEFAULT_TIMEOUT
 ) -> Dict[str, Any]:
@@ -96,9 +198,8 @@ def run_connector(
     platform = (conn.get("platform") or "webhook").lower()
     if platform in ("webhook", "n8n", "make", "custom", ""):
         return run_webhook(conn, user_input, timeout=timeout)
-    return {
-        "ok": False,
-        "status": None,
-        "output": "",
-        "error": f"暂不支持的平台「{platform}」（当前仅 webhook）",
-    }
+    if platform == "dify":
+        return run_dify(conn, user_input, timeout=timeout)
+    if platform == "coze":
+        return run_coze(conn, user_input, timeout=timeout)
+    return _err(f"暂不支持的平台「{platform}」（当前支持 webhook/dify/coze）")

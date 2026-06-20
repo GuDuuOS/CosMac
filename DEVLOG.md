@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-19 — 模块3 P2：Dify / Coze 专用适配器
+- 在通用 webhook 之上加两个平台适配器(REST+key):
+  - **Dify**:`run_dify`——mode=workflow 走 `/v1/workflows/run`(inputs[input_key]=用户输入)、mode=chat 走 `/v1/chat-messages`(query);抽 `data.outputs` 或 `answer`。
+  - **Coze**:`run_coze`——`/v1/workflow/run`(workflow_id=ref_id, parameters[input_key]=输入);认业务码 code==0,取 data。
+  - `run_connector` 按 platform 分派 webhook/dify/coze;缺凭据/缺 workflow_id 友好报错。密钥仍只走服务端 env `COSMAC_WF_<CRED>`。
+- 连接器定义加可选字段 `mode`/`ref_id`/`input_key`;后台「工作流」表单按平台条件显示(Dify→应用类型+输入变量名;Coze→workflow_id+输入变量名;webhook→请求方法)。
+- 验证:`test_wf` 加 6 例(Dify workflow/chat/缺凭据、Coze 成功/缺id/业务错);cosmac **113 单测全过、ruff 通过**、client build 通过;preview 直连生产:Dify 连接器条件字段渲染 + round-trip + 清理,无残留无报错。
+- 部署:发 dist + restart guduu-bot。用 Dify/Coze 时在服务端配 `COSMAC_WF_<CRED>`=该平台 key。
+- 待续:ComfyUI(图/视频:提交→轮询→回传媒体)、异步回调入站端点、定时触发。
+
 ## 2026-06-19 — 模块3 P1 闭环：工作流后台 UI + 主 AI 工具 run_workflow
 - 把 P1 闭环补齐:① 后台能配连接器;② 主 AI 能自然语言触发。
 - **主 AI 工具 `run_workflow`**:`Toolbox` 加该工具(读控制室连接器定义→跑→尽力入库),`Toolbox(client, control_room_alias=...)` 注入控制室别名;bot 构造时传入。不带 slug 调用→返回可用列表。也加进 `AI_TOOL_CATALOG`(后台工具开关可控)。

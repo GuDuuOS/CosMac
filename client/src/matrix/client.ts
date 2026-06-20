@@ -1092,16 +1092,19 @@ export async function setGlobalRules(rules: GlobalRule[]): Promise<void> {
   await (mx as any).sendStateEvent(rid, RULES_EVENT_TYPE, { rules }, '')
 }
 
-/** 一个「工作流连接器」定义（对接 n8n/Make 等外部平台）。 */
+/** 一个「工作流连接器」定义（对接 n8n/Make/Dify/Coze 等外部平台）。 */
 export interface WorkflowDef {
   slug: string
   name: string
-  platform: string          // 目前 'webhook'（覆盖 n8n/Make/自建）
+  platform: string          // webhook（n8n/Make/自建） | dify | coze
   url: string
-  method: string            // POST/GET
+  method: string            // POST/GET（webhook 用）
   cred: string              // 凭据名（真值在服务端 env COSMAC_WF_<CRED>；这里只放名字）
   input_hint: string
   enabled: boolean
+  mode: string              // dify: workflow|chat
+  ref_id: string            // coze: workflow_id
+  input_key: string         // dify/coze: 输入变量名（默认 input）
 }
 
 /** 读工作流连接器列表（控制室 state event）；不存在返回 []。 */
@@ -1121,6 +1124,9 @@ export async function getWorkflows(): Promise<WorkflowDef[]> {
       cred: String(w?.cred || ''),
       input_hint: String(w?.input_hint || ''),
       enabled: w?.enabled !== false,
+      mode: String(w?.mode || 'workflow'),
+      ref_id: String(w?.ref_id || ''),
+      input_key: String(w?.input_key || ''),
     })).filter((w: WorkflowDef) => w.slug)
   } catch {
     return []
