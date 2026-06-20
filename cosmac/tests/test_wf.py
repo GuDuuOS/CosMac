@@ -98,6 +98,22 @@ class TestWfEngine(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("未绑定域名", r["error"])
 
+    def test_webhook_refuses_http_for_credential(self) -> None:
+        # #3：带密钥不能走明文 HTTP（会被网络窃取）；开内网开关才放行
+        conn = {"url": "http://n8n.mycorp.com/wh", "cred": "n8n_main"}
+        env = {"COSMAC_WF_N8N_MAIN": "tok", "COSMAC_WF_N8N_MAIN_HOST": "n8n.mycorp.com"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            os.environ.pop("COSMAC_WF_ALLOW_INTERNAL", None)
+            r = wf.run_connector(conn, "hi")
+        self.assertFalse(r["ok"])
+        self.assertIn("HTTP", r["error"])
+        # 开了内网开关 → 放行
+        with mock.patch.dict(os.environ, {**env, "COSMAC_WF_ALLOW_INTERNAL": "1"}), \
+             mock.patch.object(wf.requests, "request",
+                               return_value=FakeResp(200, {"output": "ok"})):
+            r2 = wf.run_connector(conn, "hi")
+        self.assertTrue(r2["ok"])
+
     def test_webhook_refuses_credential_host_mismatch(self) -> None:
         # #1：URL 主机 != 绑定域名 → 拒绝
         conn = {"url": "https://attacker.test/wh", "cred": "n8n_main"}

@@ -7,10 +7,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from sqlalchemy import select, update
+from datetime import datetime, timedelta
+
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from cosmac.db.models import WorkflowRun
+
+# processing 超过这个时长仍没结清 → 视为上次处理半途崩了，允许后续回调重抢（崩溃恢复，#2）
+_STALE_PROCESSING_SECONDS = 300
 
 _MAX_STORE = 4000  # 入库的输入/输出截断，避免超长
 
@@ -72,15 +77,28 @@ def get_run(session: Session, run_id: int) -> "WorkflowRun | None":
 
 
 def claim_pending(session: Session, run_id: int) -> bool:
-    """**原子地**把一条 pending 运行抢占成 processing（防并发回调重复处理，#3）。
+    """**原子地**把一条运行抢占成 processing。抢到返回 True。
 
-    UPDATE ... WHERE status='pending' 由 DB 保证只有一个并发回调能成功（rowcount==1）；
-    其余拿到 rowcount==0，应视为"已被别人处理"。抢到返回 True。
+    两类可抢（都靠 ``UPDATE...WHERE`` 由 DB 原子保证只有一个成功）：
+      - status='pending'：正常并发回调，只有一个能抢到（#3 防重复发）。
+      - status='processing' 且 ``updated_at`` 已超 5 分钟：上次处理半途崩了（send 抛异常/
+        DB 失败/进程重启），允许重抢（#2 防永久卡在 processing、结果丢失）。
+    显式刷新 ``updated_at``（Core update 不触发 ORM 的 onupdate），让刚抢到的不会立刻被重抢。
     """
+    cutoff = datetime.utcnow() - timedelta(seconds=_STALE_PROCESSING_SECONDS)
     res = session.execute(
         update(WorkflowRun)
-        .where(WorkflowRun.id == run_id, WorkflowRun.status == "pending")
-        .values(status="processing")
+        .where(
+            WorkflowRun.id == run_id,
+            or_(
+                WorkflowRun.status == "pending",
+                and_(
+                    WorkflowRun.status == "processing",
+                    WorkflowRun.updated_at < cutoff,
+                ),
+            ),
+        )
+        .values(status="processing", updated_at=datetime.utcnow())
     )
     session.flush()
     return (res.rowcount or 0) == 1

@@ -850,8 +850,11 @@ class CosmacBot:
 
             with session_scope() as s:
                 run = get_run(s, run_id)
-                if run is None or run.status != "pending":
+                if run is None:
                     return 404
+                if run.status in ("ok", "error"):
+                    return 200  # 已处理完 → 幂等返回，不重复发/不再结算
+                # pending / processing 才往下走（processing 可能是上次半途崩的，靠 claim 判定）
                 # #4：比对 token 的哈希（DB 存的是哈希），用 compare_digest 防时序侧信道
                 if not token or not hmac.compare_digest(
                     _token_hash(token), run.token or ""
@@ -859,19 +862,24 @@ class CosmacBot:
                     return 403
                 room_id = run.room_id
                 slug = run.slug
-                # #3：原子抢占 pending→processing。并发回调里只有一个抢到，其余幂等返回 200，
-                # 绝不重复发消息/重复结算。
+                # #2/#3：原子抢占成 processing。并发回调只有一个抢到；卡死(超时)的可被重抢。
+                # 抢不到 = 别的回调正在处理 → 幂等返回 200，绝不重复发/重复结算。
                 if not claim_pending(s, run_id):
                     return 200
             output = str(body.get("output") or "")
             error = str(body.get("error") or "")
-            # #6：**先发消息、确认发出去了再结清**。发失败就回滚到 pending、回 500 让平台重试，
-            # 不会丢结果。
+            # #6：**先发消息、确认发出去了再结清**。发失败（返回假值或抛异常）就回滚到 pending、
+            # 回 500 让平台重试，不会丢结果。
             text = (
                 f"⚠️ 工作流「{slug}」(#{run_id}) 失败：{error}" if error
                 else f"✅ 工作流「{slug}」(#{run_id}) 完成：\n{output or '（无内容）'}"
             )
-            if not self.client.send_text(room_id, text):
+            try:
+                sent = self.client.send_text(room_id, text)
+            except Exception:
+                logger.exception("工作流回调发消息抛异常 run_id=%s", run_id)
+                sent = None
+            if not sent:
                 logger.warning("工作流回调发消息失败 run_id=%s，回滚 pending 待重试", run_id)
                 with session_scope() as s:
                     revert_to_pending(s, run_id)

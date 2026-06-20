@@ -320,47 +320,36 @@ class Toolbox:
             avail = "、".join(w.get("slug", "") for w in defs) or "（空）"
             return f"没找到工作流「{slug}」。可用：{avail}"
         # 延迟导入：HTTP 执行与 DB 记录都不在工具加载期引入
-        from cosmac.wf import run_connector
+        from cosmac.wf import run_connector, submit_background
 
         user_input = args.get("input") or ""
-        # #5：ComfyUI 可能等到 120s，会卡住 Agent 和 appservice 事务。放**有界**后台池跑、
-        # 立即给 Agent 一个"已开始"结果让它继续；ComfyUI 自己把图发回房间。池满则拒。
-        if conn.get("platform") == "comfyui":
-            from cosmac.wf import submit_background
+        name = conn.get("name") or slug
+        platform = conn.get("platform", "webhook")
 
-            def _work() -> None:
-                try:
-                    r = run_connector(
-                        conn, user_input, client=self.client, room_id=ctx.room_id
-                    )
-                    self._record_workflow_run(
-                        slug, conn.get("platform", "webhook"), ctx, user_input, r
-                    )
-                    if not r.get("ok"):
-                        self.client.send_text(
-                            ctx.room_id, f"⚠️ 工作流执行失败：{r.get('error')}"
-                        )
-                except Exception:
-                    pass
-
-            if submit_background(_work):
-                return (
-                    f"工作流「{conn.get('name') or slug}」已开始（生成中），"
-                    "完成后我会把结果发到群里。"
+        # #1/#4/#5：**所有连接器**都放有界后台池跑、立即给 Agent 一个"已开始"让它继续——
+        # webhook/dify/coze(≤30s) 也会卡住 Agent + appservice 事务，ComfyUI 更甚(120s)。
+        # 跑完把结果发回群（ComfyUI 自己发图，其它平台发文本）。池满则拒。
+        def _work() -> None:
+            try:
+                r = run_connector(
+                    conn, user_input, client=self.client, room_id=ctx.room_id
                 )
-            return "生成任务太多、系统繁忙，请稍后再让我跑。"
-        result = run_connector(
-            conn, user_input, client=self.client, room_id=ctx.room_id
-        )
-        self._record_workflow_run(
-            slug, conn.get("platform", "webhook"), ctx, user_input, result
-        )
-        if result.get("ok"):
-            return (
-                f"工作流「{conn.get('name') or slug}」已执行，返回："
-                f"{result.get('output') or '（无内容）'}"
-            )
-        return f"工作流「{conn.get('name') or slug}」执行失败：{result.get('error')}"
+                self._record_workflow_run(slug, platform, ctx, user_input, r)
+                if not r.get("ok"):
+                    self.client.send_text(
+                        ctx.room_id, f"⚠️ 工作流「{name}」执行失败：{r.get('error')}"
+                    )
+                elif platform != "comfyui":
+                    self.client.send_text(
+                        ctx.room_id,
+                        f"✅ 工作流「{name}」已完成：\n{r.get('output') or '（无内容）'}",
+                    )
+            except Exception:
+                logger.exception("后台工作流执行出错：%s", name)
+
+        if submit_background(_work):
+            return f"工作流「{name}」已开始，完成后我会把结果发到群里。"
+        return "任务太多、系统繁忙，请稍后再让我跑。"
 
     def _record_workflow_run(self, slug, platform, ctx, user_input, result) -> None:
         """尽力把运行记录落库；DB 不可用就跳过（不影响已拿到的结果）。"""

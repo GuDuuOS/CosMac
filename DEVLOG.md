@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-19 — 工作流安全（再收口）：AI工具全后台 / processing不卡死 / 凭据强制HTTPS / 整体deadline / 轮询异常接住
+- 又一轮复查的 5 个异常路径，全修 + 补测试：
+- **#1【P1 AI 工具未全后台】**：`run_workflow` 工具之前只后台化 ComfyUI，webhook/dify/coze 仍同步阻塞 Agent+事务。改成**所有连接器都进有界后台池**、立即返回"已开始"、跑完发回群。
+- **#2【P1 回调永久卡 processing】**：抢占成 processing 后若 `send_text` 抛异常/DB 失败/进程重启，只回 500、不恢复 pending，重试得 404、结果永久丢。修：① `send_text` 包 try/except，失败（抛或假值）都回滚 pending；② `claim_pending` 支持**重抢卡死(processing 超 5 分钟)的运行**（崩溃恢复），并显式刷新 updated_at 防刚抢的被立刻重抢；③ 已 ok/error 的回调幂等返回 200。
+- **#3【P1 凭据走明文 HTTP】**：`credential_for` 只校验了域名、没要求 HTTPS——Bearer 可能被网络窃听。改成**带密钥必须 HTTPS**，内网 HTTP 须显式 `COSMAC_WF_ALLOW_INTERNAL=1`。
+- **#4【P2 流式无整体时限】**：`requests timeout` 只管单次读；慢速持续小块发送能长期占住 worker。`_fetch` 加**整体 deadline**（总读时长 ≤ timeout），超了掐断回收。
+- **#5【P2 ComfyUI 轮询静默失败】**：`_comfy_poll` 只接 `RequestException`，`_fetch` 抛的 `_TooBig` 会冒泡成静默失败。改成一并接住、当一次失败轮询、优雅超时。
+- 验证：加 凭据明文HTTP拒绝 / 卡死可重抢 / 重放幂等 / AI工具全后台 等用例；cosmac **135 单测全过**、ruff、build 通过。纯后端 → `restart guduu-bot`。
+
 ## 2026-06-19 — 工作流安全（深修·收口）：凭据域名绑定 + token 离开 URL + 原子回调 + 全后台 + 响应限流
 - 再一轮复查抓出的 5 个更深残留，一次修到底：
 - **#1【P1 凭据可被导出】**：管理员能把任意 cred 绑到自己控制的公网 URL，SSRF 只挡内网、不挡公网，服务端就把 Bearer 密钥发过去了。新增 `credential_for(cred,url)`：密钥的**允许域名也由服务端 env 固定**(`COSMAC_WF_<CRED>_HOST`)——未绑定或 URL 主机不匹配则**拒绝外发密钥**。webhook/dify/coze/comfyui 四连接器都走它。

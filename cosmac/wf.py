@@ -154,9 +154,20 @@ def credential_for(cred: str, url: str) -> Tuple[str, str]:
             f"凭据「{cred}」未绑定域名：请在服务端设 {_cred_env(cred)}_HOST=<允许的域名>，"
             "否则拒绝外发密钥（防凭据被导出到任意 URL）"
         )
-    host = (urlparse(url).hostname or "").lower()
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
     if host != bound:
         return "", f"凭据「{cred}」只允许发往 {bound}，当前目标主机是 {host or '空'}，已拒绝"
+    # #3：带密钥**必须走 HTTPS**，否则 Bearer 会在网络里被明文窃取。内网 HTTP 须显式开关。
+    if parsed.scheme != "https":
+        allow_internal = os.environ.get("COSMAC_WF_ALLOW_INTERNAL", "").lower() in (
+            "1", "true", "yes",
+        )
+        if not allow_internal:
+            return "", (
+                f"凭据「{cred}」不能走明文 HTTP（密钥会被网络窃取）：公网请用 HTTPS，"
+                "内网 HTTP 须设 COSMAC_WF_ALLOW_INTERNAL=1"
+            )
     return secret, ""
 
 
@@ -187,8 +198,14 @@ def _fetch(
     if cl and cl.isdigit() and int(cl) > max_bytes:
         resp.close()
         raise _TooBig()
+    # #4：`timeout` 只是单次读操作超时；慢速持续小块发送能长期占住 worker。
+    # 这里加**整体 deadline**：流式读总时长也不得超过 timeout，超了就掐断回收。
+    deadline = time.monotonic() + timeout
     buf = bytearray()
     for chunk in resp.iter_content(8192):
+        if time.monotonic() > deadline:
+            resp.close()
+            raise _TooBig()  # 整体超时，按"异常响应"处理（掐断、不占 worker）
         if not chunk:
             continue
         buf += chunk
@@ -477,7 +494,9 @@ def _comfy_poll(
                             if im.get("filename"):
                                 imgs.append(im)
                     return imgs
-        except requests.RequestException:
+        except (requests.RequestException, _TooBig):
+            # #5：_fetch 的 _TooBig（响应过大/整体超时）也要接住，否则会冒泡成静默失败、
+            # 不通知群也不记录。这里当一次失败的轮询，继续等到 deadline 再优雅超时。
             pass
         time.sleep(2)
     return None

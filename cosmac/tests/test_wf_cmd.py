@@ -148,8 +148,10 @@ class TestWfCommand(unittest.TestCase):
         self.assertTrue(any("成片已生成" in t for _r, t in bot.client.sent))
         with session_scope() as s:
             self.assertEqual(recent_runs(s, slug="cover")[0].status, "ok")
-        # 重放(token 已清)→ 404，不会重复发
-        self.assertEqual(bot.handle_wf_callback(rid, tok, {"output": "再来"}), 404)
+        # 重放(已 ok)→ **幂等 200**，不重复发
+        before = len(bot.client.sent)
+        self.assertEqual(bot.handle_wf_callback(rid, tok, {"output": "再来"}), 200)
+        self.assertEqual(len(bot.client.sent), before)  # 没有再发一条
 
     def test_callback_send_fail_keeps_pending(self) -> None:
         # #6：回调发消息失败时**不能结清** run（否则 token 清空、平台重试得 404、结果永久丢）
@@ -176,6 +178,24 @@ class TestWfCommand(unittest.TestCase):
         with session_scope() as s:
             self.assertFalse(claim_pending(s, rid))  # 再抢失败（已 processing）
 
+    def test_stale_processing_reclaimable(self) -> None:
+        # #2：卡在 processing 超时的运行（上次半途崩了）可被后续回调重抢，不会永久卡死
+        from datetime import datetime, timedelta
+
+        from cosmac.db.models import WorkflowRun
+        from cosmac.db.wf_repo import claim_pending, create_pending
+        with session_scope() as s:
+            rid = create_pending(s, slug="x", platform="webhook", room_id=ROOM,
+                                 sender="@u:host", user_input="i", token="h").id
+        with session_scope() as s:
+            self.assertTrue(claim_pending(s, rid))   # pending→processing
+        with session_scope() as s:
+            self.assertFalse(claim_pending(s, rid))  # 刚抢的不可立刻重抢
+        with session_scope() as s:  # 把它做旧 → 视为卡死
+            s.get(WorkflowRun, rid).updated_at = datetime.utcnow() - timedelta(hours=1)
+        with session_scope() as s:
+            self.assertTrue(claim_pending(s, rid))   # 卡死的可被重抢（崩溃恢复）
+
     def test_callback_bad_token_403(self) -> None:
         bot = _bot(workflows=[{**WF, "async": True}])
         with mock.patch("cosmac.wf.run_connector", return_value={"ok": True}):
@@ -188,7 +208,8 @@ class TestWfCommand(unittest.TestCase):
         self.assertEqual(_bot().handle_wf_callback(999999, "t", {"output": "x"}), 404)
 
     def test_run_workflow_ai_tool(self) -> None:
-        # 主 AI 工具路径：execute(run_workflow) 跑连接器并返回结果
+        # 主 AI 工具路径：现在**所有连接器都后台跑**（#1），工具立即返回"已开始"，
+        # 结果由后台发回群（setUp 让 submit_background 同步执行）。
         from cosmac.ai.base import ToolCall
         from cosmac.ai.tools import ToolContext
         bot = _bot()
@@ -198,7 +219,8 @@ class TestWfCommand(unittest.TestCase):
             out = bot.toolbox.execute(
                 ToolCall(id="t", name="run_workflow",
                          arguments={"slug": "cover", "input": "蓝色"}), ctx)
-        self.assertIn("图已生成", out)
+        self.assertIn("已开始", out)
+        self.assertTrue(any("图已生成" in t for _r, t in bot.client.sent))
         # 不带 slug → 返回可用列表
         out2 = bot.toolbox.execute(
             ToolCall(id="t2", name="run_workflow", arguments={}), ctx)
