@@ -32,6 +32,7 @@ from cosmac.config import (
     AI_CONFIG_EVENT_TYPE,
     CHANNEL_CONFIG_EVENT_TYPE,
     CONTROL_ADMINS_EVENT_TYPE,
+    RULES_EVENT_TYPE,
     SKILLS_EVENT_TYPE,
     CosmacConfig,
 )
@@ -165,6 +166,8 @@ class CosmacBot:
         **绝不能因为它出问题就让主 AI 不回话**——任一来源异常都只是少注入、不抛出。
         """
         try:
+            # 平台级硬约束（全局规则）——放最前、优先级最高
+            rules_text = self._global_rules_text()
             # 本群绑定的智能体：贡献「人设文本」+「额外要启用的技能 slug」
             persona, agent_slugs = self._group_persona(room_id)
             items = (
@@ -183,11 +186,33 @@ class CosmacBot:
                 deduped.append(it)
             skills_text = render_skills(deduped)
             kb_text = self._kb_context(room_id, sender, query)
-            # 人设 → 技能 → 知识库，依次拼成本轮 addendum
-            return "\n\n".join(p for p in (persona, skills_text, kb_text) if p)
+            # 规则(硬约束) → 人设 → 技能 → 知识库，依次拼成本轮 addendum
+            return "\n\n".join(p for p in (rules_text, persona, skills_text, kb_text) if p)
         except Exception as e:
             # 兜住**最终组装**：脏数据绝不能让这条消息收不到回复（docstring 的承诺）
             logger.debug("组装 addendum 失败（忽略，按无附加继续）：%s", e)
+            return ""
+
+    def _global_rules_text(self) -> str:
+        """读控制室「全局规则」state event，渲染成「必须遵守」块（失败返回空）。"""
+        try:
+            ctrl = self.client.resolve_alias(self.config.control_room_alias)
+            if not ctrl:
+                return ""
+            ev = self.client.get_state_event(ctrl, RULES_EVENT_TYPE) or {}
+            texts = [
+                str(r.get("text") or "").strip()
+                for r in (ev.get("rules") or [])
+                if isinstance(r, dict) and r.get("enabled", True)
+            ]
+            texts = [t for t in texts if t]
+            if not texts:
+                return ""
+            lines = ["【必须严格遵守的平台规则，优先级高于其它指示】："]
+            lines += [f"{i}. {t}" for i, t in enumerate(texts, 1)]
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug("读取全局规则失败（忽略）：%s", e)
             return ""
 
     def _kb_context(self, room_id: str, sender: str, query: str) -> str:

@@ -189,6 +189,11 @@ SKILLS_EVENT_TYPE = "cosmac.skills"
 # 同样走 Matrix state event（浏览器够不到 DB），与技能/AI 配置一致。
 AGENTS_EVENT_TYPE = "cosmac.agents"
 
+# 管理后台写、bot 读的「全局规则(Rule)」state event 类型（存控制室，应用于所有群）。
+# 内容形如 {"rules": [{"text": "...", "enabled": true}, ...]}。规则是平台级**硬约束**
+# （如：对外报价/发布须经确认、不杜撰数据），无论群里用哪个智能体都注入、优先级最高。
+RULES_EVENT_TYPE = "cosmac.rules"
+
 # 每个频道(群)自己的配置 state event（前端「频道管理」写，存在该房间里）。
 # 这里 bot 只用到 content.persona：persona.agentSlug（本群绑定的全局智能体）
 # 与 persona.prompt（自定义人设）。与 client.ts 的 CHANNEL_CONFIG_EVENT 一致。

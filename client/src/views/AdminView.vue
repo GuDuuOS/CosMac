@@ -27,6 +27,9 @@
         <button class="adm-mi" :class="{ active: tab === 'agents' }" @click="switchToAgents">
           <span class="adm-mi-ic">🧑‍🚀</span> 智能体
         </button>
+        <button class="adm-mi" :class="{ active: tab === 'rules' }" @click="switchToRules">
+          <span class="adm-mi-ic">⚖️</span> 规则
+        </button>
         <button class="adm-mi" :class="{ active: tab === 'overview' }" @click="switchToOverview">
           <span class="adm-mi-ic">📊</span> 数据概览
         </button>
@@ -414,6 +417,38 @@
         </div>
       </template>
 
+      <!-- 规则面板:平台级硬约束(写控制室 state event,主 AI 所有群都注入、优先级最高) -->
+      <template v-else-if="tab === 'rules'">
+        <header class="adm-head">
+          <div>
+            <h1 class="adm-h1">规则</h1>
+            <p class="adm-hint">
+              平台级硬约束 · 主 AI 在所有群都须遵守、优先级高于人设/技能 · 保存后约 20 秒热生效
+            </p>
+          </div>
+          <div class="adm-actions">
+            <button class="adm-btn ghost" :disabled="ruLoading || ruSaving" @click="loadRules">
+              {{ ruLoading ? '加载中…' : '重新加载' }}
+            </button>
+            <button class="adm-btn" :disabled="ruLoading || ruSaving" @click="saveRules">
+              {{ ruSaving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </header>
+
+        <div v-if="ruLoading" class="adm-center"><div class="adm-spin" /> 加载规则…</div>
+
+        <div v-else class="adm-form">
+          <p class="adm-hint">每条一行规则;停用的不注入。例:「对外报价/发布等动作必须先经负责人确认」「不得编造数据,引用须标注来源」。</p>
+          <div v-for="(r, i) in rules" :key="i" class="adm-rule-row">
+            <input type="checkbox" v-model="r.enabled" title="启用" />
+            <textarea v-model="r.text" rows="2" class="adm-rule-text" placeholder="写一条主 AI 必须遵守的规则…" />
+            <button class="adm-btn ghost sm danger" @click="rules.splice(i, 1)">删除</button>
+          </div>
+          <button class="adm-btn ghost sm" @click="rules.push({ text: '', enabled: true })">＋ 加一条规则</button>
+        </div>
+      </template>
+
       <!-- 数据概览面板 -->
       <template v-else-if="tab === 'overview'">
         <header class="adm-head">
@@ -557,12 +592,15 @@ import {
   setGlobalSkills,
   getGlobalAgents,
   setGlobalAgents,
+  getGlobalRules,
+  setGlobalRules,
   AI_TOOL_CATALOG,
   AI_PROVIDERS,
   type AdminUser,
   type AdminRoom,
   type GlobalSkill,
   type GlobalAgent,
+  type GlobalRule,
 } from '@/matrix/client'
 import { useToast } from '@/composables/useToast'
 
@@ -571,8 +609,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { success, warn } = useToast()
 
-// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 技能库 / 智能体 / 数据概览
-const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'agents' | 'overview'>('users')
+// 当前管理模块：用户管理 / 频道管理 / AI 配置 / 技能库 / 智能体 / 规则 / 数据概览
+const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'agents' | 'rules' | 'overview'>('users')
 
 // 页面状态机：checking 校验中 / denied 无权限 / ok 已是管理员
 const state = ref<'checking' | 'denied' | 'ok'>('checking')
@@ -1017,6 +1055,46 @@ async function removeAgent(a: GlobalAgent) {
   try { await persistAgents(next, '已删除') } catch { /* 已提示 */ }
 }
 
+/* —— 规则（全局硬约束，写控制室 state event）—— */
+const rules = ref<GlobalRule[]>([])
+const ruLoading = ref(false)
+const ruSaving = ref(false)
+const ruLoaded = ref(false)
+
+function switchToRules() {
+  tab.value = 'rules'
+  if (!ruLoaded.value) loadRules()
+}
+
+async function loadRules() {
+  ruLoading.value = true
+  try {
+    rules.value = await getGlobalRules()
+    ruLoaded.value = true
+  } catch (e: any) {
+    warn('加载失败', e?.message || '无法读取规则')
+  } finally {
+    ruLoading.value = false
+  }
+}
+
+async function saveRules() {
+  ruSaving.value = true
+  try {
+    // 去掉空行后保存（空文本规则没意义）
+    const clean = rules.value
+      .map((r) => ({ text: r.text.trim(), enabled: r.enabled }))
+      .filter((r) => r.text)
+    await setGlobalRules(clean)
+    rules.value = clean
+    success('已保存', '主 AI 约 20 秒内热生效')
+  } catch (e: any) {
+    warn('保存失败', e?.message || '无法写入控制室')
+  } finally {
+    ruSaving.value = false
+  }
+}
+
 /* —— 数据概览 —— */
 const ovLoading = ref(false)
 const ovLoaded = ref(false)
@@ -1147,6 +1225,10 @@ onMounted(check)
 
 /* 技能库 */
 .adm-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.adm-rule-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.adm-rule-row input[type=checkbox] { margin-top: 10px; flex-shrink: 0; }
+.adm-rule-text { flex: 1; resize: vertical; }
+.adm-rule-row .adm-btn { flex-shrink: 0; margin-top: 4px; }
 .adm-skill-desc { color: var(--text-2); max-width: 320px; }
 .adm-skill-edit {
   border: 1px solid var(--border);

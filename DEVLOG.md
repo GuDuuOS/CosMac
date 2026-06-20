@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-19 — 模块2：Rule 规则引擎（平台级硬约束，全局注入、优先级最高）
+- 模块2「记忆/知识库/Rule/Skill」补上最后一块 **Rule**:平台级硬约束(如"对外报价/发布须经确认""不得编造数据"),无论群里用哪个智能体都注入,且**放 addendum 最前、优先级最高**。
+- 沿用已验证套路(同技能/智能体):全局规则存控制室 state event `cosmac.rules`,浏览器(管理后台)写、bot 读。
+- 后端:`config.py` 加 `RULES_EVENT_TYPE`;`appservice_bot._global_rules_text` 读规则渲染成「必须严格遵守」块,拼进 `_skill_addendum`(规则→人设→技能→知识库)。
+- 前端:`client.ts` 加 `getGlobalRules/setGlobalRules` + `GlobalRule` 类型;`AdminView` 加「规则」tab(行内编辑列表:勾选启用/文本/删除/加一条/保存)。
+- 验证:`test_group_agent` 加规则注入例(启用过滤 + 排在最前);cosmac **89 单测全过、ruff 通过**、client build 通过;**preview 直连生产**:规则新建→重新加载读回(round-trip)→清理,生产无残留、无控制台报错。
+- 部署:发 dist + `restart guduu-bot`(bot 改了注入)。
+
 ## 2026-06-19 — 模块2 上线：cosmac DB 接生产 Postgres + 修嵌入挪用 ARK key 的坑
 - **DB 上线**:服务器给 cosmac 单开 Postgres 库(cosmac_user/cosmac),`COSMAC_DATABASE_URL` 写进 guduu-bot.service,重启后 bot 连上并建好四表(cosmac_skill/agent/kb_doc/kb_chunk)。至此命令建技能、知识库、RAG 在生产真正可用(此前只有 state event 的全局技能/智能体能用)。具体连接信息进本机 DEPLOY.md。
 - **修坑(P1)**:`get_embedder()` 原把 `ARK_API_KEY` 也当嵌入 key→去调 `text-embedding-3-small`,但方舟没这模型、会报错拖垮知识库入库/检索。改为**只认显式 `COSMAC_EMBED_API_KEY`/`OPENAI_API_KEY`**,不挪用 ARK;没配就用哈希词袋(词法检索)。要在方舟做嵌入需显式配 COSMAC_EMBED_API_KEY+BASE_URL+MODEL。

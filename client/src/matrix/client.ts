@@ -754,6 +754,8 @@ const CONTROL_ROOM_LOCALPART = 'cosmac-ctrl'
 const SKILLS_EVENT_TYPE = 'cosmac.skills'
 /** 控制室里「全局智能体(Agent)」state event 的类型（与 bot 端 AGENTS_EVENT_TYPE 一致）。 */
 const AGENTS_EVENT_TYPE = 'cosmac.agents'
+/** 控制室里「全局规则(Rule)」state event 的类型（与 bot 端 RULES_EVENT_TYPE 一致）。 */
+const RULES_EVENT_TYPE = 'cosmac.rules'
 
 /** 主 AI 可用工具目录（工具开关 UI 用；name 要与 bot 端 Toolbox 注册的一致）。 */
 export const AI_TOOL_CATALOG: { name: string; label: string }[] = [
@@ -1056,6 +1058,35 @@ export async function setGlobalAgents(agents: GlobalAgent[]): Promise<void> {
   if (!mx) throw new Error('未登录')
   const rid = await ensureControlRoom()
   await (mx as any).sendStateEvent(rid, AGENTS_EVENT_TYPE, { agents }, '')
+}
+
+/** 一条「全局规则」：平台级硬约束，主 AI 在所有群都须遵守。 */
+export interface GlobalRule {
+  text: string
+  enabled: boolean
+}
+
+/** 读全局规则列表（控制室 state event）；不存在时返回 []。 */
+export async function getGlobalRules(): Promise<GlobalRule[]> {
+  if (!mx) return []
+  const rid = await resolveControlRoom()
+  if (!rid) return []
+  try {
+    const ev = await (mx as any).getStateEvent(rid, RULES_EVENT_TYPE, '')
+    const arr = Array.isArray(ev?.rules) ? ev.rules : []
+    return arr
+      .map((r: any) => ({ text: String(r?.text || ''), enabled: r?.enabled !== false }))
+      .filter((r: GlobalRule) => r.text.trim())
+  } catch {
+    return []
+  }
+}
+
+/** 整体写入全局规则列表（必要时先建控制室）。 */
+export async function setGlobalRules(rules: GlobalRule[]): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  const rid = await ensureControlRoom()
+  await (mx as any).sendStateEvent(rid, RULES_EVENT_TYPE, { rules }, '')
 }
 
 /** 读某个频道当前时间线的消息（含发送者昵称与 cosmac.card 富卡）。 */

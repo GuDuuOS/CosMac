@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import os
 import unittest
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from unittest import mock
 
 from cosmac.bots.appservice_bot import CosmacBot
 from cosmac.config import (
     AGENTS_EVENT_TYPE,
     CHANNEL_CONFIG_EVENT_TYPE,
+    RULES_EVENT_TYPE,
     SKILLS_EVENT_TYPE,
     CosmacConfig,
 )
@@ -29,11 +30,12 @@ ROOM = "!grp:host"
 class FakeClient:
     """按 (event_type) 返回不同 state event；其余调用给安全默认。"""
 
-    def __init__(self, channel_cfg: Optional[Dict], agents: Optional[Dict], skills: Optional[Dict]):
+    def __init__(self, channel_cfg=None, agents=None, skills=None, rules=None):
         self._by_type = {
             CHANNEL_CONFIG_EVENT_TYPE: channel_cfg,
             AGENTS_EVENT_TYPE: agents,
             SKILLS_EVENT_TYPE: skills,
+            RULES_EVENT_TYPE: rules,
         }
 
     def set_displayname(self, *_a, **_k): pass
@@ -45,9 +47,9 @@ class FakeClient:
         return self._by_type.get(event_type)
 
 
-def _bot(channel_cfg=None, agents=None, skills=None) -> CosmacBot:
+def _bot(channel_cfg=None, agents=None, skills=None, rules=None) -> CosmacBot:
     bot = CosmacBot(CosmacConfig(llm_provider="echo"))
-    bot.client = FakeClient(channel_cfg, agents, skills)
+    bot.client = FakeClient(channel_cfg, agents, skills, rules)
     return bot
 
 
@@ -100,6 +102,20 @@ class TestGroupAgent(unittest.TestCase):
     def test_no_config_empty(self) -> None:
         bot = _bot(channel_cfg=None, agents=None, skills=None)
         self.assertEqual(bot._skill_addendum(ROOM, "@u:host"), "")
+
+    def test_global_rules_injected_and_filtered(self) -> None:
+        bot = _bot(rules={"rules": [
+            {"text": "对外报价必须经负责人确认", "enabled": True},
+            {"text": "不得编造数据", "enabled": True},
+            {"text": "这条停用的不该出现", "enabled": False},
+        ]})
+        out = bot._skill_addendum(ROOM, "@u:host", query="随便问")
+        self.assertIn("必须严格遵守", out)
+        self.assertIn("对外报价必须经负责人确认", out)
+        self.assertIn("不得编造数据", out)
+        self.assertNotIn("这条停用的不该出现", out)
+        # 规则块应在最前（优先级最高）
+        self.assertTrue(out.startswith("【必须严格遵守"))
 
     def test_rag_injects_relevant_kb_chunk(self) -> None:
         # 本群知识库里有文档 → 提问相关问题时，addendum 注入检索到的片段
