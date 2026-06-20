@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-19 — 知识库(RAG)健壮性修复（向量空间隔离 + 复用查询向量 + key 兜底）
+- **#1【P1 安全】方舟 key 误发 OpenAI**：`get_embedder` 主路径已由并行会话改掉（不再自动挪用 `ARK_API_KEY`）。再补一道兜底：若有人把 `ark-…` key 配进 `COSMAC_EMBED_API_KEY` 却没给 `base_url`，强制指向方舟端点——绝不让 ark key 默认连 `api.openai.com`。
+- **#2【P1 正确性】换 embedder 后旧向量污染检索**：`KnowledgeChunk` 只存了向量、没存"用哪个 embedder/维度"。从哈希兜底切到真嵌入后，新查询向量与旧哈希向量在不同空间里算余弦 = 乱序/失真。修：embedder 加 `tag`（如 `hash:256`/`oai:openai:text-embedding-3-small`），分块新增 `embed_tag` 列入库记下，`search` **只比同 tag** 的分块。旧数据需重新入库才会被检索。
+- **#3【P2 性能/费用】一次回复 embed 两遍 query**：bot 的 `_kb_context` 分别搜群库/个人库，各 `embed_one(query)` 一次。修：查询向量**只算一次**，`search` 加 `qvec` 入参，群库/个人库共用，省一半嵌入请求。（pgvector 近邻索引仍是后续：v1 全量扫描是 §3 既定的，规模化再换，接口不变。）
+- 验证：`test_kb` 加 3 例（embed_tag 入库 / 跨 embedder 不混 / qvec 复用）；cosmac **123 单测全过**、ruff 通过。
+- 部署：改了 `cosmac/` → `restart guduu-bot`。⚠️ **新增 DB 列 `embed_tag`**：知识库表是新建的、create_all 不会给已存在的表加列——若服务器已建过 `cosmac_kb_chunk`，需 **drop 重建知识库表**（数据本就要按 #2 重新入库）；本地删 `run/cosmac.db` 即可。
+
 ## 2026-06-19 — 模块3 P4：工作流异步回调(长任务跑完反向通知回群)
 - 长任务(ComfyUI 出视频、n8n 长流程)同步等不现实——加异步回调:提交后即返回,平台跑完反向 POST 回 bot,再把结果发回原群。
 - **链路**:`WorkflowRun` 加 `token`(一次性)+ status `pending`;`wf_repo` 加 create_pending/get_run/complete_run;config 加 `public_url`。连接器(webhook)勾 `async` → bot `_dispatch_async` 建 pending+token、拼回调 URL `{public_url}/cosmac/wf/callback/<id>?token=` 塞进 webhook payload、提交即回"⏳ 已提交"。

@@ -84,6 +84,33 @@ class TestKnowledgeBase(unittest.TestCase):
             # B 群没有任何文档 → 搜不到
             self.assertEqual(search(s, query="周报", scope=SCOPE_ROOM, scope_id=ROOM_B, embedder=EMB), [])
 
+    def test_embed_tag_stored(self) -> None:
+        # #2：入库时记下 embedder 的向量空间标识
+        with session_scope() as s:
+            doc = ingest_document(s, scope=SCOPE_ROOM, scope_id=ROOM_A,
+                                  title="t", text="一段内容。", embedder=EMB)
+            self.assertEqual(doc.chunks[0].embed_tag, EMB.tag)  # "hash:256"
+
+    def test_cross_embedder_not_mixed(self) -> None:
+        # #2 核心：换了 embedder（不同向量空间）后，旧分块绝不参与检索（否则乱序/失真）。
+        self._seed_room_a()  # 用 EMB(hash:256) 入库
+        other = HashingEmbedder(dim=128)  # 不同维度 → tag 不同 "hash:128"
+        self.assertNotEqual(other.tag, EMB.tag)
+        with session_scope() as s:
+            hits = search(s, query="周报 数据 复盘", scope=SCOPE_ROOM,
+                          scope_id=ROOM_A, embedder=other)
+            self.assertEqual(hits, [])  # 旧 tag 的分块被过滤掉
+
+    def test_qvec_reused(self) -> None:
+        # #3：传入预算好的 qvec 时，search 不再自己 embed（用传入的向量算分）
+        self._seed_room_a()
+        with session_scope() as s:
+            qvec = EMB.embed_one("周报 数据 复盘")
+            hits = search(s, query="x", scope=SCOPE_ROOM, scope_id=ROOM_A,
+                          embedder=EMB, qvec=qvec)
+            self.assertTrue(hits)
+            self.assertIn("周报", hits[0][0].text)
+
     def test_delete_cascades_chunks(self) -> None:
         with session_scope() as s:
             doc = ingest_document(s, scope=SCOPE_ROOM, scope_id=ROOM_A,

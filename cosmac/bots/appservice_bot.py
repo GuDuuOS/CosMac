@@ -283,13 +283,19 @@ class CosmacBot:
         if not q:
             return ""
         try:
+            from cosmac.ai.embeddings import get_embedder
             from cosmac.db import session_scope
             from cosmac.db.kb import search
             from cosmac.db.models import SCOPE_ROOM, SCOPE_USER
 
+            # #3：查询向量只算一次（embed_one 可能要打网络），群库/个人库共用，省一半请求
+            emb = get_embedder()
+            qvec = emb.embed_one(q)
             with session_scope() as s:
-                hits = search(s, query=q, scope=SCOPE_ROOM, scope_id=room_id, k=3, min_score=0.05)
-                hits += search(s, query=q, scope=SCOPE_USER, scope_id=sender, k=2, min_score=0.05)
+                hits = search(s, query=q, scope=SCOPE_ROOM, scope_id=room_id, k=3,
+                              min_score=0.05, embedder=emb, qvec=qvec)
+                hits += search(s, query=q, scope=SCOPE_USER, scope_id=sender, k=2,
+                               min_score=0.05, embedder=emb, qvec=qvec)
                 if not hits:
                     return ""
                 hits.sort(key=lambda t: t[1], reverse=True)

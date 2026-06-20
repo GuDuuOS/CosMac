@@ -80,6 +80,7 @@ def ingest_document(
                 ordinal=i,
                 text=piece,
                 embedding=vec,
+                embed_tag=emb.tag,  # 记下用哪个 embedder 嵌的，检索时据此只比同空间
             )
         )
     session.flush()
@@ -95,23 +96,30 @@ def search(
     k: int = 4,
     embedder: Optional[Embedder] = None,
     min_score: float = 0.0,
+    qvec: Optional[List[float]] = None,
 ) -> List[Tuple[KnowledgeChunk, float]]:
     """在某作用域的分块里按语义相似度取 top-K，返回 [(chunk, score), ...] 降序。
 
-    v1：把该作用域的分块全load 进来在 Python 里算余弦。作用域内分块量不大时足够；
-    量大了再上 pgvector。``min_score`` 可过滤掉太不相关的（哈希兜底时尤其有用）。
+    v1：把该作用域、**且向量空间(embed_tag)与当前 embedder 一致**的分块 load 进来在
+    Python 里算余弦。规模大了再上 pgvector。``min_score`` 过滤太不相关的。
+
+    - #2 正确性：只比 ``embed_tag == emb.tag`` 的分块——换了 embedder（如从哈希兜底切到
+      真嵌入）后，旧向量不会再混进来产生乱序/失真。旧数据需重新入库才会被检索到。
+    - #3 性能：``qvec`` 可传入**已算好的查询向量**，避免一次回复对群库/个人库各 embed 一遍。
     """
     q = (query or "").strip()
     if not q:
         return []
     emb = embedder or get_embedder()
-    qvec = emb.embed_one(q)
+    qv = qvec if qvec is not None else emb.embed_one(q)
     stmt = select(KnowledgeChunk).where(
-        KnowledgeChunk.scope == scope, KnowledgeChunk.scope_id == scope_id
+        KnowledgeChunk.scope == scope,
+        KnowledgeChunk.scope_id == scope_id,
+        KnowledgeChunk.embed_tag == emb.tag,  # 只比同一向量空间
     )
     scored: List[Tuple[KnowledgeChunk, float]] = []
     for ch in session.scalars(stmt).all():
-        score = cosine(qvec, ch.embedding or [])
+        score = cosine(qv, ch.embedding or [])
         if score >= min_score:
             scored.append((ch, score))
     scored.sort(key=lambda t: t[1], reverse=True)

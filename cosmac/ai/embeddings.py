@@ -46,6 +46,13 @@ class Embedder:
     name = "base"
     dim = 0
 
+    @property
+    def tag(self) -> str:
+        """**向量空间标识**：不同 (provider/模型/维度) 产出的向量绝不能混在一起比相似度。
+        入库时把它和向量一起存，检索时只比同 tag 的分块——避免换 embedder 后旧向量污染检索。
+        """
+        return self.name
+
     def embed(self, texts: List[str]) -> List[List[float]]:
         raise NotImplementedError
 
@@ -68,6 +75,10 @@ class HashingEmbedder(Embedder):
 
     def __init__(self, dim: int = 256):
         self.dim = dim
+
+    @property
+    def tag(self) -> str:
+        return f"hash:{self.dim}"
 
     def _tokens(self, text: str) -> List[str]:
         toks = _TOKEN_RE.findall((text or "").lower())
@@ -97,6 +108,12 @@ class OpenAICompatEmbedder(Embedder):
 
         self._client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
         self.model = model
+        self.base_url = base_url
+
+    @property
+    def tag(self) -> str:
+        # 端点 + 模型一起标识向量空间（同模型不同端点也算不同空间，稳妥）
+        return f"oai:{self.base_url or 'openai'}:{self.model}"
 
     def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
@@ -113,6 +130,10 @@ def _env(*names: str) -> str:
         if v:
             return v
     return ""
+
+
+# 方舟（火山引擎）OpenAI 兼容端点默认地址——给"误配 ark key 没给 base_url"兜底用。
+_DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 
 
 def get_embedder() -> Embedder:
@@ -133,6 +154,11 @@ def get_embedder() -> Embedder:
         return HashingEmbedder()
     model = _env("COSMAC_EMBED_MODEL") or "text-embedding-3-small"
     base_url = _env("COSMAC_EMBED_BASE_URL") or None
+    # #1 安全兜底：若有人把方舟 key（形如 ark-…）配进 EMBED key 却没给 base_url，
+    # 默认 base_url=None → OpenAI 客户端会连 api.openai.com，等于把方舟 key 送给 OpenAI。
+    # 这里强制指向方舟端点，绝不把 ark 开头的 key 发去 OpenAI。
+    if base_url is None and key.startswith("ark-"):
+        base_url = _DEFAULT_ARK_BASE_URL
     try:
         return OpenAICompatEmbedder(api_key=key, model=model, base_url=base_url)
     except Exception:

@@ -161,6 +161,11 @@ class KnowledgeChunk(Base):
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 在文档内的次序
     text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     embedding: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 向量空间标识（embedder.tag，如 "hash:256"/"oai:openai:text-embedding-3-small"）。
+    # 检索只比**同 tag** 的分块——换 embedder 后旧向量不会再混进来产生乱序/失真结果。
+    embed_tag: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", index=True
+    )
 
     doc: Mapped["KnowledgeDoc"] = relationship("KnowledgeDoc", back_populates="chunks")
 
