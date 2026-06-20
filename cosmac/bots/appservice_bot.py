@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import time
@@ -46,6 +47,8 @@ logger = logging.getLogger("cosmac.appservice_bot")
 _MAX_CALLBACK_BODY = 512 * 1024
 # 回调结果发进群的消息正文上限（防超 Matrix 事件大小→send 持续失败→无限重试）。
 _MAX_WF_MSG = 4000
+# Synapse 事务推送请求体上限（纵深防御；批量事件给足余量）。
+_MAX_TXN_BODY = 8 * 1024 * 1024
 
 
 def _token_hash(token: str) -> str:
@@ -1089,13 +1092,14 @@ class _Handler(BaseHTTPRequestHandler):
         Synapse 会通过 Authorization: Bearer <hs_token> 头，或老式的
         ?access_token= 查询参数携带 token，两种都兼容一下。
         """
+        # 用 compare_digest 做常数时间比较，避免 hs_token 被时序侧信道逐字节猜出来
         auth = self.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            return auth[len("Bearer "):] == self.hs_token
+            return hmac.compare_digest(auth[len("Bearer "):], self.hs_token)
         # 兼容老式查询参数
         if "access_token=" in self.path:
             token = self.path.split("access_token=", 1)[1].split("&", 1)[0]
-            return token == self.hs_token
+            return hmac.compare_digest(token, self.hs_token)
         return False
 
     def _send_json(self, status: int, body: Dict[str, Any]) -> None:
@@ -1118,8 +1122,16 @@ class _Handler(BaseHTTPRequestHandler):
         # 从路径里取出事务 id（.../transactions/{txnId}?...）
         txn_id = self.path.split("/transactions/", 1)[1].split("?", 1)[0]
 
-        # 读取请求体（里面是事件数组）
-        length = int(self.headers.get("Content-Length", 0))
+        # 读取请求体（里面是事件数组）。同回调端点一样按 Content-Length 限大小、拒负数/非法值，
+        # 防把超大请求整个读进内存（纵深防御；事务批量事件给 8MB 余量）。
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            self._send_json(400, {"errcode": "M_NOT_JSON"})
+            return
+        if length < 0 or length > _MAX_TXN_BODY:
+            self._send_json(413, {"errcode": "M_TOO_LARGE"})
+            return
         raw = self.rfile.read(length) if length else b"{}"
         try:
             data = json.loads(raw)
