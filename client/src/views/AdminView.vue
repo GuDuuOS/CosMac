@@ -1734,6 +1734,9 @@ onMounted(check)
   font-size: var(--fs-100); background: var(--bg); color: var(--text);
   font-family: inherit; resize: vertical; line-height: 1.5;
 }
+/* select 高度按内容自适应：覆盖全局 .cam-select 的固定 height:34px——
+   它与本表单更高内边距(9px)叠加会把选项文字竖直切掉(34-18<行高)。 */
+.adm-form .adm-field select { height: auto; resize: none; }
 .adm-form .adm-field textarea:focus,
 .adm-form .adm-field input:focus,
 .adm-form .adm-field select:focus { outline: none; border-color: var(--accent); }
