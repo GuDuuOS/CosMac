@@ -14,15 +14,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from cosmac.db.models import Base
+from cosmac.db.models import Base, SeenTxn
+
+logger = logging.getLogger("cosmac.db.engine")
 
 # —— 模块级单例：进程内共享一个 engine / sessionmaker ——
 # bot 多线程（每个 HTTP 请求一个线程），engine 的连接池本身线程安全；
@@ -76,7 +79,31 @@ def init_engine(url: Optional[str] = None, *, create_all: bool = True) -> Engine
     _Session = sessionmaker(bind=_engine, future=True, expire_on_commit=False)
     if create_all:
         Base.metadata.create_all(_engine)
+        _heal_ephemeral_schema(_engine)
     return _engine
+
+
+def _heal_ephemeral_schema(engine: Engine) -> None:
+    """对**纯缓存/派生**表做轻量"自愈"——目前仅事务去重表 SeenTxn。
+
+    没上 alembic，``create_all`` 只建缺失的表、不会给已存在的表补列。早期版本的
+    ``cosmac_seen_txn`` 只有 ``txn_id``；新增了 ``done``/``claimed_at`` 后，老库上
+    INSERT 会因缺列失败 → 去重静默退回内存。这类表是 7 天 TTL 的一次性缓存、丢了可
+    重新生成，故直接 DROP+重建最省事（**仅限这类缓存表，业务数据表绝不在此自动 DROP**）。
+    任何失败都不致命：退回内存去重，不阻断启动。
+    """
+    try:
+        insp = inspect(engine)
+        if not insp.has_table(SeenTxn.__tablename__):
+            return  # create_all 已按新模型建好
+        have = {c["name"] for c in insp.get_columns(SeenTxn.__tablename__)}
+        need = {c.name for c in SeenTxn.__table__.columns}
+        if not need.issubset(have):  # 老库缺列 → 重建为新模式
+            logger.info("去重缓存表列过时，DROP 重建 %s", SeenTxn.__tablename__)
+            SeenTxn.__table__.drop(engine, checkfirst=True)
+            SeenTxn.__table__.create(engine, checkfirst=True)
+    except Exception:
+        logger.warning("自愈去重缓存表失败（不致命，退回内存去重）", exc_info=True)
 
 
 def get_engine() -> Engine:

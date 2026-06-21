@@ -200,12 +200,24 @@ class WorkflowRun(Base, TimestampMixin):
 
 
 class SeenTxn(Base, TimestampMixin):
-    """已处理过的 appservice 事务 id（去重，#2）。
+    """appservice 事务的**处理状态**，用于原子去重 + 崩溃恢复（#2/#3）。
 
-    内存去重重启即丢、且无界增长；这里持久化最近处理过的 txn，重启后 Synapse 重放
-    同一事务也能识别并跳过——避免重复触发付费工作流。定期按时间清理旧记录控制表大小。
+    内存去重重启即丢、且无界增长；这里持久化处理状态，重启后 Synapse 重放也能识别。
+    两阶段抢占（见 db/dedup.py）：
+      - 新事务：原子 INSERT 一行（``done=False``、``claimed_at=now``）占住处理权；
+        主键冲突 = 已有人在处理/已处理，绝不重复触发付费工作流。
+      - ``done=True``：已处理完，重放直接跳过。
+      - ``done=False`` 且 ``claimed_at`` 过期：上次处理中途崩了的残留，可被原子重新抢占
+        （at-least-once，避免"先标记后处理"在崩溃时永久丢一整批事务）。
+    旧记录按时间清理控制表大小。
     """
 
     __tablename__ = "cosmac_seen_txn"
 
     txn_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    # 是否处理完成。False=抢占中(processing)；True=已完成(done)
+    done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 最近一次抢占时间——判断 processing 是否为"崩溃残留"(过期可重抢)的依据
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )

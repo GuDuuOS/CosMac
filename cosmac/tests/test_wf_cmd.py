@@ -169,12 +169,57 @@ class TestWfCommand(unittest.TestCase):
             self.assertEqual(recent_runs(s, slug="cover")[0].status, "pending")  # 仍可重试
 
     def test_txn_dedup_persists_across_restart(self) -> None:
-        # #2：重启(新 bot 实例、内存空)后，DB 去重仍能识别 Synapse 重放的事务
+        # #2/#3：重启(新 bot 实例、内存空)后，DB 去重仍能识别 Synapse 重放的事务
         bot1 = _bot()
-        bot1.handle_transaction("txn-xyz", [])  # 处理一次 → 落库
+        self.assertTrue(bot1.handle_transaction("txn-xyz", []))  # 处理一次 → 落库 done
         bot2 = _bot()  # 模拟重启：内存 _seen_txns 空
         self.assertNotIn("txn-xyz", bot2._seen_txns)
-        self.assertTrue(bot2._txn_seen_persisted("txn-xyz"))  # 但 DB 里有 → 能识别重放
+        # 重放：claim 应判定 done → 跳过且回 200(True)，绝不重处理
+        self.assertEqual(bot2._claim_txn("txn-xyz"), "done")
+        self.assertTrue(bot2.handle_transaction("txn-xyz", []))
+
+    def test_txn_claim_is_atomic(self) -> None:
+        # #2：claim_txn 原子抢占——同一 txn 第一次 claimed、第二次（未过期）inflight，不会双claimed
+        from cosmac.db.dedup import claim_txn
+
+        with session_scope() as s:
+            self.assertEqual(claim_txn(s, "t-atomic"), "claimed")
+        with session_scope() as s:
+            self.assertEqual(claim_txn(s, "t-atomic"), "inflight")  # 处理中、未过期 → 让位
+
+    def test_txn_stale_reclaim(self) -> None:
+        # #3：处理中途崩溃留下的 processing 过期后可被重新抢占（不永久丢）
+        from datetime import datetime, timedelta
+
+        from cosmac.db.dedup import _STALE_SECONDS, claim_txn
+        from cosmac.db.models import SeenTxn
+
+        with session_scope() as s:
+            self.assertEqual(claim_txn(s, "t-stale"), "claimed")
+        # 手动把 claimed_at 推到过期（模拟崩溃后久未完成）
+        with session_scope() as s:
+            row = s.get(SeenTxn, "t-stale")
+            row.claimed_at = datetime.utcnow() - timedelta(seconds=_STALE_SECONDS + 10)
+        with session_scope() as s:
+            self.assertEqual(claim_txn(s, "t-stale"), "claimed")  # 过期残留 → 重新抢到
+
+    def test_dedup_schema_self_heals(self) -> None:
+        # 升级路径：老库 cosmac_seen_txn 只有 txn_id 列 → 自愈应 DROP 重建出新列
+        from sqlalchemy import inspect, text
+
+        from cosmac.db import get_engine
+        from cosmac.db.engine import _heal_ephemeral_schema
+
+        eng = get_engine()
+        with eng.begin() as c:  # 伪造老库（仅 txn_id）
+            c.execute(text("DROP TABLE IF EXISTS cosmac_seen_txn"))
+            c.execute(text("CREATE TABLE cosmac_seen_txn (txn_id VARCHAR(255) PRIMARY KEY)"))
+        have = {col["name"] for col in inspect(eng).get_columns("cosmac_seen_txn")}
+        self.assertNotIn("done", have)  # 老库缺列
+        _heal_ephemeral_schema(eng)  # 自愈
+        cols = {col["name"] for col in inspect(eng).get_columns("cosmac_seen_txn")}
+        self.assertIn("done", cols)
+        self.assertIn("claimed_at", cols)
 
     def test_seen_txn_lru_bounded(self) -> None:
         # #2：内存去重有界，不会无限增长

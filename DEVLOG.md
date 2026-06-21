@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-19 — 工作流安全（四收口·这次动真格的并发/时限语义）：绝对时限 / 原子抢占 / 崩溃不丢 / 回调400 / 三池
+- 上一轮的修法被指出**仍可绕过**，这次从语义层重做：
+- **#1【P1 Slowloris 仍可绕过】**：`socket timeout` 只约束单次 recv，攻击者每 19s 挤一字节即不断重置 20s 计时器，请求行/头/体都能被无限拖住。修：新增 `_DeadlineSocket` 包住读端 socket，把**整次请求的绝对时限下沉到每次 recv**（每次读前把超时设为"距 deadline 的剩余时间"，随墙钟单调缩到 0，与对端是否还发字节无关）；在 `setup()` 装一处即覆盖请求行+头+体。
+- **#2【P1 持久去重非原子】**：先 `txn_seen()` 再 `mark_txn()`，并发同 txn 都查不到→各自处理→双触发付费。修：`claim_txn` 改**一次原子写决定归属**——新事务原子 INSERT(主键冲突即让位)、processing 残留用带条件 UPDATE+rowcount 抢占。
+- **#3【P1 先标记后处理永久丢】**：标记 done 后、处理前崩溃 → 重试被当已完成跳过 → 整批永久丢。修：两阶段 `processing→done`，崩在中途留 processing，过期(`_STALE_SECONDS`)后可被重新抢占(at-least-once)；do_PUT 对 INFLIGHT 回 **503 让 Synapse 重试**，不再无条件 200。
+- **#4【P2 非法回调 JSON 当成功】**：JSON 解析失败用 `{}` → 发"无内容"并结清 → 平台收 200 无法重投。修：解析失败/非对象 → 回 **400 且不动 pending**。
+- **#5【P2 异步提交与快任务共池】**：提交仍排在 webhook/Dify/Coze 后。修：拆 **submit/fast/slow 三池**，异步"提交"独占 submit 池绝不被堵。
+- 附：`cosmac_seen_txn` 加 `done`/`claimed_at` 列；无 alembic，新增 `_heal_ephemeral_schema` 对这张**7天TTL缓存表**做自愈(老库缺列→DROP重建，仅限缓存表)，prod 重启即生效。
+- 验证：加 原子抢占/过期重抢/跨重启识别/schema自愈/async非webhook/提交异常结清 等用例；**144 单测全过**、ruff、build 通过。
+- 部署：**纯后端**(无前端改动，dist 不变) → 仅 `restart guduu-bot`，无需发 dist。
+
 ## 2026-06-19 — 工作流安全（再再收口）：Slowloris / 事务去重持久化 / 异步只限webhook / 提交异常结清 / 双池
 - **#1【P1 Slowloris 打满线程】**：ThreadingHTTPServer 每请求开线程，回调按 Content-Length 阻塞读、无 socket/read deadline——攻击者慢发/不发正文即占住线程，512KB 上限无效。修：Handler 设 `timeout=20`（socket 级超时）+ 新增 `_read_body` **按总时限分块读**（慢速 drip 也被 deadline 卡死），回调和事务端点都用，超时回 408。
 - **#2【P1 事务去重只在内存】**：`_seen_txns` 重启即丢→Synapse 重放可再触发付费工作流，且无限增长。修：内存改**有界 LRU**(4096)；新增 `cosmac_seen_txn` 表 + `db/dedup.py`，**先记后处理**（at-most-once）持久化去重，重启后识别重放；DB 不可用则退回内存（不阻断收消息）。

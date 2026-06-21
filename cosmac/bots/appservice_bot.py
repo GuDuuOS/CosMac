@@ -18,6 +18,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import socket
 import time
 from collections import OrderedDict
 from functools import partial
@@ -110,29 +111,41 @@ class CosmacBot:
 
     _SEEN_TXN_MAX = 4096  # 内存去重 LRU 上限（防无限增长）
 
-    def handle_transaction(self, txn_id: str, events: List[Dict[str, Any]]) -> None:
-        """处理 Synapse 推来的一批事件（一个事务）。
+    def handle_transaction(self, txn_id: str, events: List[Dict[str, Any]]) -> bool:
+        """处理 Synapse 推来的一批事件（一个事务）。返回是否可回 200。
 
-        去重双保险（#2）：内存有界 LRU + 尽力持久化。**先记下再处理**(at-most-once)——
-        宁可极端崩溃时漏处理一批，也不要重启后重放、重复触发付费工作流。
+        去重 + 崩溃安全（#2/#3）：内存有界 LRU 快路 + DB **原子两阶段抢占**。
+          - True ：已处理完 / 已是重复（回 200，告诉 Synapse 别重发）。
+          - False：另一处理中(未过期)，或 DB 暂判定让位（回非 200，让 Synapse 稍后重试）——
+                   避免重复处理，也避免"先标记后处理"在崩溃时永久丢一整批。
         """
+        # 内存快路：本进程已处理过直接跳过（也是 DB 不可用时的唯一防线）
         if txn_id in self._seen_txns:
             logger.info("事务 %s 已处理过（内存），跳过", txn_id)
-            return
-        # 持久化去重：重启后内存空，但 DB 里有记录就能识别 Synapse 的重放（尽力而为）
-        if self._txn_seen_persisted(txn_id):
-            self._remember_txn(txn_id)
-            logger.info("事务 %s 已处理过（持久化），跳过重放", txn_id)
-            return
-        # 先标记(内存+DB)再处理：避免处理中崩溃→重启重放→重复触发
-        self._remember_txn(txn_id)
-        self._persist_txn(txn_id)
+            return True
 
+        # DB 原子抢占。DB 不可用 → None，退回"内存标记后处理"（尽力而为）。
+        status = self._claim_txn(txn_id)
+        if status == "done":
+            self._remember_txn(txn_id)  # 回填内存，下次走快路
+            logger.info("事务 %s 已处理完（持久化），跳过重放", txn_id)
+            return True
+        if status == "inflight":
+            # 另一处理中且未过期：不重复处理，让 Synapse 稍后重试（届时多半已 done→200）
+            logger.info("事务 %s 正在处理中，让上游稍后重试", txn_id)
+            return False
+
+        # status == "claimed"（抢到）或 None（无 DB，退回内存去重）：占住并处理
+        self._remember_txn(txn_id)
         for event in events:
             try:
                 self._handle_event(event)
-            except Exception:  # 单条事件出错不应拖垮整批
+            except Exception:  # 单条事件出错不应拖垮整批（也不触发整批重投）
                 logger.exception("处理事件出错: %s", event.get("event_id"))
+        # 处理成功 → 标记 done。若处理中途**进程崩溃**则到不了这里，DB 行留 processing，
+        # 过期后由 Synapse 重试时 claim 重新抢占重处理（at-least-once，不永久丢）。
+        self._finish_txn(txn_id)
+        return True
 
     def _remember_txn(self, txn_id: str) -> None:
         """记进内存有界 LRU；超上限淘汰最旧的。"""
@@ -141,25 +154,25 @@ class CosmacBot:
         while len(self._seen_txns) > self._SEEN_TXN_MAX:
             self._seen_txns.popitem(last=False)
 
-    def _txn_seen_persisted(self, txn_id: str) -> bool:
-        """查 DB 是否处理过该事务（尽力而为；DB 不可用/没装返回 False，退回内存去重）。"""
+    def _claim_txn(self, txn_id: str) -> Optional[str]:
+        """DB 原子抢占（尽力而为）。返回 'claimed'/'done'/'inflight'；DB 不可用返回 None。"""
         try:
             from cosmac.db import session_scope
-            from cosmac.db.dedup import txn_seen
+            from cosmac.db.dedup import claim_txn
 
             with session_scope() as s:
-                return txn_seen(s, txn_id)
+                return claim_txn(s, txn_id)
         except Exception:
-            return False
+            return None  # 没 DB → 调用方退回内存去重，不阻断收消息
 
-    def _persist_txn(self, txn_id: str) -> None:
-        """把事务 id 落库去重（尽力而为）；偶尔顺手清理过期记录控制表大小。"""
+    def _finish_txn(self, txn_id: str) -> None:
+        """标记事务处理完成（尽力而为）；偶尔顺手清理过期记录控制表大小。"""
         try:
             from cosmac.db import session_scope
-            from cosmac.db.dedup import mark_txn, prune_old
+            from cosmac.db.dedup import finish_txn, prune_old
 
             with session_scope() as s:
-                mark_txn(s, txn_id)
+                finish_txn(s, txn_id)
                 self._seen_txn_calls += 1
                 if self._seen_txn_calls % 500 == 0:
                     prune_old(s)
@@ -852,7 +865,8 @@ class CosmacBot:
                 logger.exception("后台工作流执行出错：%s", name)
 
         # ComfyUI 走慢池，避免长生成把快连接器/提交堵在队尾（#5）
-        return submit_background(work, slow=conn.get("platform") == "comfyui")
+        pool = "slow" if conn.get("platform") == "comfyui" else "fast"
+        return submit_background(work, pool=pool)
 
     def _dispatch_async(self, conn, user_input, room_id, sender, name) -> str:
         """异步连接器：建 pending 运行(带一次性 token)+ 回调 URL，提交给平台后即返回。
@@ -904,7 +918,9 @@ class CosmacBot:
                         room_id, f"⚠️ 工作流「{name}」提交失败：{err}"
                     )
 
-            if submit_background(_submit):
+            # #5：异步"提交"走独立 submit 池——绝不被长任务(ComfyUI/同步连接器)堵在队尾，
+            # 否则用户已收到"已提交"、提交动作却还排队迟迟发不出去。
+            if submit_background(_submit, pool="submit"):
                 return f"⏳ 工作流「{name}」已提交（#{run_id}），完成后结果会自动发到本群。"
             # 池满 → 结清这条 pending，提示繁忙
             with session_scope() as s:
@@ -1127,6 +1143,37 @@ class CosmacBot:
         )
 
 
+class _DeadlineSocket:
+    """给 socket 包一层「整次请求的绝对时限」（#1 真正防住 Slowloris）。
+
+    单纯设 socket timeout 只约束"单次 recv"——攻击者每隔 19s 挤一个字节就能不断重置
+    20s 计时器，把请求行/请求头/正文的读取无限拖住，占死一个线程。
+
+    这里把时限**下沉到每次 recv**：每次读前，把 socket 超时设成"距整次请求 deadline 的
+    剩余时间"。剩余时间随墙钟单调缩到 0、与对端是否还在发字节无关——所以无论慢速 drip
+    怎么发，整次请求都无法越过 deadline。一旦越过就抛 socket.timeout，由上层(请求行/头读取
+    或 _read_body)收口：要么优雅关连接、要么回 408。
+
+    因 BaseHTTPRequestHandler 读请求行/头/正文最终都经 SocketIO.readinto → 本对象的
+    recv_into，故装一处即覆盖整次请求（默认 HTTP/1.0 一连接一请求，deadline 即请求级）。
+    """
+
+    def __init__(self, sock: Any, total_secs: float) -> None:
+        self._sock = sock
+        self._deadline = time.monotonic() + total_secs
+
+    def recv_into(self, buf: Any, *args: Any) -> int:
+        left = self._deadline - time.monotonic()
+        if left <= 0:
+            raise socket.timeout("request deadline exceeded")  # 上层按超时处理
+        self._sock.settimeout(left)
+        return self._sock.recv_into(buf, *args)
+
+    def __getattr__(self, name: str) -> Any:
+        # close/fileno/send/settimeout/... 一律透传给真实 socket
+        return getattr(self._sock, name)
+
+
 class _Handler(BaseHTTPRequestHandler):
     """HTTP 请求处理器：实现 Matrix Application Service 协议的服务端。
 
@@ -1139,29 +1186,42 @@ class _Handler(BaseHTTPRequestHandler):
     bot: CosmacBot
     hs_token: str
 
-    # #1 防 Slowloris：socket 级超时——慢/停的客户端(慢发头、不发正文)最多占住线程这么久。
-    # BaseHTTPRequestHandler.setup() 会据此 settimeout，读请求行/头/正文都受它管。
+    # #1 防 Slowloris：整次请求的绝对时限（秒）。慢/停的客户端最多占住线程这么久。
+    # 真正的强制在 setup() 装的 _DeadlineSocket（把时限下沉到每次 recv），单纯 socket
+    # timeout 会被每隔几秒挤一字节的 drip 不断重置、约束不住。
     timeout = 20
+
+    def setup(self) -> None:
+        """在标准 setup 之后，把读端 socket 包成 _DeadlineSocket，给整次请求装上绝对时限。
+
+        这样请求行/请求头/正文(都经 SocketIO.readinto → recv_into)都受同一个 deadline 约束，
+        慢速 drip 无法分别在"读头"或"读体"阶段把线程拖死。失败则降级为普通 socket timeout。
+        """
+        super().setup()
+        try:
+            raw = getattr(self.rfile, "raw", None)  # BufferedReader → SocketIO
+            if raw is not None and hasattr(raw, "_sock"):
+                raw._sock = _DeadlineSocket(raw._sock, self.timeout)
+        except Exception:  # 包装失败不致命：退回 setup() 已设的 socket timeout
+            logger.debug("装配请求绝对时限失败（降级为 socket timeout）", exc_info=True)
 
     # 关掉默认那行嘈杂的访问日志，改用我们自己的 logger
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: N802
         logger.debug("HTTP " + fmt, *args)
 
     def _read_body(self, length: int) -> Optional[bytes]:
-        """按总时限分块读 length 字节的请求体（配合 socket timeout 防 Slowloris 慢速占线程）。
+        """读 length 字节的请求体；靠 setup() 装的 _DeadlineSocket 兜底防 Slowloris。
 
-        即便攻击者每隔几秒挤一个字节（每次 read 都重置 socket 计时器），总时长也被 deadline 卡死。
-        超时/读断返回 None（调用方回 408），不会无限阻塞这个线程。
+        _DeadlineSocket 把整次请求的绝对时限下沉到每次 recv：哪怕攻击者每隔几秒挤一个字节，
+        读取也无法越过 deadline——越过即抛 socket.timeout，这里 ``except OSError`` 收成 None，
+        调用方回 408，不会无限阻塞线程。length 已被调用方按上限校验，单次读入内存可控。
         """
-        deadline = time.monotonic() + self.timeout
         out = bytearray()
         remaining = length
         while remaining > 0:
-            if time.monotonic() > deadline:
-                return None
             try:
                 chunk = self.rfile.read(min(remaining, 65536))
-            except OSError:  # socket.timeout 等
+            except OSError:  # socket.timeout（含 _DeadlineSocket 触发的）等
                 return None
             if not chunk:
                 break
@@ -1226,10 +1286,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         events = data.get("events", [])
-        self.bot.handle_transaction(txn_id, events)
-
-        # 必须回 200 + {}，否则 Synapse 会认为推送失败并重试
-        self._send_json(200, {})
+        # 已处理/重复 → True 回 200；正被处理中(未过期) → False 回 503 让 Synapse 稍后重试
+        # （#3：宁可让上游重试，也不在崩溃窗口里把一整批事务永久跳过/丢失）。
+        if self.bot.handle_transaction(txn_id, events):
+            self._send_json(200, {})
+        else:
+            self._send_json(503, {"errcode": "M_UNAVAILABLE"})
 
     def do_GET(self) -> None:  # noqa: N802
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在
@@ -1277,12 +1339,16 @@ class _Handler(BaseHTTPRequestHandler):
         if raw is None:
             self._send_json(408, {"error": "request timeout"})
             return
+        # #4：JSON 非法 → 回 400 且**不动 pending**。绝不能把解析失败当成"无内容的成功"——
+        # 那样会发"（无内容）"并结清运行，平台收到 200 后再也无法重投正确结果。
         try:
             body = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
-            body = {}
+            self._send_json(400, {"error": "invalid json"})
+            return
         if not isinstance(body, dict):
-            body = {"output": str(body)}
+            self._send_json(400, {"error": "expected json object"})
+            return
         code = self.bot.handle_wf_callback(run_id, token, body)
         self._send_json(code, {} if code == 200 else {"error": code})
 

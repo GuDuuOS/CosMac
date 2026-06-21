@@ -356,7 +356,8 @@ class Toolbox:
             except Exception:
                 logger.exception("后台工作流执行出错：%s", name)
 
-        if submit_background(_work, slow=platform == "comfyui"):  # ComfyUI 走慢池(#5)
+        pool = "slow" if platform == "comfyui" else "fast"  # ComfyUI 走慢池(#5)
+        if submit_background(_work, pool=pool):
             return f"工作流「{name}」已开始，完成后我会把结果发到群里。"
         return "任务太多、系统繁忙，请稍后再让我跑。"
 

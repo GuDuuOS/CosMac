@@ -26,26 +26,30 @@ import requests
 
 logger = logging.getLogger("cosmac.wf")
 
-# —— 有界后台执行：**两个独立池**，避免队头阻塞（#5）——
-#  fast：提交/webhook/dify/coze（秒级）；slow：ComfyUI 生成（可达 120s）。
-#  长 ComfyUI 占满 slow 池时，异步 webhook 的"提交"仍能在 fast 池及时跑，不被堵在队尾。
-_FAST_MAX_WORKERS = 4
-_SLOW_MAX_WORKERS = 4
-_MAX_INFLIGHT = {"fast": 16, "slow": 8}  # 各自在跑+排队上限；超了拒绝（背压）
+# —— 有界后台执行：**三个独立池**，按延迟级别隔离，避免队头阻塞（#5）——
+#  submit：异步连接器的"提交"动作（POST 完即返回、秒级），单独一池——绝不被长任务堵住，
+#          否则用户已收到"已提交"、任务却还排在队尾迟迟发不出去；
+#  fast  ：同步 webhook/dify/coze（可达 30s）；
+#  slow  ：ComfyUI 生成（轮询可达 120s）。
+#  三池互不挤占：长 ComfyUI 占满 slow 时，同步连接器仍跑在 fast、异步提交仍跑在 submit。
+_POOL_WORKERS = {"submit": 4, "fast": 4, "slow": 4}
+_MAX_INFLIGHT = {"submit": 32, "fast": 16, "slow": 8}  # 各池在跑+排队上限；超了拒绝（背压）
 _executors = {
-    "fast": ThreadPoolExecutor(max_workers=_FAST_MAX_WORKERS, thread_name_prefix="wf-fast"),
-    "slow": ThreadPoolExecutor(max_workers=_SLOW_MAX_WORKERS, thread_name_prefix="wf-slow"),
+    name: ThreadPoolExecutor(max_workers=w, thread_name_prefix=f"wf-{name}")
+    for name, w in _POOL_WORKERS.items()
 }
 _bg_lock = threading.Lock()
-_bg_inflight = {"fast": 0, "slow": 0}
+_bg_inflight = {name: 0 for name in _POOL_WORKERS}
 
 
-def submit_background(fn: Callable[[], None], *, slow: bool = False) -> bool:
+def submit_background(fn: Callable[[], None], *, pool: str = "fast") -> bool:
     """把无参任务提交到**有界**后台线程池。达到该池上限时返回 False（拒绝），否则 True。
 
-    ``slow=True`` 走 ComfyUI 等长任务的独立池，避免它把提交/快连接器堵在队尾（#5）。
+    ``pool`` 选执行池：``submit`` 异步提交（秒级、独占一池不被堵）/ ``fast`` 同步连接器 /
+    ``slow`` ComfyUI 等长任务。三池隔离避免队头阻塞（#5）。未知名退回 ``fast``。
     """
-    pool = "slow" if slow else "fast"
+    if pool not in _executors:
+        pool = "fast"
     with _bg_lock:
         if _bg_inflight[pool] >= _MAX_INFLIGHT[pool]:
             return False
