@@ -1034,6 +1034,70 @@ export async function setMemberTier(userId: string, tier: string): Promise<void>
   await (mx as any).sendStateEvent(rid, MEMBERS_EVENT_TYPE, { members }, '')
 }
 
+/* =====================================================================
+ *  管理后台 · 功能门控（按会员等级限制能力）
+ *  存储：控制室 state event `cosmac.gating`，{ gates: { capabilityKey: levelSlug } }。
+ *  管理员逐项配「能力→最低等级」，bot 读取并**服务端强制**（前端只做展示/配置）。
+ *  未配置的能力取目录里的 default。新增可门控能力 = 往 GATE_CATALOG 加一条（前后端各加）。
+ * ===================================================================== */
+
+/** 控制室里「功能门控策略」state event 的类型（与 bot 端 GATING_EVENT_TYPE 一致）。 */
+const GATING_EVENT_TYPE = 'cosmac.gating'
+
+/** 门槛阶梯（下拉可选项；与 bot 端 GATE_LEVELS 一致）。free<paid<creator<admin。 */
+export const GATE_LEVELS: { slug: string; label: string }[] = [
+  { slug: 'free', label: '免费（不限制）' },
+  { slug: 'paid', label: '付费会员及以上' },
+  { slug: 'creator', label: '创作者会员' },
+  { slug: 'admin', label: '仅平台管理员' },
+]
+
+/** 可门控能力目录（与 bot 端 GATE_CATALOG 一致；key 稳定、default 为未配置时的默认门槛）。 */
+export const GATE_CATALOG: { key: string; label: string; default: string }[] = [
+  { key: 'ai_chat', label: '基础 AI 对话（@中枢AI / 私聊回复）', default: 'free' },
+  { key: 'knowledge', label: '知识库（RAG 检索 + 知识命令）', default: 'free' },
+  { key: 'create_room', label: '建群 / 开专班', default: 'free' },
+  { key: 'workflow_run', label: '跑工作流（外部/付费、共享凭据）', default: 'admin' },
+]
+
+/** 门控策略 map：能力 key → 门槛 slug。 */
+export type GatingMap = Record<string, string>
+
+/** 读门控策略（合并默认）。控制室/事件不存在或读失败时返回纯默认。 */
+export async function getGating(): Promise<GatingMap> {
+  // 先铺默认
+  const merged: GatingMap = {}
+  for (const g of GATE_CATALOG) merged[g.key] = g.default
+  if (!mx) return merged
+  const rid = await resolveControlRoom()
+  if (!rid) return merged
+  try {
+    const ev = await (mx as any).getStateEvent(rid, GATING_EVENT_TYPE, '')
+    const gates = ev?.gates
+    if (gates && typeof gates === 'object') {
+      for (const g of GATE_CATALOG) {
+        const v = gates[g.key]
+        if (typeof v === 'string' && GATE_LEVELS.some((l) => l.slug === v)) merged[g.key] = v
+      }
+    }
+    return merged
+  } catch {
+    return merged // 房间在但还没写过门控策略
+  }
+}
+
+/** 写门控策略（必要时先建控制室）。只写目录里的已知能力、合法门槛。bot ~15s 内读到生效。 */
+export async function setGating(gates: GatingMap): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  const rid = await ensureControlRoom()
+  const clean: GatingMap = {}
+  for (const g of GATE_CATALOG) {
+    const v = gates[g.key]
+    if (typeof v === 'string' && GATE_LEVELS.some((l) => l.slug === v)) clean[g.key] = v
+  }
+  await (mx as any).sendStateEvent(rid, GATING_EVENT_TYPE, { gates: clean }, '')
+}
+
 /** 一条「全局技能」定义（管理后台编辑、主 AI 注入）。slug 在全局内唯一。 */
 export interface GlobalSkill {
   slug: string

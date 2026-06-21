@@ -55,6 +55,10 @@ class Toolbox:
         # 异步连接器(async=true)的提交回调：由 bot 注入 self._dispatch_async；
         # 签名 (conn, user_input, room_id, sender, name) -> 提交结果文本。None 则回退后台同步跑。
         self.dispatch_async: Optional[Callable[..., str]] = None
+        # 功能门控钩子：由 bot 注入。签名 (sender, tool_name) -> 拒绝文案 或 None(放行)。
+        # 在 execute() 里、真正跑工具前调用——让"让 AI 帮我建群/跑工作流"也受会员门控约束
+        # （与聊天命令同一道闸，防止绕过命令直接走自然语言）。None = 不做门控（如单测）。
+        self.gate_check: Optional[Callable[[str, str], Optional[str]]] = None
         # 工具名 → (说明书, 执行函数)。执行函数签名: (arguments, ctx) -> 结果文本
         self._tools: Dict[str, Dict[str, Any]] = {}
         # 启用集合：None = 全部启用（默认）；否则只启用集合内的工具。
@@ -96,6 +100,12 @@ class Toolbox:
             return f"错误：不存在名为 {call.name} 的工具。"
         if not self._is_enabled(call.name):
             return f"工具 {call.name} 已被管理员停用。"
+        # 会员门控：跑工具前先过 bot 注入的门控钩子（同聊天命令那道闸，防自然语言绕过）。
+        # 返回拒绝文案就把它当作工具结果回灌给模型，让模型据此礼貌告知用户需升级。
+        if self.gate_check is not None:
+            denial = self.gate_check(ctx.sender, call.name)
+            if denial:
+                return denial
         try:
             logger.info("执行工具 %s 参数=%s", call.name, call.arguments)
             return entry["fn"](call.arguments, ctx)
@@ -306,8 +316,10 @@ class Toolbox:
             return False
 
     def _tool_run_workflow(self, args: Dict[str, Any], ctx: ToolContext) -> str:
-        # #1/#2 越权防护：跟聊天命令一致——只许平台管理员借主 AI 触发工作流（不分 DM/群）
-        if not self._is_platform_admin(ctx.sender):
+        # #1/#2 越权防护：跑工作流触发外部/付费操作、用服务端共享凭据，必须授权。
+        # 接了门控钩子时(生产)由 execute() 的 gate_check 统一裁决(走 workflow_run 门槛配置)；
+        # 没接门控钩子时(独立/单测)退回硬基线——只许平台管理员，绝不无授权放行。
+        if self.gate_check is None and not self._is_platform_admin(ctx.sender):
             return "只有平台管理员能让我跑工作流（它会触发外部/付费操作、用服务端共享凭据）。"
         defs = self._workflow_defs()
         slug = (args.get("slug") or "").strip()

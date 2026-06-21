@@ -42,8 +42,12 @@ from cosmac.config import (
     CosmacConfig,
 )
 from cosmac.members import (
+    GATE_ADMIN,
     MEMBER_TIERS,
+    GatingStore,
     MembersStore,
+    gate_capability_label,
+    gate_rank,
     is_valid_tier,
     tier_label,
 )
@@ -88,10 +92,15 @@ class CosmacBot:
         # 会员等级（账号权限分层）读写：控制室 cosmac.members（见 cosmac.members）。
         # 用于「会员」自查/管理命令，以及预留给模块4支付的 grant_member_tier。
         self.members = MembersStore(self.client, config.control_room_alias)
+        # 功能门控策略：控制室 cosmac.gating（带 TTL 缓存）。后台配「能力→最低等级」，
+        # bot 在执行点服务端强制（见 _gate_allows / _tool_gate_check）。
+        self.gating = GatingStore(self.client, config.control_room_alias)
         # 让 run_workflow 工具能走异步连接器的回调协议（#1）：注入 bot 的 _dispatch_async。
         # 没配 public_url 时不注入——_dispatch_async 没有回调地址也没意义。
         if config.public_url:
             self.toolbox.dispatch_async = self._dispatch_async
+        # 功能门控：把工具调用也接进会员门控（"让 AI 帮我建群/跑工作流"与命令同一道闸）。
+        self.toolbox.gate_check = self._tool_gate_check
         self.agent = Agent(
             llm=self.llm,
             toolbox=self.toolbox,
@@ -274,8 +283,14 @@ class CosmacBot:
             if self._try_handle_command(room_id, sender, text):
                 return
 
-            # 2b) 否则交给会"动手"的 Agent：它能边想边调用工具（建群/发消息/查记录），
-            #     最后把结论发回群。（echo 后端不支持工具，会自动退化为纯文本回复。）
+            # 2b) 否则交给会"动手"的 Agent。但先过「基础 AI 对话」门控：低于门槛的用户
+            #     @ 中枢AI 会被礼貌提示升级（命令如「会员/技能/知识/工作流」已在上面处理、
+            #     不受此门控影响——保证用户随时能查/升级会员）。
+            if not self._gate_allows(sender, "ai_chat"):
+                self.client.send_text(room_id, self._gate_denied_text("ai_chat"))
+                return
+            #     它能边想边调用工具（建群/发消息/查记录），最后把结论发回群。
+            #     （echo 后端不支持工具，会自动退化为纯文本回复。）
             # 回复前先按管理后台下发的运行时配置（人设/模型/工具开关）对齐一次。
             self._apply_runtime_config()
             # 本群上下文读一次（人设/绑定技能/模型覆盖），供 addendum 与选模型共用。
@@ -406,6 +421,9 @@ class CosmacBot:
         """
         q = (query or "").strip()
         if not q:
+            return ""
+        # 知识库门控：低于门槛的用户在普通对话里也不享受 RAG 注入（与知识命令同一道闸）
+        if not self._gate_allows(sender, "knowledge"):
             return ""
         try:
             from cosmac.ai.embeddings import get_embedder
@@ -779,6 +797,10 @@ class CosmacBot:
         text = text.strip()
         for prefix in ("建专班", "/专班", "专班"):
             if text.startswith(prefix):
+                # 建群/开专班门控：低于门槛者拦下并提示升级（仍算"命中命令"，return True）
+                if not self._gate_allows(sender, "create_room"):
+                    self.client.send_text(room_id, self._gate_denied_text("create_room"))
+                    return True
                 name = text[len(prefix):].strip(" :：") or "新专班"
                 self._launch_campaign(room_id, sender, name)
                 return True
@@ -966,11 +988,12 @@ class CosmacBot:
                 lines.append(f"  · {w.get('slug')}（{w.get('name') or w.get('slug')}）{hint}")
             return "\n".join(lines)
         if body.startswith(("跑", "run", "执行")):
-            # #1/#2 越权防护：跑工作流触发付费生成/外部写、用的是**服务端共享凭据**，
-            # 只许**平台管理员**（控制室 power≥50）触发——不分 DM/群（否则任何人和 bot 开个
-            # 两人 DM 就能跑，绕过群管理员检查）。普通成员只能「工作流 列表」查看。
-            if not self._is_platform_admin(sender):
-                return "只有平台管理员能跑工作流（它会触发外部/付费操作、用服务端共享凭据）。你可以用「工作流 列表」查看。"
+            # #1/#2 越权防护：跑工作流触发付费生成/外部写、用的是**服务端共享凭据**。
+            # 授权走「workflow_run」门控（后台可配；默认「仅平台管理员」＝维持原行为，
+            # 管理员可下调到付费/创作者）。不分 DM/群（否则任何人和 bot 开个两人 DM 就能跑）。
+            # 普通成员只能「工作流 列表」查看。
+            if not self._gate_allows(sender, "workflow_run"):
+                return self._gate_denied_text("workflow_run") + " 你可以用「工作流 列表」查看可用工作流。"
             rest = body.split(maxsplit=1)
             arg = rest[1].strip() if len(rest) > 1 else ""
             parts = arg.split(maxsplit=1)
@@ -1174,6 +1197,9 @@ class CosmacBot:
 
     def _run_kb_command(self, room_id: str, sender: str, text: str) -> str:
         """执行知识库命令并返回回复文本（私聊→个人库，群→本群库；写操作群里需管理员）。"""
+        # 知识库门控：低于门槛者整条知识命令都不放行
+        if not self._gate_allows(sender, "knowledge"):
+            return self._gate_denied_text("knowledge")
         try:
             is_dm = self.client.joined_member_count(room_id) <= 2
         except Exception:
@@ -1266,6 +1292,50 @@ class CosmacBot:
             return isinstance(level, int) and level >= 50
         except Exception:
             return False
+
+    # —— 功能门控：按后台配置的「能力→最低等级」服务端强制 ——
+
+    def _gate_allows(self, sender: str, capability: str) -> bool:
+        """sender 是否被允许使用 capability（读控制室 cosmac.gating 配置裁决）。
+
+        规则（见 cosmac.members 门控阶梯）：
+          - 门槛 = admin → 仅平台管理员；
+          - 门槛 = tier(free/paid/creator) → **平台管理员永远放行**；否则按会员等级比较。
+        读不到配置 → GatingStore 回落默认（多为 free，不限制），不失效锁死。
+        """
+        req = self.gating.required(capability)
+        if req == GATE_ADMIN:
+            return self._is_platform_admin(sender)
+        # tier 门槛：staff（平台管理员）一律放行，免得给自己开会员
+        if self._is_platform_admin(sender):
+            return True
+        return gate_rank(self.members.get_tier(sender)) >= gate_rank(req)
+
+    def _gate_denied_text(self, capability: str) -> str:
+        """被门控拦下时给用户的友好提示（点名所需等级，引导查/升级会员）。"""
+        label = gate_capability_label(capability)
+        req = self.gating.required(capability)
+        if req == GATE_ADMIN:
+            return f"「{label}」仅平台管理员可用。"
+        return (
+            f"「{label}」需要{tier_label(req)}及以上。"
+            "发「会员」查看你的等级，或联系管理员升级。"
+        )
+
+    # 工具名 → 门控能力 key（只有这些工具受会员门控；其余由入口的 ai_chat 门控覆盖）
+    _TOOL_GATE_MAP = {
+        "create_room": "create_room",
+        "run_workflow": "workflow_run",
+    }
+
+    def _tool_gate_check(self, sender: str, tool_name: str) -> Optional[str]:
+        """工具门控钩子（注入 Toolbox.gate_check）：放行返回 None，拦下返回拒绝文案。"""
+        cap = self._TOOL_GATE_MAP.get(tool_name)
+        if not cap:
+            return None  # 该工具不单独门控
+        if self._gate_allows(sender, cap):
+            return None
+        return self._gate_denied_text(cap)
 
     def _launch_campaign(self, origin_room: str, requester: str, name: str) -> None:
         """建一个专班群、拉发起人进来，并在群里发一张"派单"富卡。"""

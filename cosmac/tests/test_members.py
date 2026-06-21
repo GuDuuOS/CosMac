@@ -13,12 +13,18 @@ from typing import Any, Dict, Optional
 
 from cosmac.bots.appservice_bot import CosmacBot
 from cosmac.config import CosmacConfig
+from cosmac.config import GATING_EVENT_TYPE
 from cosmac.members import (
     DEFAULT_TIER,
+    GATE_ADMIN,
     TIER_CREATOR,
+    TIER_FREE,
     TIER_PAID,
+    GatingStore,
     MembersStore,
+    gate_rank,
     normalize_tier,
+    parse_gates,
     parse_members,
     tier_label,
     tier_level,
@@ -70,12 +76,16 @@ def _store(alias_room=CTRL) -> MembersStore:
     return MembersStore(FakeClient(alias_room), "#cosmac-ctrl:guduu.local")
 
 
-def _bot(ctrl_admin=True, alias_room=CTRL) -> CosmacBot:
+def _bot(ctrl_admin=True, alias_room=CTRL, gates=None) -> CosmacBot:
     bot = CosmacBot(CosmacConfig(llm_provider="echo"))
     fake = FakeClient(alias_room, ctrl_admin=ctrl_admin)
+    if gates is not None:
+        fake._state[GATING_EVENT_TYPE] = {"gates": gates}
     bot.client = fake
-    # MembersStore 持有的是构造时的 client，要替换成同一个 fake
+    # MembersStore/GatingStore 持有的是构造时的 client，要替换成同一个 fake。
+    # GatingStore ttl=0：测试里每次都重读，避免缓存掩盖刚设的门控。
     bot.members = MembersStore(fake, bot.config.control_room_alias)
+    bot.gating = GatingStore(fake, bot.config.control_room_alias, ttl=0)
     return bot
 
 
@@ -190,6 +200,81 @@ class BotCommandTests(unittest.TestCase):
         self.assertEqual(bot.members.get_tier(BOB), TIER_PAID)
         # 来源记为 purchase（区别于管理员手动）
         self.assertEqual(bot.members.get_all()[BOB]["source"], "purchase")
+
+
+class GatingPureTests(unittest.TestCase):
+    def test_gate_rank_order(self):
+        self.assertLess(gate_rank(TIER_FREE), gate_rank(TIER_PAID))
+        self.assertLess(gate_rank(TIER_PAID), gate_rank(TIER_CREATOR))
+        self.assertLess(gate_rank(TIER_CREATOR), gate_rank(GATE_ADMIN))
+        self.assertEqual(gate_rank("junk"), 0)
+
+    def test_parse_gates_validates(self):
+        content = {"gates": {
+            "ai_chat": "paid",        # ok
+            "knowledge": "diamond",   # 非法门槛 → 丢
+            "bogus_cap": "paid",      # 非法能力 → 丢
+            "workflow_run": "admin",  # ok
+        }}
+        out = parse_gates(content)
+        self.assertEqual(out, {"ai_chat": "paid", "workflow_run": "admin"})
+
+    def test_gating_store_defaults_and_override(self):
+        fake = FakeClient(CTRL)
+        store = GatingStore(fake, "#cosmac-ctrl:guduu.local", ttl=0)
+        # 默认：ai_chat 免费、workflow_run 仅管理员
+        self.assertEqual(store.required("ai_chat"), TIER_FREE)
+        self.assertEqual(store.required("workflow_run"), GATE_ADMIN)
+        # 覆盖后生效
+        fake._state[GATING_EVENT_TYPE] = {"gates": {"ai_chat": "creator"}}
+        self.assertEqual(store.required("ai_chat"), TIER_CREATOR)
+
+
+class GateDecisionTests(unittest.TestCase):
+    def test_free_gate_allows_everyone(self):
+        bot = _bot(gates={"knowledge": "free"})
+        self.assertTrue(bot._gate_allows(ALICE, "knowledge"))
+
+    def test_paid_gate_blocks_free_user(self):
+        bot = _bot(gates={"knowledge": "paid"})
+        self.assertFalse(bot._gate_allows(ALICE, "knowledge"))  # ALICE 默认免费
+        bot.members.grant(ALICE, TIER_PAID)
+        self.assertTrue(bot._gate_allows(ALICE, "knowledge"))
+
+    def test_creator_gate_needs_creator(self):
+        bot = _bot(gates={"create_room": "creator"})
+        bot.members.grant(ALICE, TIER_PAID)
+        self.assertFalse(bot._gate_allows(ALICE, "create_room"))  # 付费 < 创作者
+        bot.members.grant(ALICE, TIER_CREATOR)
+        self.assertTrue(bot._gate_allows(ALICE, "create_room"))
+
+    def test_platform_admin_bypasses_tier_gate(self):
+        bot = _bot(gates={"knowledge": "creator"})
+        # ADMIN 是平台管理员(power 50)，即便没有会员等级也放行
+        self.assertTrue(bot._gate_allows(ADMIN, "knowledge"))
+
+    def test_admin_gate_only_platform_admin(self):
+        bot = _bot(gates={"workflow_run": "admin"})
+        self.assertTrue(bot._gate_allows(ADMIN, "workflow_run"))
+        bot.members.grant(ALICE, TIER_CREATOR)  # 即便创作者也过不了 admin 门
+        self.assertFalse(bot._gate_allows(ALICE, "workflow_run"))
+
+    def test_tool_gate_check_maps_and_denies(self):
+        bot = _bot(gates={"create_room": "paid"})
+        # 免费用户被工具门控拦下（返回拒绝文案）
+        denial = bot._tool_gate_check(ALICE, "create_room")
+        self.assertIsNotNone(denial)
+        self.assertIn("付费会员", denial)
+        # 不在映射表里的工具不门控
+        self.assertIsNone(bot._tool_gate_check(ALICE, "list_room_members"))
+        # 付费后放行
+        bot.members.grant(ALICE, TIER_PAID)
+        self.assertIsNone(bot._tool_gate_check(ALICE, "create_room"))
+
+    def test_kb_command_gated(self):
+        bot = _bot(gates={"knowledge": "paid"})
+        out = bot._run_kb_command(CTRL, ALICE, "知识 列表")
+        self.assertIn("付费会员", out)  # 免费用户被门控拦下、给升级提示
 
 
 if __name__ == "__main__":

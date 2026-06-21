@@ -33,6 +33,9 @@
         <button class="adm-mi" :class="{ active: tab === 'workflows' }" @click="switchToWorkflows">
           <span class="adm-mi-ic">🔗</span> 工作流
         </button>
+        <button class="adm-mi" :class="{ active: tab === 'gating' }" @click="switchToGating">
+          <span class="adm-mi-ic">🔐</span> 会员权限
+        </button>
         <button class="adm-mi" :class="{ active: tab === 'overview' }" @click="switchToOverview">
           <span class="adm-mi-ic">📊</span> 数据概览
         </button>
@@ -589,6 +592,53 @@
         </div>
       </template>
 
+      <!-- 会员权限(功能门控)面板:逐项配「能力→最低会员等级」,写控制室 cosmac.gating,bot 服务端强制 -->
+      <template v-else-if="tab === 'gating'">
+        <header class="adm-head">
+          <div>
+            <h1 class="adm-h1">会员权限</h1>
+            <p class="adm-hint">
+              给每项能力设一个最低会员等级 · 主 AI 在服务端强制(客户端只是配置) · 保存后约 15 秒热生效
+            </p>
+          </div>
+          <div class="adm-actions">
+            <button class="adm-btn ghost" :disabled="gateLoading || gateSaving" @click="loadGating">
+              {{ gateLoading ? '加载中…' : '重新加载' }}
+            </button>
+            <button class="adm-btn" :disabled="gateLoading || gateSaving" @click="saveGating">
+              {{ gateSaving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </header>
+
+        <div v-if="gateLoading" class="adm-center"><div class="adm-spin" /> 加载门控策略…</div>
+
+        <div v-else class="adm-form">
+          <p class="adm-hint">
+            「免费」= 不限制,人人可用;选更高等级则低于该等级的用户被挡并提示升级。
+            「仅平台管理员」用于高危/付费共享凭据的能力(如跑工作流)。
+            管理员永远不受会员等级门控限制。以后新增功能会出现在这张表里。
+          </p>
+          <table class="adm-table">
+            <thead>
+              <tr><th>能力</th><th>最低会员等级</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="g in GATE_CATALOG" :key="g.key">
+                <td>{{ g.label }}</td>
+                <td>
+                  <select class="adm-tier" :class="gates[g.key]" v-model="gates[g.key]">
+                    <option v-for="lv in GATE_LEVELS" :key="lv.slug" :value="lv.slug">
+                      {{ lv.label }}
+                    </option>
+                  </select>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
       <!-- 数据概览面板 -->
       <template v-else-if="tab === 'overview'">
         <header class="adm-head">
@@ -741,6 +791,11 @@ import {
   memberTierLabel,
   MEMBER_TIERS,
   type MemberMap,
+  getGating,
+  setGating,
+  GATE_CATALOG,
+  GATE_LEVELS,
+  type GatingMap,
   AI_TOOL_CATALOG,
   AI_PROVIDERS,
   type AdminUser,
@@ -758,7 +813,7 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 const { success, warn } = useToast()
 
 // 当前管理模块：用户/频道/AI配置/技能库/智能体/规则/工作流/数据概览
-const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'agents' | 'rules' | 'workflows' | 'overview'>('users')
+const tab = ref<'users' | 'rooms' | 'ai' | 'skills' | 'agents' | 'rules' | 'workflows' | 'gating' | 'overview'>('users')
 
 // 页面状态机：checking 校验中 / denied 无权限 / ok 已是管理员
 const state = ref<'checking' | 'denied' | 'ok'>('checking')
@@ -1275,6 +1330,41 @@ async function saveRules() {
     warn('保存失败', e?.message || '无法写入控制室')
   } finally {
     ruSaving.value = false
+  }
+}
+
+/* —— 会员权限（功能门控，写控制室 cosmac.gating）—— */
+const gates = ref<GatingMap>({})
+const gateLoading = ref(false)
+const gateSaving = ref(false)
+const gateLoaded = ref(false)
+
+function switchToGating() {
+  tab.value = 'gating'
+  if (!gateLoaded.value) loadGating()
+}
+
+async function loadGating() {
+  gateLoading.value = true
+  try {
+    gates.value = await getGating() // 已合并默认，目录每项都有值
+    gateLoaded.value = true
+  } catch (e: any) {
+    warn('加载失败', e?.message || '无法读取门控策略')
+  } finally {
+    gateLoading.value = false
+  }
+}
+
+async function saveGating() {
+  gateSaving.value = true
+  try {
+    await setGating(gates.value)
+    success('已保存', '主 AI 约 15 秒内热生效')
+  } catch (e: any) {
+    warn('保存失败', e?.message || '无法写入控制室')
+  } finally {
+    gateSaving.value = false
   }
 }
 

@@ -213,6 +213,14 @@ RULES_EVENT_TYPE = "cosmac.rules"
 # (power=100)经 grant_member_tier 写入(预留接口)。会员等级的**枚举/标签/校验**见 cosmac.members。
 MEMBERS_EVENT_TYPE = "cosmac.members"
 
+# 管理后台写、bot 读的「功能门控策略」state event 类型（存控制室）。
+# 把「每个能力需要的最低会员等级」集中存这里，内容形如
+# {"gates": {"ai_chat":"free","knowledge":"paid","workflow_run":"admin", ...}}。
+# 能力目录/等级阶梯/校验见 cosmac.members(GATE_CATALOG/GATE_LEVELS/GatingStore)。
+# 同套路：管理后台写、bot 读并**服务端强制**（客户端只能做 UX 提示、挡不住绕过）。
+# 默认（未配置的能力）取 GATE_CATALOG 里各自的 default，多数为 free（不限制）。
+GATING_EVENT_TYPE = "cosmac.gating"
+
 # 管理后台写、bot 读的「外部工作流连接器」state event 类型（存控制室）。模块3:
 # 不自建工作流引擎，而是对接 n8n/Make/Coze/ComfyUI/Dify 等现成平台。每个连接器形如
 # {"slug","name","platform":"webhook","url","method","cred","input_hint","enabled"}。

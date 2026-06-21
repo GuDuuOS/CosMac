@@ -29,7 +29,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from cosmac.config import MEMBERS_EVENT_TYPE
+from cosmac.config import GATING_EVENT_TYPE, MEMBERS_EVENT_TYPE
 
 logger = logging.getLogger("cosmac.members")
 
@@ -190,3 +190,116 @@ class MembersStore:
     def revoke(self, user_id: str) -> bool:
         """撤销某用户的会员（回落到免费）。等价 grant(user_id, free)。"""
         return self.grant(user_id, TIER_FREE)
+
+
+# =====================================================================
+#  功能门控（按会员等级限制能力）
+# =====================================================================
+#
+# 设计：管理员在后台把「每个能力」配一个**最低门槛**，bot 在执行点**服务端强制**。
+# 门槛是一条 4 级阶梯：免费 < 付费 < 创作者 < 仅管理员。
+#   - tier 门槛（free/paid/creator）：用户会员等级 ≥ 门槛即放行；**平台管理员永远放行**
+#     （staff 能用一切，免得给自己开会员）。
+#   - 特殊门槛 admin（「仅管理员」）：只有平台管理员放行（用于共享付费凭据这类高危能力）。
+# 默认未配置的能力取 GATE_CATALOG 里各自的 default：多数 free（不限制），保证零回归。
+
+GATE_ADMIN = "admin"  # 特殊门槛：仅平台管理员
+
+# 门槛阶梯的排序值（越大越严）。tier 部分与 tier_level 对齐；admin 居顶。
+_GATE_RANK: Dict[str, int] = {
+    TIER_FREE: 0,
+    TIER_PAID: 10,
+    TIER_CREATOR: 20,
+    GATE_ADMIN: 1000,
+}
+
+# 后台门控下拉可选的「门槛」目录（slug + 标签）。即上面阶梯的人类可读版。
+GATE_LEVELS: List[Dict[str, str]] = [
+    {"slug": TIER_FREE, "label": "免费（不限制）"},
+    {"slug": TIER_PAID, "label": "付费会员及以上"},
+    {"slug": TIER_CREATOR, "label": "创作者会员"},
+    {"slug": GATE_ADMIN, "label": "仅平台管理员"},
+]
+
+# 可门控的能力目录：key=能力标识（与 bot 执行点一致，**稳定别改**），label=后台显示，
+# default=未配置时的默认门槛。**新增功能就往这里加一条**（前后端各加，见 client.ts GATE_CATALOG）。
+GATE_CATALOG: List[Dict[str, str]] = [
+    {"key": "ai_chat", "label": "基础 AI 对话（@中枢AI / 私聊回复）", "default": TIER_FREE},
+    {"key": "knowledge", "label": "知识库（RAG 检索 + 知识命令）", "default": TIER_FREE},
+    {"key": "create_room", "label": "建群 / 开专班", "default": TIER_FREE},
+    {"key": "workflow_run", "label": "跑工作流（外部/付费、共享凭据）", "default": GATE_ADMIN},
+]
+
+# 由目录派生的便捷映射
+_GATE_DEFAULTS: Dict[str, str] = {g["key"]: g["default"] for g in GATE_CATALOG}
+_GATE_LABELS: Dict[str, str] = {g["key"]: g["label"] for g in GATE_CATALOG}
+_GATE_LEVEL_SLUGS = {lv["slug"] for lv in GATE_LEVELS}
+
+
+def gate_rank(value: Optional[str]) -> int:
+    """门槛 slug → 排序值（未知按免费=0）。"""
+    return _GATE_RANK.get((value or "").strip(), 0)
+
+
+def normalize_gate(value: Optional[str], default: str = TIER_FREE) -> str:
+    """把门槛输入规整成合法 slug（free/paid/creator/admin）；非法回落到 default。"""
+    v = (value or "").strip()
+    return v if v in _GATE_LEVEL_SLUGS else default
+
+
+def gate_capability_label(key: str) -> str:
+    """能力 key → 中文标签（未知回落到 key 本身）。"""
+    return _GATE_LABELS.get(key, key)
+
+
+def parse_gates(content: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """解析 ``cosmac.gating`` 内容 → {能力key: 门槛slug}。只收已知能力 + 合法门槛，兜脏数据。"""
+    out: Dict[str, str] = {}
+    if not isinstance(content, dict):
+        return out
+    gates = content.get("gates")
+    if not isinstance(gates, dict):
+        return out
+    for key, val in gates.items():
+        if key in _GATE_DEFAULTS and isinstance(val, str) and val in _GATE_LEVEL_SLUGS:
+            out[key] = val
+    return out
+
+
+class GatingStore:
+    """控制室 ``cosmac.gating`` 的薄封装：读门控策略。
+
+    读多写少：bot 频繁读（每条消息可能查几次），故带一个**短 TTL 缓存**避免每次打服务器；
+    写由管理后台浏览器直接走 Matrix（bot 不写门控）。读失败保留上次成功值（不失效开放）。
+    """
+
+    def __init__(self, client: Any, control_room_alias: str, ttl: float = 15.0):
+        self._client = client
+        self._alias = control_room_alias
+        self._ttl = ttl
+        self._cache: Dict[str, str] = {}
+        self._cache_ts: float = float("-inf")
+
+    def get_all(self) -> Dict[str, str]:
+        """返回**合并默认后**的完整门控映射 {能力key: 门槛slug}（带 TTL 缓存）。"""
+        now = time.monotonic()
+        if now - self._cache_ts < self._ttl and self._cache:
+            return self._cache
+        merged = dict(_GATE_DEFAULTS)  # 先铺默认
+        try:
+            room = self._client.resolve_alias(self._alias)
+            if room:
+                ev = self._client.get_state_event(room, GATING_EVENT_TYPE)
+                merged.update(parse_gates(ev))
+            self._cache = merged
+            self._cache_ts = now
+            return merged
+        except Exception as e:
+            # 读失败：有旧缓存就沿用，否则用纯默认（不因抖动突然放开/锁死）
+            logger.debug("读取门控策略失败（沿用默认/旧值）：%s", e)
+            self._cache_ts = now
+            return self._cache or merged
+
+    def required(self, capability: str) -> str:
+        """某能力的最低门槛 slug（未在目录里的能力按免费=不限制）。"""
+        return self.get_all().get(capability, _GATE_DEFAULTS.get(capability, TIER_FREE))

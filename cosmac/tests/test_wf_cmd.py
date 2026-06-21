@@ -81,7 +81,8 @@ class TestWfCommand(unittest.TestCase):
             else {"users": {"@u:host": 0}, "users_default": 0}  # 非管理员
         )
         out = bot._run_wf_command(ROOM, "@u:host", "工作流 跑 cover 测试")
-        self.assertIn("只有平台管理员", out)
+        # workflow_run 门控默认「仅平台管理员」，非管理员被挡（文案由门控统一生成）
+        self.assertIn("仅平台管理员", out)
         # 查看不受限
         self.assertIn("cover", bot._run_wf_command(ROOM, "@u:host", "工作流 列表"))
 
