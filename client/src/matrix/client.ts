@@ -1018,13 +1018,18 @@ export async function setMemberTier(userId: string, tier: string): Promise<void>
   if (!mx) throw new Error('未登录')
   if (!MEMBER_TIERS.some((t) => t.slug === tier)) throw new Error('未知会员等级')
   const rid = await ensureControlRoom()
-  // 先读当前 map（带完整记录，保留 source/updated_ts 之外这里只重写本人）
+  // 先读当前 map（带完整记录），改写本人后整体写回。
+  // #2：必须区分"事件不存在(404=还没写过，从空开始合法)"与"瞬时读失败(网络/权限)"——
+  // 后者绝不能当空 map 处理，否则写回会**清空其他所有会员**。读失败 → 抛错中止、不写。
   let members: Record<string, any> = {}
   try {
     const ev = await (mx as any).getStateEvent(rid, MEMBERS_EVENT_TYPE, '')
     if (ev?.members && typeof ev.members === 'object') members = { ...ev.members }
-  } catch {
-    /* 还没写过：从空开始 */
+  } catch (e: any) {
+    if (e?.errcode !== 'M_NOT_FOUND') {
+      throw new Error('读取当前会员失败，已取消保存（避免清空其他会员），请重试')
+    }
+    /* M_NOT_FOUND：确实还没写过，从空开始 */
   }
   if (tier === 'free') {
     delete members[userId] // 免费=默认=移出 map
@@ -1063,7 +1068,11 @@ export const GATE_CATALOG: { key: string; label: string; default: string }[] = [
 /** 门控策略 map：能力 key → 门槛 slug。 */
 export type GatingMap = Record<string, string>
 
-/** 读门控策略（合并默认）。控制室/事件不存在或读失败时返回纯默认。 */
+/**
+ * 读门控策略（合并默认）。控制室不存在 / 事件不存在(404) → 返回纯默认（合法）。
+ * #3：**瞬时读失败（网络/权限）会抛异常**，绝不伪装成"默认配置"——否则管理员在默认值上
+ * 一保存，就把真实付费策略覆盖没了。调用方（AdminView）catch 后应提示失败、禁止保存。
+ */
 export async function getGating(): Promise<GatingMap> {
   // 先铺默认
   const merged: GatingMap = {}
@@ -1081,8 +1090,10 @@ export async function getGating(): Promise<GatingMap> {
       }
     }
     return merged
-  } catch {
-    return merged // 房间在但还没写过门控策略
+  } catch (e: any) {
+    // 事件不存在(404)=还没配过门控 → 返回默认（合法）。其余=瞬时读失败 → 抛，别伪装成默认。
+    if (e?.errcode === 'M_NOT_FOUND') return merged
+    throw new Error('读取门控策略失败，请重试（避免在读取失败时把默认值覆盖真实策略）')
   }
 }
 

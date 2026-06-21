@@ -605,13 +605,21 @@
             <button class="adm-btn ghost" :disabled="gateLoading || gateSaving" @click="loadGating">
               {{ gateLoading ? '加载中…' : '重新加载' }}
             </button>
-            <button class="adm-btn" :disabled="gateLoading || gateSaving" @click="saveGating">
+            <!-- #3：加载失败(gateLoaded=false)时禁止保存——否则会把默认值覆盖真实付费策略 -->
+            <button class="adm-btn" :disabled="gateLoading || gateSaving || !gateLoaded" @click="saveGating">
               {{ gateSaving ? '保存中…' : '保存' }}
             </button>
           </div>
         </header>
 
         <div v-if="gateLoading" class="adm-center"><div class="adm-spin" /> 加载门控策略…</div>
+
+        <!-- #3：读取失败时不渲染可编辑表（避免在默认值上误保存覆盖真实策略），只提示重试 -->
+        <div v-else-if="!gateLoaded" class="adm-center adm-denied">
+          <div class="adm-denied-ic">⚠️</div>
+          <div class="adm-denied-t">门控策略加载失败</div>
+          <div class="adm-denied-d">为避免把默认值误存、覆盖真实付费策略，已暂不显示配置。请点「重新加载」重试。</div>
+        </div>
 
         <div v-else class="adm-form">
           <p class="adm-hint">

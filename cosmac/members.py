@@ -131,7 +131,12 @@ class MembersStore:
             return None
 
     def get_all(self) -> Dict[str, Dict[str, Any]]:
-        """读控制室会员 map（{user_id: {tier, source, updated_ts}}）。失败/无数据返回空。"""
+        """读控制室会员 map（{user_id: {tier, source, updated_ts}}）。失败/无数据返回空。
+
+        **注意**：此方法对只读查询友好（读失败回落空=按免费处理，不致命）。但**写操作
+        （grant）绝不能用它**——读失败回空会导致整份 map 被覆盖、清空其他会员。写路径用
+        :meth:`_read_all_strict`（读失败抛异常）。
+        """
         room = self._ctrl_room()
         if not room:
             return {}
@@ -141,6 +146,16 @@ class MembersStore:
         except Exception as e:
             logger.debug("读取会员等级失败（忽略）：%s", e)
             return {}
+
+    def _read_all_strict(self, room: str) -> Dict[str, Dict[str, Any]]:
+        """读会员 map，**读失败抛异常**（区别于"读到空"）——给写操作用（#2）。
+
+        get_state_event 语义：404→None（确实还没写过，合法空）；403/网络/5xx→抛异常。
+        所以这里只有"事件不存在"才返回空 map，瞬时读失败会向上抛、让 grant 放弃写入，
+        绝不拿一份（因读失败而）空的 map 去覆盖、清空其他会员。
+        """
+        ev = self._client.get_state_event(room, MEMBERS_EVENT_TYPE)
+        return parse_members(ev)
 
     def get_tier(self, user_id: str) -> str:
         """查某用户的会员等级 slug；未记录 → 默认（免费）。"""
@@ -168,16 +183,24 @@ class MembersStore:
         if not room:
             logger.warning("授予会员失败：控制室不存在（还没建）")
             return False
+        # #2：**先严格读**当前 map——读失败抛异常→放弃写入，绝不拿空表覆盖、清空其他会员。
         try:
-            current = self.get_all()
-            if tier == DEFAULT_TIER:
-                current.pop(user_id, None)  # 免费=撤销=移出 map
-            else:
-                current[user_id] = {
-                    "tier": tier,
-                    "source": source,
-                    "updated_ts": int(now_ts if now_ts is not None else time.time()),
-                }
+            current = self._read_all_strict(room)
+        except Exception:
+            logger.exception(
+                "授予会员失败：读当前会员出错，放弃写入（避免清空其他会员）user=%s", user_id
+            )
+            return False
+        # 读成功后再改写整份 map 写回
+        if tier == DEFAULT_TIER:
+            current.pop(user_id, None)  # 免费=撤销=移出 map
+        else:
+            current[user_id] = {
+                "tier": tier,
+                "source": source,
+                "updated_ts": int(now_ts if now_ts is not None else time.time()),
+            }
+        try:
             return bool(
                 self._client.set_state_event(
                     room, MEMBERS_EVENT_TYPE, {"members": current}
@@ -295,10 +318,27 @@ class GatingStore:
             self._cache_ts = now
             return merged
         except Exception as e:
-            # 读失败：有旧缓存就沿用，否则用纯默认（不因抖动突然放开/锁死）
-            logger.debug("读取门控策略失败（沿用默认/旧值）：%s", e)
-            self._cache_ts = now
+            # 读失败：有上次成功值就沿用（不因抖动突然放开/锁死）。
+            # #3：**不刷新 cache_ts**——否则把"失败"缓存一个 TTL，会延长付费门控被绕过的
+            # 窗口。这里让下次调用立即重试，尽快拿到真实策略。若**从未**读成功过（无缓存），
+            # 只能暂用默认（多为 free）——靠启动 warm() 把这个窗口压到极小（见 warm 注释）。
+            if self._cache:
+                logger.warning("读取门控策略失败，沿用上次成功值，将尽快重试：%s", e)
+            else:
+                logger.warning(
+                    "门控策略首次读取失败、暂用内置默认（部分能力默认免费，付费门控本窗口可能"
+                    "被绕过），将每次调用重试直到读到真实策略：%s", e
+                )
             return self._cache or merged
+
+    def warm(self) -> bool:
+        """启动时预热一次（best-effort）：尽快建立"上次成功值"缓存，把"首读失败→暂用默认
+        →付费门控被绕过"的窗口压到极小（#3）。读到真实策略返回 True，否则 False（不抛、不阻断启动）。"""
+        try:
+            self.get_all()
+            return bool(self._cache)
+        except Exception:
+            return False
 
     def required(self, capability: str) -> str:
         """某能力的最低门槛 slug（未在目录里的能力按免费=不限制）。"""

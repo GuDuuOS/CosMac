@@ -223,8 +223,11 @@ class TestWfCommand(unittest.TestCase):
         self.assertIn("claimed_at", cols)
 
     def test_recover_interrupted_runs(self) -> None:
-        # #2：启动时把上次遗留的 pending/processing 结清为 error 并通知群（不永久卡 pending）
-        from cosmac.db.wf_repo import create_pending, get_run
+        # #2：启动时把上次遗留的、**久未完成**的 pending 结清为 error 并通知群（不永久卡 pending）
+        from datetime import datetime, timedelta
+
+        from cosmac.db.models import WorkflowRun
+        from cosmac.db.wf_repo import _ORPHAN_GRACE_SECONDS, create_pending, get_run
 
         with session_scope() as s:
             r = create_pending(
@@ -232,11 +235,47 @@ class TestWfCommand(unittest.TestCase):
                 sender="@u:host", user_input="x", token="h",
             )
             rid = r.id
+        # 推到宽限期外，模拟"上次进程久前留下的遗孤"（#1：新近的不该被回收）
+        with session_scope() as s:
+            s.get(WorkflowRun, rid).updated_at = (
+                datetime.utcnow() - timedelta(seconds=_ORPHAN_GRACE_SECONDS + 60)
+            )
         bot = _bot()
         bot.recover_interrupted_runs()
         with session_scope() as s:
             self.assertEqual(get_run(s, rid).status, "error")  # 不再卡 pending
         self.assertTrue(any("重启中断" in t for _r, t in bot.client.sent))  # 通知到群
+
+    def test_reclaim_orphans_grace_spares_recent(self) -> None:
+        # #1：新近的 pending 不回收（外部平台可能仍在跑、稍后回调；回收会误杀+双扣费）
+        from datetime import datetime, timedelta
+
+        from cosmac.db.models import WorkflowRun
+        from cosmac.db.wf_repo import (
+            _ORPHAN_GRACE_SECONDS, create_pending, get_run, reclaim_orphans,
+        )
+
+        with session_scope() as s:
+            recent = create_pending(
+                s, slug="recent", platform="webhook", room_id=ROOM,
+                sender="@u:host", user_input="x", token="h1",
+            )
+            old = create_pending(
+                s, slug="old", platform="webhook", room_id=ROOM,
+                sender="@u:host", user_input="x", token="h2",
+            )
+            recent_id, old_id = recent.id, old.id
+        with session_scope() as s:  # 只把 old 推到宽限期外
+            s.get(WorkflowRun, old_id).updated_at = (
+                datetime.utcnow() - timedelta(seconds=_ORPHAN_GRACE_SECONDS + 60)
+            )
+        with session_scope() as s:
+            ids = {rid for rid, _slug, _room in reclaim_orphans(s)}
+        self.assertIn(old_id, ids)          # 久的被回收
+        self.assertNotIn(recent_id, ids)    # 新的留着等回调
+        with session_scope() as s:
+            self.assertEqual(get_run(s, old_id).status, "error")
+            self.assertEqual(get_run(s, recent_id).status, "pending")
 
     def test_seen_txn_lru_bounded(self) -> None:
         # #2：内存去重有界，不会无限增长

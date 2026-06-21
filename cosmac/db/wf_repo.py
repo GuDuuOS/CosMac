@@ -71,18 +71,29 @@ def create_pending(
     return run
 
 
-def reclaim_orphans(session: Session) -> List[Tuple[int, str, str]]:
-    """启动时收口"上次进程遗留的"未完成运行（pending/processing）。
+# 启动收口的"宽限期"：只清理**早于**这个时长的未完成运行。
+# 为什么要宽限（#1）：异步 webhook 可能**已成功提交给外部平台**，平台仍在跑、稍后会回调；
+# bot 重启不影响它。若无脑把刚创建的 pending 全标 error+清 token，那条合法回调就被丢弃、
+# 用户重试→可能双份扣费。所以只回收"久到几乎不可能再回调"的遗孤（默认 1 小时），
+# 新近的 pending 留着等它的回调正常完成。
+_ORPHAN_GRACE_SECONDS = 3600
 
-    异步提交/ComfyUI 轮询都跑在**进程内**线程池里，进程重启即全部消失——这些运行再也
-    等不到完成、会永久卡在 pending（#2）。单实例部署下，启动瞬间所有 pending/processing
-    必是上次的遗孤：标记为 error 并返回 ``(run_id, slug, room_id)`` 列表，供调用方通知用户
-    "因重启中断、请重试"。已落库后返回。
+
+def reclaim_orphans(session: Session) -> List[Tuple[int, str, str]]:
+    """启动时收口"上次进程遗留的、且已**久未完成**的"未完成运行（pending/processing）。
+
+    异步提交/ComfyUI 轮询都跑在**进程内**线程池里，进程重启即全部消失——但**已提交给外部
+    平台**的那部分，平台仍会继续跑并回调。所以这里**只回收早于宽限期**（``_ORPHAN_GRACE_SECONDS``）
+    的遗孤：它们久到几乎不可能再有回调，标记 error 并返回 ``(run_id, slug, room_id)`` 供调用方
+    通知用户"因重启中断、请重试"；新近的 pending 不动，留给它的回调正常完成（避免误杀+双扣费，#1）。
+    已落库后返回。
     """
+    cutoff = datetime.utcnow() - timedelta(seconds=_ORPHAN_GRACE_SECONDS)
     rows = (
         session.execute(
             select(WorkflowRun).where(
-                WorkflowRun.status.in_(("pending", "processing"))
+                WorkflowRun.status.in_(("pending", "processing")),
+                WorkflowRun.updated_at < cutoff,  # 只回收久未更新的遗孤，别误杀在跑的
             )
         )
         .scalars()

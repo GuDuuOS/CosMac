@@ -1616,6 +1616,8 @@ def run(config: CosmacConfig) -> None:
     bot.client.set_displayname(config.bot_displayname)
     # #2：清理上次进程遗留的未完成工作流运行（in-flight 随重启消失），通知用户别干等
     bot.recover_interrupted_runs()
+    # #3：预热门控策略缓存——避免"首读失败→暂用默认→付费门控被绕过"的窗口（best-effort）
+    bot.gating.warm()
 
     # 把 bot 和 hs_token 注入到 Handler 类上（http.server 用类、不便传参，用 partial 构造）
     handler_cls = partial(_make_handler, bot=bot, hs_token=config.hs_token)

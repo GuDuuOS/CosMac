@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 from cosmac.bots.appservice_bot import CosmacBot
 from cosmac.config import CosmacConfig
-from cosmac.config import GATING_EVENT_TYPE
+from cosmac.config import GATING_EVENT_TYPE, MEMBERS_EVENT_TYPE
 from cosmac.members import (
     DEFAULT_TIER,
     GATE_ADMIN,
@@ -150,6 +150,31 @@ class MembersStoreTests(unittest.TestCase):
         self.assertFalse(s.grant(ALICE, TIER_PAID))
         self.assertEqual(s.get_all(), {})
 
+    def test_grant_aborts_on_read_failure_no_overwrite(self):
+        # #2：读当前会员瞬时失败 → grant 放弃写入，绝不拿空表覆盖、清空其他会员
+        fake = FakeClient(CTRL)
+        fake._state[MEMBERS_EVENT_TYPE] = {
+            "members": {ALICE: {"tier": "paid"}, BOB: {"tier": "creator"}}
+        }
+        store = MembersStore(fake, "#cosmac-ctrl:guduu.local")
+        real_get = fake.get_state_event
+
+        def boom(room, et, sk=""):  # 让"读会员"瞬时失败（区别于 404→None）
+            if et == MEMBERS_EVENT_TYPE:
+                raise RuntimeError("network down")
+            return real_get(room, et, sk)
+
+        fake.get_state_event = boom
+        self.assertFalse(store.grant("@c:guduu.local", TIER_PAID))  # 读失败 → 拒绝写
+        fake.get_state_event = real_get  # 恢复读，确认原数据没被覆盖
+        self.assertEqual(set(store.get_all().keys()), {ALICE, BOB})
+
+    def test_grant_first_member_when_absent(self):
+        # 事件不存在(get_state_event→None) 是合法空表，正常写入第一个会员（不被 #2 误伤）
+        s = _store()  # 全新、还没写过 members
+        self.assertTrue(s.grant(ALICE, TIER_PAID))
+        self.assertEqual(s.get_tier(ALICE), TIER_PAID)
+
 
 class BotCommandTests(unittest.TestCase):
     def test_self_check_default_free(self):
@@ -228,6 +253,33 @@ class GatingPureTests(unittest.TestCase):
         # 覆盖后生效
         fake._state[GATING_EVENT_TYPE] = {"gates": {"ai_chat": "creator"}}
         self.assertEqual(store.required("ai_chat"), TIER_CREATOR)
+
+    def test_gating_retries_after_read_failure(self):
+        # #3：读失败不缓存"失败"——下次调用立即重试，读到真实策略即生效（不延长付费门控绕过窗口）
+        fake = FakeClient(CTRL)
+        real = fake.get_state_event
+        calls = {"n": 0}
+
+        def flaky(room, et, sk=""):
+            if et == GATING_EVENT_TYPE:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise RuntimeError("blip")          # 首读失败
+                return {"gates": {"ai_chat": "paid"}}   # 之后成功
+            return real(room, et, sk)
+
+        fake.get_state_event = flaky
+        store = GatingStore(fake, "#cosmac-ctrl:guduu.local", ttl=60)  # 大 TTL
+        self.assertEqual(store.required("ai_chat"), TIER_FREE)  # 首读失败→暂用默认
+        self.assertEqual(store.required("ai_chat"), TIER_PAID)  # 立即重试→读到真实策略
+
+    def test_gating_warm(self):
+        # #3：启动预热建立缓存
+        fake = FakeClient(CTRL)
+        fake._state[GATING_EVENT_TYPE] = {"gates": {"ai_chat": "paid"}}
+        store = GatingStore(fake, "#cosmac-ctrl:guduu.local", ttl=60)
+        self.assertTrue(store.warm())
+        self.assertEqual(store.required("ai_chat"), TIER_PAID)
 
 
 class GateDecisionTests(unittest.TestCase):
