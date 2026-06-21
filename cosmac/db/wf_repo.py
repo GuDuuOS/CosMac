@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from datetime import datetime, timedelta
 
@@ -69,6 +69,33 @@ def create_pending(
     session.add(run)
     session.flush()
     return run
+
+
+def reclaim_orphans(session: Session) -> List[Tuple[int, str, str]]:
+    """启动时收口"上次进程遗留的"未完成运行（pending/processing）。
+
+    异步提交/ComfyUI 轮询都跑在**进程内**线程池里，进程重启即全部消失——这些运行再也
+    等不到完成、会永久卡在 pending（#2）。单实例部署下，启动瞬间所有 pending/processing
+    必是上次的遗孤：标记为 error 并返回 ``(run_id, slug, room_id)`` 列表，供调用方通知用户
+    "因重启中断、请重试"。已落库后返回。
+    """
+    rows = (
+        session.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.status.in_(("pending", "processing"))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    out: List[Tuple[int, str, str]] = []
+    for r in rows:
+        r.status = "error"
+        r.error = "服务重启，运行中断"
+        r.token = ""  # 一次性 token 作废
+        out.append((r.id, r.slug, r.room_id))
+    session.flush()
+    return out
 
 
 def get_run(session: Session, run_id: int) -> "WorkflowRun | None":

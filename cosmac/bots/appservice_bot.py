@@ -19,6 +19,7 @@ import hmac
 import json
 import logging
 import socket
+import threading
 import time
 from collections import OrderedDict
 from functools import partial
@@ -136,16 +137,50 @@ class CosmacBot:
             return False
 
         # status == "claimed"（抢到）或 None（无 DB，退回内存去重）：占住并处理
-        self._remember_txn(txn_id)
         for event in events:
             try:
                 self._handle_event(event)
             except Exception:  # 单条事件出错不应拖垮整批（也不触发整批重投）
                 logger.exception("处理事件出错: %s", event.get("event_id"))
-        # 处理成功 → 标记 done。若处理中途**进程崩溃**则到不了这里，DB 行留 processing，
-        # 过期后由 Synapse 重试时 claim 重新抢占重处理（at-least-once，不永久丢）。
+        # #1：**处理成功后**才标记 done + 记内存。绝不能在处理前就写内存——否则处理途中
+        # Synapse 超时重试会命中内存快路直接回 200，原处理若随后崩溃，DB 的 processing
+        # 再没机会被重抢（Synapse 已不再重试）→ 整批永久丢。
+        # 进程崩在处理中途则到不了这里：DB 行留 processing、内存也没记，过期后由 Synapse
+        # 重试时 claim 重新抢占重处理（at-least-once，不永久丢）。
         self._finish_txn(txn_id)
+        self._remember_txn(txn_id)
         return True
+
+    def recover_interrupted_runs(self) -> None:
+        """启动时结清上次进程遗留的未完成工作流运行并通知用户（尽力而为，#2）。
+
+        进程内线程池不跨重启——in-flight/排队的提交与 ComfyUI 轮询随旧进程一起消失，
+        对应的 pending/processing 永远等不到完成。这里在启动时一次性收口：标记失败、
+        告诉用户"因服务重启中断、请重试"，避免永久干等。DB 不可用则跳过。
+        （注意：这是"让中断**可见**"，不是"恢复执行"——真要不丢任务需durable队列，见架构说明。）
+        """
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.wf_repo import reclaim_orphans
+
+            with session_scope() as s:
+                orphans = reclaim_orphans(s)
+        except Exception:
+            return  # 没 DB / 出错：跳过，不阻断启动
+        for run_id, slug, room_id in orphans:
+            if not room_id:
+                continue
+            try:
+                # 固定 txn id：万一通知本身重发也被 Synapse 去重，群里不重复
+                self.client.send_text(
+                    room_id,
+                    f"⚠️ 工作流「{slug}」(#{run_id}) 因服务重启中断，请重试。",
+                    txn_id=f"cosmac-wf-orphan-{run_id}",
+                )
+            except Exception:
+                logger.warning("通知中断运行失败 run_id=%s", run_id)
+        if orphans:
+            logger.info("启动时结清 %d 条中断的工作流运行", len(orphans))
 
     def _remember_txn(self, txn_id: str) -> None:
         """记进内存有界 LRU；超上限淘汰最旧的。"""
@@ -1353,16 +1388,50 @@ class _Handler(BaseHTTPRequestHandler):
         self._send_json(code, {} if code == 200 else {"error": code})
 
 
+class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """带**并发连接上限**的 ThreadingHTTPServer（#3 防连接洪泛耗尽线程）。
+
+    ThreadingHTTPServer 每个连接开一个线程；单纯靠每请求 20s 时限，攻击者只要持续高频
+    建连，仍能在窗口内堆出大量线程。这里用 BoundedSemaphore 卡住"同时在处理的连接数"：
+    超限的新连接**直接关闭、不开线程**，从源头封住线程膨胀。
+    （仍建议在 nginx 加 limit_conn 做网关层兜底；这里是应用层的最后一道。）
+    """
+
+    _max_conns = 128  # 同时在处理的连接上限（appservice 正常并发远低于此）
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._conn_sem = threading.BoundedSemaphore(self._max_conns)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        # 抢不到名额 = 并发已满：直接关连接、不开线程（防线程耗尽）
+        if not self._conn_sem.acquire(blocking=False):
+            logger.warning("并发连接达上限 %d，拒绝新连接（防线程耗尽）", self._max_conns)
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._conn_sem.release()  # 处理完归还名额
+
+
 def run(config: CosmacConfig) -> None:
     """启动主 AI Bot 的 HTTP 服务，开始监听 Synapse 推来的事件。"""
     bot = CosmacBot(config)
     # 启动时把主 AI 的群内显示名设为品牌名（用户看到的是它，而非 @guduu 用户 id）
     bot.client.set_displayname(config.bot_displayname)
+    # #2：清理上次进程遗留的未完成工作流运行（in-flight 随重启消失），通知用户别干等
+    bot.recover_interrupted_runs()
 
     # 把 bot 和 hs_token 注入到 Handler 类上（http.server 用类、不便传参，用 partial 构造）
     handler_cls = partial(_make_handler, bot=bot, hs_token=config.hs_token)
 
-    server = ThreadingHTTPServer((config.listen_host, config.listen_port), handler_cls)
+    server = _BoundedThreadingHTTPServer(
+        (config.listen_host, config.listen_port), handler_cls
+    )
     logger.info(
         "CosMac Star 主 AI Bot 已启动: 监听 http://%s:%d ，连接 Synapse %s ，模型后端=%s",
         config.listen_host,

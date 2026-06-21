@@ -221,6 +221,22 @@ class TestWfCommand(unittest.TestCase):
         self.assertIn("done", cols)
         self.assertIn("claimed_at", cols)
 
+    def test_recover_interrupted_runs(self) -> None:
+        # #2：启动时把上次遗留的 pending/processing 结清为 error 并通知群（不永久卡 pending）
+        from cosmac.db.wf_repo import create_pending, get_run
+
+        with session_scope() as s:
+            r = create_pending(
+                s, slug="cover", platform="webhook", room_id=ROOM,
+                sender="@u:host", user_input="x", token="h",
+            )
+            rid = r.id
+        bot = _bot()
+        bot.recover_interrupted_runs()
+        with session_scope() as s:
+            self.assertEqual(get_run(s, rid).status, "error")  # 不再卡 pending
+        self.assertTrue(any("重启中断" in t for _r, t in bot.client.sent))  # 通知到群
+
     def test_seen_txn_lru_bounded(self) -> None:
         # #2：内存去重有界，不会无限增长
         bot = _bot()
