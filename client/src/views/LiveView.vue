@@ -861,24 +861,18 @@ const tb = reactive({
   at: () => { insertText('@'); toast('@ 提及', '可 @ 成员或 @ 某个 Agent') },
 })
 
-// ── 顶栏装饰按钮 / 应用切换 / 工作区工具 ──────────────────
-function onSearch() { toast('🔍 全局搜索', '搜索频道 / 消息 / 文件（演示）') }
+// ── 顶栏按钮 / 应用切换 / 工作区工具 ──────────────────
 // 升级会员弹窗（模块4 交易系统 · 用户侧）
 const showMembership = ref(false)
 function onUpgrade() { showMembership.value = true }
-function onMentions() { toast('@ 提及', '这里会列出所有 @ 你的消息（演示）') }
-function onBookmarks() { toast('🔖 收藏夹', '你收藏的消息 / 文件（演示）') }
-// ↓↓↓ 这些按键复刻 DEMO 真实（mock）功能：打开对应弹窗/面板 ↓↓↓
+// 打开对应弹窗/面板（真实功能）
 function onSettings(tab?: UserSettingsTab) { openSettings(tab); userMenuOpen.value = false }
 function onMarket() { openMarket(); appMenuOpen.value = false }
 function onCli() { openCli(); appMenuOpen.value = false }
 function onProfile() { openProfileHome(); appMenuOpen.value = false; userMenuOpen.value = false }
 function onPluginStore() { openPluginStore() }
 function onCustomAssets() { openAssets() }
-// ↓↓↓ 这些 DEMO 本身也只是 toast 提示（无独立弹窗），保持一致 ↓↓↓
 function onFilter() { filterInput.value?.focus() }
-function onAttach() { toast('📎 附件', '支持图片 / 视频 / 文档（演示）') }
-function onEmoji() { toast('😊 表情') }
 
 function onDocClick(e: MouseEvent) {
   if (!rootEl.value) return
@@ -1012,22 +1006,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </div>
       </div>
 
-      <!-- 中：搜索（绝对居中）-->
+      <!-- 中：留空（原演示版"全局搜索"未接后端，已移除；频道检索走左侧栏「查找频道」）-->
       <div class="top-mid"></div>
-      <div class="search" role="button" tabindex="0" @click="onSearch">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-        <span>搜索</span>
-      </div>
 
-      <!-- 右：升级 / 提及 / 收藏 / 设置 / 中枢AI开关 / 用户菜单 -->
+      <!-- 右：升级 / 设置 / 中枢AI开关 / 用户菜单 -->
       <div class="top-right">
         <button class="top-upgrade" @click="onUpgrade">✦ 升级会员 ✦</button>
-        <button class="ic-btn" title="提及" @click="onMentions">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></svg>
-        </button>
-        <button class="ic-btn" title="收藏" @click="onBookmarks">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z" /></svg>
-        </button>
         <button class="ic-btn" title="设置" @click="onSettings()">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
         </button>
@@ -1422,8 +1406,6 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 <button class="tb-btn" title="@提及" @click="tb.at"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></svg></button>
               </div>
               <div class="tb-right">
-                <button class="tb-btn" title="附件" @click="onAttach"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8L9.41 17.32a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg></button>
-                <button class="tb-btn" title="表情" @click="onEmoji"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" /></svg></button>
                 <button class="send" :disabled="!draft.trim()" title="发送 (Enter)" @click="send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></svg></button>
               </div>
             </div>
@@ -1463,69 +1445,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <div class="ai-main">
 
           <!-- 左栏：完整还原 Cowork 左导航（仅放大态）-->
-          <div v-if="aiMax" class="ai-cw-left">
-            <div class="ai-cw-tabs">
-              <button class="ai-cw-tab" @click="toast('对话模式（演示）')">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" /></svg>
-                对话
-              </button>
-              <button class="ai-cw-tab active">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
-                协作
-              </button>
-              <button class="ai-cw-tab" @click="toast('代码模式（演示）')">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
-                代码
-              </button>
-            </div>
-
-            <button class="ai-cw-newtask" @click="aiMsgs = []; toast('已开新任务')">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14" /></svg>
-              新任务
-            </button>
-
-            <nav class="ai-cw-nav">
-              <button class="ai-cw-navitem" @click="toast('项目（演示）')">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
-                项目
-              </button>
-              <button class="ai-cw-navitem" @click="toast('产物（演示）')">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><path d="m3.3 7 8.7 5 8.7-5M12 22V12" /></svg>
-                产物
-              </button>
-              <button class="ai-cw-navitem" @click="toast('定时任务（演示）')">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                定时任务
-              </button>
-              <button class="ai-cw-navitem" @click="toast('派发 · Beta（演示）')">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.6" y1="10.5" x2="15.4" y2="6.5" /><line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /></svg>
-                派发
-                <span class="ai-cw-beta">Beta</span>
-              </button>
-            </nav>
-
-            <div class="ai-cw-recents">
-              <div class="ai-cw-recents-h">
-                <span>最近</span>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" /></svg>
-              </div>
-              <ul class="ai-cw-list">
-                <li class="act">本周爆款专班</li>
-                <li>《夜航星》分镜评审</li>
-                <li>《银河谣》配乐进度</li>
-                <li>虚拟明星·墨白 商单报价</li>
-                <li>抖音评论区舆情</li>
-                <li>本周发布排期</li>
-              </ul>
-            </div>
-
-            <div class="ai-cw-user">
-              <span class="ai-cw-user-ava">安</span>
-              <span class="ai-cw-user-nm">安其影视工作室</span>
-              <span class="ai-cw-user-plan">Max</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-            </div>
-          </div>
+          <!-- （原放大态左侧"Cowork 风"演示导航：模式切换/项目/产物/定时任务/派发/最近——
+               全是占位演示，未接后端，已整体移除。放大态仅保留中栏对话 + 右栏。）-->
 
           <!-- 中栏：对话 + 输入（dock / 放大 共用）-->
           <div class="ai-center">
@@ -1549,9 +1470,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               <div class="ai-input-box">
                 <input v-model="aiDraft" placeholder="一句话下达目标…" @keyup.enter="aiSend" />
                 <div class="ai-toolbar">
-                  <div class="ai-tb-left">
-                    <button class="ai-tb-btn" title="附件" @click="onAttach"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8L9.41 17.32a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg></button>
-                  </div>
+                  <div class="ai-tb-left"></div>
                   <button class="ai-send-ic" :disabled="!aiDraft.trim()" @click="aiSend"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4Z" /></svg></button>
                 </div>
               </div>

@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-22 — 去 Demo（第2刀）：清占位按钮 + 删更多死组件
+- 续上一刀。本轮发现 TopBar/Composer/ChannelSidebar/PluginRail/WorkspaceRail/DepartmentCreateModal 等组件**也从不被 import**（orphan 扫描此前被 CSS/注释里的同名字符串误判成"还在用"）——它们携带的占位按钮随组件一并删除。
+- 又删一批死组件/composable/data（级联孤儿，build 全程绿验证无 live 引用）：上述组件 + ToastHost/TopUserMenu/TopAppSwitcher/ChannelHeader/ChartCard/RichCard/DocPreview/ChannelTitleMenu/CCTVFrame + useComposerAi/useDepartmentCreate/useCardAction/useFocusMode + data/messages/{safety,ops,energy,office,duu}。
+- **LiveView 里真·live 的占位按钮**：移除全局搜索框、提及、收藏、附件(×2)、表情、放大态"Cowork 风"演示左栏(模式切换/项目/产物/定时任务/派发/最近)——都未接后端、点了只弹"(演示)"。频道检索本就有左侧栏「查找频道」真功能,保留。
+- **唯一保留的占位**：`ProfileHome.vue`(个人主页)——负责人要把它做成模块5,整面保留待重写,不在本轮动。
+- 本轮共删 **27 个文件**;build 通过(`index-CyB2NomE.js`)。**需发 dist**(产物继续变小)。
+- 至此 live 用户可见层除"个人主页(模块5)+数据看板/任务看板(mock数据待接真)"外,占位假按钮已清干净。
+
 ## 2026-06-22 — 去 Demo（第1刀）：删除死代码（演示稿 App.vue 整棵树 + 路由视图）
 - 负责人要求"代码里不能有 demo、要真实落地"。第一步**清死代码**:本应用根是 `LiveView.vue`(main.ts 直挂)、不走 `<router-view>`,所以演示稿的 `App.vue` 整棵组件树 + 路由整页视图**从不渲染=死代码**。
 - 删除 **18 个死文件**(build 验证全程绿,确认无 live 引用):`App.vue`、`AiChatPanel.vue`(demo AI 面板)、7 个路由视图(`DashboardView/SafetyView/EnergyView/OfficeView/DuuChatView/TodoView/OpsChannelView`)、及级联孤儿(`SystemAiModal/TypeOut/MessageStream/MessageItem/CardActionModal`、`useSystemAi/useDashboardDetail/useClock/useAutoHideScrollbar`)。
