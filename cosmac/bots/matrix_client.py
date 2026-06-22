@@ -242,6 +242,29 @@ class MatrixClient:
             return None
         raise RuntimeError(f"解析别名 {alias} 失败: HTTP {resp.status_code}")
 
+    def whoami(self, access_token: str) -> Optional[str]:
+        """用**用户自己的** access token 调 whoami，验明身份拿到 user_id（模块4 下单用）。
+
+        前端「升级会员」把登录用户的 token 传来，bot 据此确认"是谁在买"，再给这个人开会员。
+        token 只用于这一次校验、绝不存储。无效/网络失败 → None（拒绝下单）。
+        **不用** self._session（那带的是 appservice 高权 token），用独立请求带用户 token。
+        """
+        if not access_token:
+            return None
+        try:
+            resp = requests.get(
+                f"{self.homeserver_url}/_matrix/client/v3/account/whoami",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            logger.warning("whoami 请求失败: %s", e)
+            return None
+        if resp.status_code == 200:
+            uid = resp.json().get("user_id")
+            return uid if isinstance(uid, str) and uid.startswith("@") else None
+        return None
+
     def get_state_event(
         self, room_id: str, event_type: str, state_key: str = ""
     ) -> Optional[Dict[str, Any]]:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import os
 import socket
 import threading
 import time
@@ -95,6 +96,13 @@ class CosmacBot:
         # 功能门控策略：控制室 cosmac.gating（带 TTL 缓存）。后台配「能力→最低等级」，
         # bot 在执行点服务端强制（见 _gate_allows / _tool_gate_check）。
         self.gating = GatingStore(self.client, config.control_room_alias)
+        # 模块4 交易系统：订单服务（读控制室套餐 cosmac.plans + 建订单 + 支付成功开会员）。
+        # 前端「升级会员」走 bot 的 /cosmac/pay/* 端点调它（前端够不到 cosmac DB）。
+        from cosmac.trading.service import OrderService
+
+        self.orders = OrderService(
+            self.members, self.client, config.control_room_alias
+        )
         # 让 run_workflow 工具能走异步连接器的回调协议（#1）：注入 bot 的 _dispatch_async。
         # 没配 public_url 时不注入——_dispatch_async 没有回调地址也没意义。
         if config.public_url:
@@ -1200,6 +1208,83 @@ class CosmacBot:
             logger.exception("处理工作流回调出错 run_id=%s", run_id)
             return 500
 
+    # —— 模块4 交易系统：前端「升级会员」走这几个端点（前端够不到 cosmac DB）——
+
+    def handle_pay_plans(self) -> List[Dict[str, Any]]:
+        """返回**上架**套餐列表（公开读，给前端「升级会员」展示）。只暴露展示必要字段。"""
+        out: List[Dict[str, Any]] = []
+        for p in self.orders.list_plans():
+            if not p.enabled:
+                continue
+            out.append({
+                "slug": p.slug, "name": p.name, "tier": p.tier,
+                "period_days": p.period_days, "prices": dict(p.prices),
+            })
+        return out
+
+    def handle_pay_checkout(
+        self, access_token: str, body: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """下单：用用户 token 验明身份 → 建订单 → 返回支付方式。返回 (状态码, body)。"""
+        from cosmac.trading.service import OrderError
+
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        plan_slug = str(body.get("plan_slug") or "")
+        currency = str(body.get("currency") or "")
+        provider = str(body.get("provider") or "manual")
+        try:
+            res = self.orders.create_order(
+                user_id=user_id, plan_slug=plan_slug,
+                currency=currency, provider=provider,
+            )
+        except OrderError as e:
+            return 400, {"error": str(e)}
+        except Exception:
+            logger.exception("下单失败 user=%s plan=%s", user_id, plan_slug)
+            return 500, {"error": "下单失败，请稍后再试"}
+        co = res["checkout"]
+        return 200, {
+            "order_no": res["order_no"], "amount_cents": res["amount_cents"],
+            "currency": res["currency"], "tier": res["tier"],
+            "period_days": res["period_days"],
+            "checkout": {"kind": co.kind, "url": co.url, "address": co.address,
+                         "extra": co.extra},
+        }
+
+    def handle_pay_callback(
+        self, provider_name: str, headers: Dict[str, str], body: bytes
+    ) -> int:
+        """支付平台回调：取对应渠道 adapter 验签 → 归一化 → 幂等开会员。返回 HTTP 状态码。"""
+        from cosmac.trading.service import OrderError
+
+        # manual（测试/线下确认）渠道默认**禁用**，避免任何人自助白嫖会员；
+        # 要测试整条链时临时设 COSMAC_PAY_ALLOW_MANUAL=1（上线前务必关掉，改用真实渠道）。
+        if provider_name == "manual" and os.environ.get(
+            "COSMAC_PAY_ALLOW_MANUAL", ""
+        ).lower() not in ("1", "true", "yes"):
+            return 403
+        provider = self.orders.get_provider(provider_name)
+        if provider is None:
+            return 404
+        try:
+            ev = provider.parse_callback(headers=headers, body=body)  # 验签失败会抛
+        except Exception as e:
+            logger.warning("支付回调验签失败 provider=%s: %s", provider_name, e)
+            return 400
+        if not ev.paid:
+            return 200  # 非成功事件（如失败/退款通知），先确认收到、不开会员
+        try:
+            self.orders.on_payment_success(ev.order_no, provider_ref=ev.provider_ref)
+        except OrderError as e:
+            logger.warning("支付回调开通失败 order=%s: %s", ev.order_no, e)
+            return 500  # 让平台重试
+        except Exception:
+            logger.exception("支付回调处理出错 order=%s", ev.order_no)
+            return 500
+        return 200
+
     def _record_wf_run(self, room_id, sender, conn, user_input, result) -> None:
         """尽力把运行记录落库；DB 不可用就跳过（不影响已拿到的结果）。"""
         try:
@@ -1502,13 +1587,36 @@ class _Handler(BaseHTTPRequestHandler):
             return hmac.compare_digest(token, self.hs_token)
         return False
 
-    def _send_json(self, status: int, body: Dict[str, Any]) -> None:
+    def _send_json(self, status: int, body: Dict[str, Any], *, cors: bool = False) -> None:
         payload = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        if cors:
+            # 跨源：前端在 app.cosmac.cc，bot 在 hs.cosmac.cc，浏览器要 CORS 头才放行。
+            # 默认 *（这些端点要么公开、要么自带 token 校验）；可用 COSMAC_APP_ORIGIN 收紧到具体域名。
+            origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(payload)
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        # 仅给支付端点回 CORS 预检（浏览器带 Authorization 头的 POST 会先发 OPTIONS）
+        if self.path.startswith("/cosmac/pay/"):
+            origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header("Access-Control-Max-Age", "600")
+            self.send_header("Vary", "Origin")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_PUT(self) -> None:  # noqa: N802
         # 只接收事务推送
@@ -1551,6 +1659,16 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(503, {"errcode": "M_UNAVAILABLE"})
 
     def do_GET(self) -> None:  # noqa: N802
+        # 模块4：公开读上架套餐（给前端「升级会员」展示；无密钥、可跨源）
+        if self.path.split("?", 1)[0] == "/cosmac/pay/plans":
+            try:
+                plans = self.bot.handle_pay_plans()
+            except Exception:
+                logger.exception("读取套餐失败")
+                self._send_json(500, {"error": "读取套餐失败"}, cors=True)
+                return
+            self._send_json(200, {"plans": plans}, cors=True)
+            return
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在
         if "/users/" in self.path or "/rooms/" in self.path:
             if not self._check_auth():
@@ -1560,7 +1678,58 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send_json(404, {"errcode": "M_UNRECOGNIZED"})
 
+    def _read_json_body(self, max_len: int) -> Optional[Dict[str, Any]]:
+        """按上限读 + 解析 JSON 请求体；超限/超时/非法返回 None（调用方回对应错误）。"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            return None
+        if length < 0 or length > max_len:
+            return None
+        raw = self._read_body(length) if length else b"{}"
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw or b"{}")
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
     def do_POST(self) -> None:  # noqa: N802
+        path = self.path.split("?", 1)[0]
+
+        # 模块4：下单（前端「升级会员」调）。用用户自己的 access token 验明身份再建单。
+        if path == "/cosmac/pay/checkout":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            body = self._read_json_body(_MAX_CALLBACK_BODY)
+            if body is None:
+                self._send_json(400, {"error": "请求无效"}, cors=True)
+                return
+            code, payload = self.bot.handle_pay_checkout(token, body)
+            self._send_json(code, payload, cors=True)
+            return
+
+        # 模块4：支付平台回调 /cosmac/pay/callback/<provider>（平台验签，不是浏览器）。
+        if path.startswith("/cosmac/pay/callback/"):
+            provider = path.split("/cosmac/pay/callback/", 1)[1].split("/", 1)[0]
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except (TypeError, ValueError):
+                self._send_json(400, {"error": "bad content-length"})
+                return
+            if length < 0 or length > _MAX_CALLBACK_BODY:
+                self._send_json(413, {"error": "bad body length"})
+                return
+            raw = self._read_body(length) if length else b"{}"
+            if raw is None:
+                self._send_json(408, {"error": "request timeout"})
+                return
+            hdrs = {k: v for k, v in self.headers.items()}
+            code = self.bot.handle_pay_callback(provider, hdrs, raw or b"{}")
+            self._send_json(code, {} if code == 200 else {"error": code})
+            return
+
         # 外部工作流平台的异步回调：/cosmac/wf/callback/<run_id>?token=...
         # **不**用 hs_token 鉴权（这是外部平台调的，不是 Synapse）；用每次运行的一次性 token。
         if "/cosmac/wf/callback/" not in self.path:

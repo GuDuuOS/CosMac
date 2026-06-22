@@ -13,7 +13,8 @@ from typing import Any, Dict, Optional
 
 from cosmac.bots.appservice_bot import CosmacBot
 from cosmac.config import CosmacConfig
-from cosmac.config import GATING_EVENT_TYPE, MEMBERS_EVENT_TYPE
+from cosmac.config import GATING_EVENT_TYPE, MEMBERS_EVENT_TYPE, PLANS_EVENT_TYPE
+from cosmac.db import init_engine
 from cosmac.members import (
     DEFAULT_TIER,
     GATE_ADMIN,
@@ -51,6 +52,10 @@ class FakeClient:
 
     def resolve_alias(self, _alias: str) -> Optional[str]:
         return self._alias_room
+
+    def whoami(self, access_token):
+        # 测试里把 token 当 user_id 用：非空且像 user_id 就认；"bad" 视为无效
+        return access_token if (access_token or "").startswith("@") else None
 
     def get_state_event(self, _room, event_type, _state_key=""):
         if event_type == "m.room.power_levels":
@@ -355,6 +360,61 @@ class GateDecisionTests(unittest.TestCase):
         bot = _bot(gates={"knowledge": "paid"})
         out = bot._run_kb_command(CTRL, ALICE, "知识 列表")
         self.assertIn("付费会员", out)  # 免费用户被门控拦下、给升级提示
+
+
+class PayEndpointTests(unittest.TestCase):
+    """模块4：bot 的 /cosmac/pay/* 端点处理器（前端「升级会员」走这几个）。"""
+
+    def setUp(self):
+        init_engine("sqlite://", create_all=True)
+
+    def _paybot(self):
+        from cosmac.trading.service import OrderService
+
+        bot = _bot()  # fake client + members 都在 fake 上
+        # bot.orders 是构造时用旧 client 建的，替换成 fake 上的
+        bot.orders = OrderService(bot.members, bot.client, bot.config.control_room_alias)
+        bot.client._state[(PLANS_EVENT_TYPE, "")] = {"plans": [
+            {"slug": "paid-monthly", "name": "月卡", "tier": "paid",
+             "period_days": 30, "prices": {"usd": 999}}]}
+        return bot
+
+    @staticmethod
+    def _body(order_no, token):
+        import json
+        return json.dumps({"order_no": order_no, "token": token}).encode("utf-8")
+
+    def test_plans_checkout_manual_grant(self):
+        import os
+
+        bot = self._paybot()
+        self.assertEqual(bot.handle_pay_plans()[0]["slug"], "paid-monthly")  # 公开读
+
+        code, out = bot.handle_pay_checkout(
+            ALICE, {"plan_slug": "paid-monthly", "currency": "usd", "provider": "manual"}
+        )
+        self.assertEqual(code, 200)
+        order_no = out["order_no"]
+        token = out["checkout"]["extra"]["confirm_token"]
+
+        os.environ.pop("COSMAC_PAY_ALLOW_MANUAL", None)
+        # manual 回调默认禁用（防自助白嫖会员）→ 403，会员未开通
+        self.assertEqual(bot.handle_pay_callback("manual", {}, self._body(order_no, token)), 403)
+        self.assertEqual(bot.members.get_tier(ALICE), DEFAULT_TIER)
+        # 开启测试开关后 → 200 且会员真开通
+        os.environ["COSMAC_PAY_ALLOW_MANUAL"] = "1"
+        try:
+            self.assertEqual(
+                bot.handle_pay_callback("manual", {}, self._body(order_no, token)), 200
+            )
+        finally:
+            os.environ.pop("COSMAC_PAY_ALLOW_MANUAL", None)
+        self.assertEqual(bot.members.get_tier(ALICE), TIER_PAID)
+
+    def test_checkout_bad_token_rejected(self):
+        bot = self._paybot()
+        code, _out = bot.handle_pay_checkout("bad", {"plan_slug": "paid-monthly", "currency": "usd"})
+        self.assertEqual(code, 401)  # whoami 不过 → 拒绝下单
 
 
 if __name__ == "__main__":

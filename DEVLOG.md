@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-22 — 模块4 P2b：用户侧「升级会员」打通(bot 支付端点 + 前端弹窗 + manual 端到端)
+- 让顶栏「✦ 升级会员」真正能用。前端够不到 cosmac DB,所以走 bot 的 HTTP 端点:
+- **bot 支付端点**(`appservice_bot.py`):`GET /cosmac/pay/plans`(公开读上架套餐)、`POST /cosmac/pay/checkout`(带用户 access token,bot `whoami` 验明身份→建订单→返回支付方式)、`POST /cosmac/pay/callback/<provider>`(平台验签→幂等开会员)。加 **CORS**(app.cosmac.cc→hs.cosmac.cc 跨源,含 OPTIONS 预检);复用既有 body 限长/超时/有界连接防护。
+- **身份校验**:`matrix_client.whoami(token)` 用用户自己的 token 调 Synapse whoami 拿 user_id,只校验不存储。
+- **安全闸**:manual(测试/线下确认)渠道**默认禁用**——回调返回 403,防任何人自助白嫖会员;测试整条链时临时设 `COSMAC_PAY_ALLOW_MANUAL=1`,**上线前务必关掉、改用真实渠道**。
+- **前端**:`MembershipModal.vue`(套餐卡片+货币切换+下单+测试通道模拟支付+开通提示);`client.ts` 加 `payGetPlans/payCheckout/payManualConfirm`(fetch bot 端点、带 access token);顶栏「升级会员」从弹 toast 改成开这个弹窗。
+- 验证:`test_members.py` 加 PayEndpoint 用例(公开读套餐/下单 whoami 校验/manual 默认403→开关后开通);**全量 188 单测过**、ruff、build(前端)通过。**后端+前端都改,需发 dist + 重启 bot**。
+- **遗留/下一步**:① 要在后台先配至少一个套餐;② 测试 manual 通道要设 `COSMAC_PAY_ALLOW_MANUAL=1`;③ 确认 nginx 把 **`/cosmac/`(整段)** 代理给 bot(不只 `/cosmac/wf/`),否则 `/cosmac/pay/` 404;④ P2c 接 Stripe(test mode)替掉 manual。
+
 ## 2026-06-22 — 模块4 P2a：后台「会员套餐」配置页(写 cosmac.plans)
 - 负责人指出"升级会员"该和支付一起做(对)。P2 拆三块,先做 P2a：管理员能配套餐(否则没东西可买)。
 - **后台「会员套餐」页**(`AdminView.vue` 新 tab,💳)：套餐 CRUD——slug/名称/等级(付费/创作者)/有效期(天)/各币种价格/上下架。价格编辑用「元」、保存 ×100 转「分」存,展示再 /100。写控制室 `cosmac.plans` state event(bot 端 P1 的 `OrderService.list_plans` 已能读)。

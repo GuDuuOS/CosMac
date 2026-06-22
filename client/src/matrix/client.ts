@@ -1347,6 +1347,63 @@ export async function getPlans(): Promise<PlanDef[]> {
   }
 }
 
+/* —— 用户侧「升级会员」：调 bot 的 /cosmac/pay/* 端点（前端够不到 cosmac DB）——
+ *  base = homeserver(hs.cosmac.cc)，nginx 已把 /cosmac/ 代理给 bot。 */
+
+function payBase(): string {
+  return String((mx as any)?.baseUrl || '').replace(/\/$/, '')
+}
+
+export interface PayPlan {
+  slug: string; name: string; tier: string; period_days: number
+  prices: Record<string, number>
+}
+
+/** 公开读上架套餐（给「升级会员」面板展示）。 */
+export async function payGetPlans(): Promise<PayPlan[]> {
+  const r = await fetch(`${payBase()}/cosmac/pay/plans`)
+  if (!r.ok) throw new Error('读取套餐失败')
+  const j = await r.json().catch(() => ({}))
+  return Array.isArray(j?.plans) ? j.plans : []
+}
+
+export interface CheckoutResp {
+  order_no: string; amount_cents: number; currency: string
+  tier: string; period_days: number
+  checkout: { kind: string; url: string; address: string; extra: any }
+}
+
+/** 下单：带上自己的 access token，bot 验明身份后建订单、返回支付方式。 */
+export async function payCheckout(
+  planSlug: string, currency: string, provider = 'manual',
+): Promise<CheckoutResp> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  const r = await fetch(`${payBase()}/cosmac/pay/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ plan_slug: planSlug, currency, provider }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || '下单失败')
+  return j
+}
+
+/** 测试通道：模拟支付成功（manual）。需服务端开 COSMAC_PAY_ALLOW_MANUAL=1。 */
+export async function payManualConfirm(orderNo: string, token: string): Promise<void> {
+  const r = await fetch(`${payBase()}/cosmac/pay/callback/manual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_no: orderNo, token }),
+  })
+  if (!r.ok) {
+    throw new Error(
+      r.status === 403
+        ? '测试支付通道未开启（需服务端设 COSMAC_PAY_ALLOW_MANUAL=1）'
+        : '确认失败，请重试',
+    )
+  }
+}
+
 /** 整体写入套餐列表（必要时先建控制室）。只写合法项。 */
 export async function setPlans(plans: PlanDef[]): Promise<void> {
   if (!mx) throw new Error('未登录')

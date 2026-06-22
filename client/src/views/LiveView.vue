@@ -62,6 +62,7 @@ import ProfileHome from '@/components/layout/ProfileHome.vue'
 import CliConsole from '@/components/layout/CliConsole.vue'
 // 平台管理后台（覆盖层；仅服务器管理员可入）
 import AdminView from '@/views/AdminView.vue'
+import MembershipModal from '@/components/membership/MembershipModal.vue'
 import ChannelAdminModal from '@/components/channel/ChannelAdminModal.vue'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import { useRightPanel } from '@/composables/useRightPanel'
@@ -853,7 +854,9 @@ const tb = reactive({
 
 // ── 顶栏装饰按钮 / 应用切换 / 工作区工具 ──────────────────
 function onSearch() { toast('🔍 全局搜索', '搜索频道 / 消息 / 文件（演示）') }
-function onUpgrade() { toast('✦ 升级会员', 'Pro 版解锁全部 Agent 与无限额度（演示）') }
+// 升级会员弹窗（模块4 交易系统 · 用户侧）
+const showMembership = ref(false)
+function onUpgrade() { showMembership.value = true }
 function onMentions() { toast('@ 提及', '这里会列出所有 @ 你的消息（演示）') }
 function onBookmarks() { toast('🔖 收藏夹', '你收藏的消息 / 文件（演示）') }
 // ↓↓↓ 这些按键复刻 DEMO 真实（mock）功能：打开对应弹窗/面板 ↓↓↓
@@ -1601,6 +1604,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
     <!-- 平台管理后台（全屏覆盖层；仅管理员可从用户菜单进入）-->
     <AdminView v-if="adminOpen" @close="adminOpen = false" />
+
+    <!-- 升级会员弹窗（模块4 交易系统）-->
+    <MembershipModal v-if="showMembership" @close="showMembership = false" />
 
     <!-- 单集甘特图弹窗（点在制单集卡打开）-->
     <div v-if="ganttEp" class="gantt-overlay" @click.self="ganttEp = null">

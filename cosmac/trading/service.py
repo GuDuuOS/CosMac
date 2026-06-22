@@ -66,6 +66,10 @@ class OrderService:
         self._alias = control_room_alias
         self._providers = providers or build_default_providers()
 
+    def get_provider(self, name: str) -> Optional[PaymentProvider]:
+        """按名取支付渠道 adapter；未注册返回 None。"""
+        return self._providers.get(name)
+
     # —— 套餐 ——
 
     def list_plans(self) -> List[Plan]:
