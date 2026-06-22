@@ -74,6 +74,10 @@ class FakeClient:
         return events
 
     def set_state_event(self, _room, event_type, content, _state_key="") -> bool:
+        # 模拟 Matrix 硬规则：state_key 以 @ 开头的事件只有本人能写——bot(@guduu)写别人的会 403。
+        # （会员等级若用 @uid 当 state_key 就会撞这条；故用去 @ 的 key，见 member_state_key）
+        if _state_key.startswith("@"):
+            return False
         self._state[(event_type, _state_key)] = content
         return True
 

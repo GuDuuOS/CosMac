@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-22 — 关键修复：会员 state_key 不能用 @user_id（Matrix 403 "set others state"）
+- 现场实测「模拟支付」最终卡在开会员：bot 写 `cosmac.member@<room>` 403 `M_FORBIDDEN "You are not allowed to set others state"`。
+- 根因:per-user 会员事件用了 **state_key = 用户 @id**。但 **Matrix 硬规则:state_key 以 `@` 开头的事件只有该用户本人能写**——bot(@guduu)/管理员根本无权给"别人"开会员。单测的假 client 没模拟这条规则,所以一直没暴露(我的疏漏)。**注:那套"已支付但开通失败→回滚订单"的保护真生效了,没产生扣款脏数据。**
+- 修:state_key 改用**去掉开头 @** 的形式(`@a:host`→`a:host`),不触发该规则;真实 user_id 存进 `content.uid`,读取以 uid 为准(兼容旧数据 state_key)。前后端一致(`members.py` + `client.ts`)。同样修好了**管理后台给别的用户设会员等级**(之前也会 403)。
+- 防回归:测试假 client 现在**模拟 Matrix 这条规则**(@开头 state_key 写入返 False),`test_plans_checkout_manual_grant`(支付给别人开会员)等用例据此校验。**全量 193 单测过**、ruff、build(`index-CCXR1XCG.js`)。
+- 无需数据迁移:之前的 @key 写入全是 403 失败、没落任何脏数据。**需发 dist + 重启 bot。**
+
 ## 2026-06-22 — 模块4 修复：manual 回调缺 CORS 头导致前端 Failed to fetch
 - 现场实测「模拟支付成功」报 `Failed to fetch`。根因:`/cosmac/pay/callback/<provider>` 的响应**漏了 CORS 头**(给 plans/checkout/me 都加了、唯独漏这个)。manual 测试通道是**浏览器**调的,响应无 `Access-Control-Allow-Origin` → 浏览器直接拦下、连状态码都读不到。
 - 修:回调所有响应加 `cors=True`(真实渠道是服务端调用、带了也无害)。HTTP 集成测试补断言"回调响应带 CORS"防回归。

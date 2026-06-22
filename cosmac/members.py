@@ -97,6 +97,17 @@ def active_tier(rec: Optional[Dict[str, Any]], now_ts: Optional[int] = None) -> 
     return tier
 
 
+def member_state_key(user_id: str) -> str:
+    """单用户会员事件 ``cosmac.member`` 的 state_key。
+
+    **不能直接拿 user_id 当 state_key**：Matrix 规定 state_key 以 ``@`` 开头的事件**只有该
+    用户本人能写**（否则 403 "You are not allowed to set others state"）——这会拦死 bot/管理员
+    给**别人**开会员。故去掉开头的 ``@``（``@alice:host`` → ``alice:host``）：既不触发该规则、
+    又与 user_id 一一对应。真实 user_id 另存进 content.uid，读取以 content.uid 为准。
+    """
+    return user_id[1:] if user_id.startswith("@") else user_id
+
+
 def parse_members(content: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """把 ``cosmac.members`` state event 的内容解析成 {user_id: {tier, source, updated_ts}}。
 
@@ -163,11 +174,15 @@ class MembersStore:
             for ev in self._client.get_room_state(room):
                 if not isinstance(ev, dict) or ev.get("type") != MEMBER_EVENT_TYPE:
                     continue
-                uid = ev.get("state_key")
                 content = ev.get("content")
-                if not isinstance(uid, str) or not uid.startswith("@") or ":" not in uid:
-                    continue
                 content = content if isinstance(content, dict) else {}
+                # 真实 user_id 以 content.uid 为准；兼容旧数据（state_key 直接是去 @ 的 id）
+                uid = content.get("uid")
+                if not isinstance(uid, str) or not uid:
+                    sk = ev.get("state_key") or ""
+                    uid = sk if sk.startswith("@") else ("@" + sk if sk else "")
+                if not uid.startswith("@") or ":" not in uid:
+                    continue
                 # 到期的按免费处理(回落)→ 与 free tombstone 一样从 map 里移除
                 tier = active_tier(content)
                 if tier == DEFAULT_TIER:
@@ -199,7 +214,9 @@ class MembersStore:
         if not room:
             return None
         try:
-            current = self._client.get_state_event(room, MEMBER_EVENT_TYPE, user_id)
+            current = self._client.get_state_event(
+                room, MEMBER_EVENT_TYPE, member_state_key(user_id)
+            )
             if current is not None:
                 t = normalize_tier(current.get("tier"))
                 return None if t == DEFAULT_TIER else {  # free 是 tombstone=无有效记录
@@ -245,15 +262,17 @@ class MembersStore:
             logger.warning("授予会员失败：非法 user_id %r", user_id)
             return False
         content: Dict[str, Any] = {
+            "uid": user_id,  # 真实 user_id 存这里（state_key 去了 @、不能反推冒号歧义）
             "tier": tier,
             "source": source,
             "updated_ts": int(now_ts if now_ts is not None else time.time()),
             "expires_ts": int(expires_ts) if expires_ts else 0,  # 0 = 永久
         }
         try:
+            # state_key 用去 @ 的形式，绕开 Matrix"@开头只能本人写"的限制（见 member_state_key）
             return bool(
                 self._client.set_state_event(
-                    room, MEMBER_EVENT_TYPE, content, user_id
+                    room, MEMBER_EVENT_TYPE, content, member_state_key(user_id)
                 )
             )
         except Exception:

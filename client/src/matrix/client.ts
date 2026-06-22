@@ -1009,14 +1009,26 @@ export async function getMembers(): Promise<MemberMap> {
   for (const event of events || []) {
     const type = event?.getType?.() ?? event?.type
     if (type !== MEMBER_EVENT_TYPE) continue
-    const uid = event?.getStateKey?.() ?? event?.state_key
+    const sk = event?.getStateKey?.() ?? event?.state_key ?? ''
     const content = event?.getContent?.() ?? event?.content ?? {}
+    // 真实 user_id 以 content.uid 为准（state_key 去了 @）；兼容旧数据
+    let uid = content?.uid
+    if (typeof uid !== 'string' || !uid) uid = sk.startsWith('@') ? sk : (sk ? '@' + sk : '')
     if (typeof uid !== 'string' || !uid.startsWith('@') || !uid.includes(':')) continue
     const tier = content?.tier
     if (tier === 'free') delete out[uid]
     else if (MEMBER_TIERS.some((t) => t.slug === tier)) out[uid] = tier
   }
   return out
+}
+
+/**
+ * 单用户会员事件的 state_key：**去掉开头的 @**。
+ * Matrix 规定 state_key 以 @ 开头的事件只有本人能写，否则 403——管理员/bot 给别人开会员会被拦。
+ * 去 @ 后任何有写权限的人都能写；真实 user_id 存进 content.uid。
+ */
+function memberStateKey(userId: string): string {
+  return userId.startsWith('@') ? userId.slice(1) : userId
 }
 
 /**
@@ -1027,8 +1039,9 @@ export async function setMemberTier(userId: string, tier: string): Promise<void>
   if (!mx) throw new Error('未登录')
   if (!MEMBER_TIERS.some((t) => t.slug === tier)) throw new Error('未知会员等级')
   const rid = await ensureControlRoom()
-  const content = { tier, source: 'admin', updated_ts: Math.floor(Date.now() / 1000) }
-  await (mx as any).sendStateEvent(rid, MEMBER_EVENT_TYPE, content, userId)
+  const content = { uid: userId, tier, source: 'admin', updated_ts: Math.floor(Date.now() / 1000) }
+  // state_key 去掉 @（见 memberStateKey）——否则管理员给别人设等级会被 Matrix 403 拦
+  await (mx as any).sendStateEvent(rid, MEMBER_EVENT_TYPE, content, memberStateKey(userId))
 }
 
 /* =====================================================================
