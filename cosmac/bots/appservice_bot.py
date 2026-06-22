@@ -1222,6 +1222,18 @@ class CosmacBot:
             })
         return out
 
+    def handle_pay_me(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
+        """查"我当前的会员状态"（升级弹窗顶部展示）。验明身份 → 返回当前生效等级 + 到期。"""
+        from cosmac.members import active_tier, tier_label
+
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        rec = self.members.get_record(user_id)
+        tier = active_tier(rec)
+        exp = int(rec.get("expires_ts") or 0) if rec else 0
+        return 200, {"tier": tier, "tier_label": tier_label(tier), "expires_ts": exp}
+
     def handle_pay_checkout(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
@@ -1668,6 +1680,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "读取套餐失败"}, cors=True)
                 return
             self._send_json(200, {"plans": plans}, cors=True)
+            return
+        # 模块4：查"我的会员状态"（带本人 token；给升级弹窗顶部展示）
+        if self.path.split("?", 1)[0] == "/cosmac/pay/me":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            code, payload = self.bot.handle_pay_me(token)
+            self._send_json(code, payload, cors=True)
             return
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在
         if "/users/" in self.path or "/rooms/" in self.path:

@@ -1367,6 +1367,21 @@ export async function payGetPlans(): Promise<PayPlan[]> {
   return Array.isArray(j?.plans) ? j.plans : []
 }
 
+export interface PayMe { tier: string; tier_label: string; expires_ts: number }
+
+/** 查"我当前的会员状态"（升级弹窗顶部展示）。未登录/失败返回 null。 */
+export async function payGetMe(): Promise<PayMe | null> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token) return null
+  try {
+    const r = await fetch(`${payBase()}/cosmac/pay/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+
 export interface CheckoutResp {
   order_no: string; amount_cents: number; currency: string
   tier: string; period_days: number

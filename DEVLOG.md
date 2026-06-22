@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-22 — 模块4 P2b+：会员状态展示 + 端到端 HTTP 模拟测试（⚠️真实付款未测）
+- 负责人定：暂不接 Stripe（账号未开），**先用 mock(manual)通道**跑通业务、继续开发，并**明确记录真实付款尚未测试**。
+- **端到端 HTTP 模拟测试**（`test_pay_http.py`）：起真实 bot HTTP server，用 requests 打 `/cosmac/pay/*`，验证路由 / CORS 预检 / Authorization 头 / body 解析 / manual 回调分发全对。**证明 mock 链路 HTTP 层端到端跑通**。
+- **会员状态展示**：新增 `GET /cosmac/pay/me`（带本人 token→当前生效等级+到期）；升级弹窗顶部显示"你当前是付费会员·到期X"，按钮按是否已会员显示「续费/升级」或「立即开通」，开通后刷新状态。
+- 验证：**全量 193 单测过**（含 5 个 HTTP 集成）、ruff、build(`index-bt-Ew52q.js`)。需发 dist + 重启 bot。
+- ⚠️ **真实付款测试状态（重要·待办）**：**从未做过任何真实支付渠道(Stripe/PayPal/USDT/支付宝/微信)的端到端测试**。当前唯一可用的"支付"是 manual 测试通道(HMAC 验签、不收款，默认禁用、需 `COSMAC_PAY_ALLOW_MANUAL=1` 才生效)。业务链(下单/幂等开通/续费顺延/到期)已单测+HTTP集成测试覆盖，但**钱真正怎么进来 = 未验证**。开通真实渠道后必须：① 实现对应 adapter 的 `create_checkout`/`parse_callback`(验签)；② test mode 端到端走一遍(下单→真支付→webhook→开会员)；③ 上线前关掉 manual 通道。
+
 ## 2026-06-22 — 模块4 P2b：用户侧「升级会员」打通(bot 支付端点 + 前端弹窗 + manual 端到端)
 - 让顶栏「✦ 升级会员」真正能用。前端够不到 cosmac DB,所以走 bot 的 HTTP 端点:
 - **bot 支付端点**(`appservice_bot.py`):`GET /cosmac/pay/plans`(公开读上架套餐)、`POST /cosmac/pay/checkout`(带用户 access token,bot `whoami` 验明身份→建订单→返回支付方式)、`POST /cosmac/pay/callback/<provider>`(平台验签→幂等开会员)。加 **CORS**(app.cosmac.cc→hs.cosmac.cc 跨源,含 OPTIONS 预检);复用既有 body 限长/超时/有界连接防护。

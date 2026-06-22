@@ -6,11 +6,19 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import {
-  payGetPlans, payCheckout, payManualConfirm,
-  type PayPlan, type CheckoutResp,
+  payGetPlans, payCheckout, payManualConfirm, payGetMe,
+  type PayPlan, type CheckoutResp, type PayMe,
 } from '@/matrix/client'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
+
+const me = ref<PayMe | null>(null)   // 当前会员状态（顶部展示）
+const meText = computed(() => {
+  if (!me.value || me.value.tier === 'free') return ''
+  const exp = me.value.expires_ts
+  const tail = exp > 0 ? ` · 到期 ${new Date(exp * 1000).toLocaleDateString()}` : '（永久）'
+  return `你当前是「${me.value.tier_label}」${tail}`
+})
 
 const CUR_LABEL: Record<string, string> = { usd: '$', cny: '¥', usdt: 'USDT ' }
 const TIER_LABEL: Record<string, string> = { paid: '付费会员', creator: '创作者会员' }
@@ -50,6 +58,7 @@ function periodText(days: number): string {
 async function load() {
   loading.value = true; loadErr.value = ''
   try {
+    me.value = await payGetMe()    // 当前会员状态（失败返回 null，不阻断）
     plans.value = await payGetPlans()
     if (!currencies.value.includes(currency.value)) currency.value = currencies.value[0] || ''
     if (!shownPlans.value.find((p) => p.slug === selectedSlug.value)) {
@@ -80,8 +89,8 @@ async function confirmTest() {
   busy.value = true; errMsg.value = ''
   try {
     await payManualConfirm(order.value.order_no, order.value.checkout?.extra?.confirm_token || '')
-    const until = new Date((order.value as any)._until ?? Date.now() + order.value.period_days * 86400000)
-    doneMsg.value = `🎉 会员已开通（${TIER_LABEL[order.value.tier] || order.value.tier}），有效期约 ${periodText(order.value.period_days)}（至 ${until.toLocaleDateString()}）`
+    doneMsg.value = `🎉 会员已开通（${TIER_LABEL[order.value.tier] || order.value.tier}），有效期约 ${periodText(order.value.period_days)}`
+    me.value = await payGetMe()   // 刷新当前状态
   } catch (e: any) {
     errMsg.value = e?.message || '确认失败'
   } finally {
@@ -113,6 +122,9 @@ onMounted(load)
       </div>
 
       <template v-else>
+        <!-- 当前会员状态 -->
+        <div v-if="meText" class="mm-me">{{ meText }}</div>
+
         <!-- 货币切换 -->
         <div v-if="currencies.length > 1" class="mm-cur">
           <button v-for="c in currencies" :key="c" class="mm-cur-b"
@@ -137,7 +149,7 @@ onMounted(load)
         <!-- 未下单：购买按钮 -->
         <template v-if="!order">
           <button class="mm-buy" :disabled="!selectedSlug || busy" @click="buy">
-            {{ busy ? '处理中…' : '立即开通' }}
+            {{ busy ? '处理中…' : (me && me.tier !== 'free' ? '续费 / 升级' : '立即开通') }}
           </button>
           <p class="mm-note">支付渠道(Stripe / PayPal / USDT / 支付宝 / 微信)接入中；当前为<strong>测试通道</strong>。</p>
         </template>
@@ -162,6 +174,7 @@ onMounted(load)
 .mm-title { font-size: 17px; font-weight: 700; color: var(--text-1, #222); }
 .mm-x { border: none; background: none; font-size: 16px; cursor: pointer; color: var(--text-3, #999); }
 .mm-center { text-align: center; padding: 30px 10px; color: var(--text-2, #666); }
+.mm-me { font-size: 13px; color: var(--text-2, #555); background: var(--accent-soft, #fdf3ef); border: 1px solid var(--accent, #c96442); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
 .mm-cur { display: flex; gap: 6px; margin-bottom: 12px; }
 .mm-cur-b { border: 1px solid var(--border, #e3e3e3); background: var(--surface-2, #f7f7f7); border-radius: 999px; padding: 4px 14px; cursor: pointer; font-size: 13px; }
 .mm-cur-b.on { background: var(--accent, #c96442); color: #fff; border-color: transparent; }
