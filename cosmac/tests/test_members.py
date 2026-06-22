@@ -420,6 +420,17 @@ class PayEndpointTests(unittest.TestCase):
         code, _out = bot.handle_pay_checkout("bad", {"plan_slug": "paid-monthly", "currency": "usd"})
         self.assertEqual(code, 401)  # whoami 不过 → 拒绝下单
 
+    def test_stats_endpoint(self):
+        # 数据看板真实指标：会员数从控制室、其余从 cosmac DB（这里至少不报错且字段齐）
+        bot = self._paybot()
+        bot.members.grant(ALICE, TIER_PAID)
+        code, out = bot.handle_stats(ALICE)
+        self.assertEqual(code, 200)
+        self.assertEqual(out["members_paid"], 1)
+        for k in ("members_creator", "workflow_runs", "orders_paid", "kb_docs"):
+            self.assertIn(k, out)
+        self.assertEqual(bot.handle_stats("bad")[0], 401)  # 无效 token → 401
+
 
 if __name__ == "__main__":
     unittest.main()

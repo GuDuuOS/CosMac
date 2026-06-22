@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-22 — 去 Demo（第3刀·起步）：数据看板 headline KPI 接真实平台数据
+- 看板原来 4 个大数字是影视业务假数据(剧集播放/粉丝数/AI制作)——这些 CosMac 不拥有(要工作室填或接外部API)。先把它们换成 **CosMac 真正拥有的平台运营指标**。
+- **后端** `GET /cosmac/stats`(带本人 token,whoami 校验)：付费会员/创作者数(控制室)+ 工作流运行/完成订单/知识库文档数(cosmac DB)。每项独立兜底,缺 DB 不报错;CORS 预检放行。
+- **前端**：`getPlatformStats()` + 看板 headline KPI 改用 `boardKpis`(真实数据→「付费会员/工作流运行/完成订单/知识库文档」;没拿到时回退占位防空屏)。
+- 验证：加 stats 端点用例;**194 单测过**、ruff、build(`index-CcOREdpx.js`)。需发 dist + 重启 bot。
+- **诚实边界**：只换了 **headline KPI 4 卡**;看板下面的图表/单元格(播放趋势/剧集列表等)仍是占位——那些是**影视业务数据,CosMac 不拥有**。要真实化需负责人定数据源:① 后台手填业务数据 ② 接抖音/B站等外部 API ③ 砍掉只留平台运营数。
+
 ## 2026-06-22 — 去 Demo（第2刀）：清占位按钮 + 删更多死组件
 - 续上一刀。本轮发现 TopBar/Composer/ChannelSidebar/PluginRail/WorkspaceRail/DepartmentCreateModal 等组件**也从不被 import**（orphan 扫描此前被 CSS/注释里的同名字符串误判成"还在用"）——它们携带的占位按钮随组件一并删除。
 - 又删一批死组件/composable/data（级联孤儿，build 全程绿验证无 live 引用）：上述组件 + ToastHost/TopUserMenu/TopAppSwitcher/ChannelHeader/ChartCard/RichCard/DocPreview/ChannelTitleMenu/CCTVFrame + useComposerAi/useDepartmentCreate/useCardAction/useFocusMode + data/messages/{safety,ops,energy,office,duu}。

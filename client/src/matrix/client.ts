@@ -1395,6 +1395,24 @@ export async function payGetMe(): Promise<PayMe | null> {
   } catch { return null }
 }
 
+/** 平台真实运营指标（数据看板用；CosMac 真正拥有的数据）。 */
+export interface PlatformStats {
+  members_paid: number; members_creator: number
+  workflow_runs: number; orders_paid: number; kb_docs: number
+}
+
+export async function getPlatformStats(): Promise<PlatformStats | null> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token) return null
+  try {
+    const r = await fetch(`${payBase()}/cosmac/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+
 export interface CheckoutResp {
   order_no: string; amount_cents: number; currency: string
   tier: string; period_days: number

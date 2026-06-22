@@ -1222,6 +1222,49 @@ class CosmacBot:
             })
         return out
 
+    def handle_stats(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
+        """平台**真实运营指标**（给数据看板用，替掉演示假数据）。需登录。
+
+        只统计 CosMac 真正拥有的数据：会员（控制室）+ 工作流运行/订单/知识库（cosmac DB）。
+        影视业务数据（播放量/集数等）CosMac 不拥有，不在此处编造。每项独立兜底，缺 DB 不报错。
+        """
+        if not self.client.whoami(access_token):
+            return 401, {"error": "登录已失效，请重新登录"}
+        out: Dict[str, Any] = {
+            "members_paid": 0, "members_creator": 0,
+            "workflow_runs": 0, "orders_paid": 0, "kb_docs": 0,
+        }
+        try:
+            mp = self.members.get_all()
+            out["members_paid"] = sum(1 for r in mp.values() if r.get("tier") == "paid")
+            out["members_creator"] = sum(
+                1 for r in mp.values() if r.get("tier") == "creator"
+            )
+        except Exception:
+            logger.debug("统计会员失败", exc_info=True)
+        try:
+            from sqlalchemy import func, select
+
+            from cosmac.db import session_scope
+            from cosmac.db.models import KnowledgeDoc, Order, WorkflowRun
+
+            with session_scope() as s:
+                out["workflow_runs"] = int(
+                    s.execute(select(func.count()).select_from(WorkflowRun)).scalar() or 0
+                )
+                out["orders_paid"] = int(
+                    s.execute(
+                        select(func.count()).select_from(Order)
+                        .where(Order.status == "paid")
+                    ).scalar() or 0
+                )
+                out["kb_docs"] = int(
+                    s.execute(select(func.count()).select_from(KnowledgeDoc)).scalar() or 0
+                )
+        except Exception:
+            logger.debug("统计 DB 指标失败", exc_info=True)
+        return 200, out
+
     def handle_pay_me(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
         """查"我当前的会员状态"（升级弹窗顶部展示）。验明身份 → 返回当前生效等级 + 到期。"""
         from cosmac.members import active_tier, tier_label
@@ -1614,8 +1657,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_OPTIONS(self) -> None:  # noqa: N802
-        # 仅给支付端点回 CORS 预检（浏览器带 Authorization 头的 POST 会先发 OPTIONS）
-        if self.path.startswith("/cosmac/pay/"):
+        # 给浏览器调的端点回 CORS 预检（带 Authorization 头的请求会先发 OPTIONS）
+        p = self.path.split("?", 1)[0]
+        if p.startswith("/cosmac/pay/") or p == "/cosmac/stats":
             origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", origin)
@@ -1686,6 +1730,14 @@ class _Handler(BaseHTTPRequestHandler):
             auth = self.headers.get("Authorization", "")
             token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
             code, payload = self.bot.handle_pay_me(token)
+            self._send_json(code, payload, cors=True)
+            return
+
+        # 数据看板：平台真实运营指标（带本人 token）
+        if self.path.split("?", 1)[0] == "/cosmac/stats":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            code, payload = self.bot.handle_stats(token)
             self._send_json(code, payload, cors=True)
             return
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在
