@@ -236,3 +236,9 @@ WORKFLOWS_EVENT_TYPE = "cosmac.workflows"
 # 这里 bot 只用到 content.persona：persona.agentSlug（本群绑定的全局智能体）
 # 与 persona.prompt（自定义人设）。与 client.ts 的 CHANNEL_CONFIG_EVENT 一致。
 CHANNEL_CONFIG_EVENT_TYPE = "cosmac.channel_config"
+
+# 管理后台写、服务端读的「会员套餐」state event 类型（存控制室；模块4 交易系统）。
+# 套餐是管理员配的、结构化但不大的权威配置，同 workflows/gating 套路走 state event。
+# 内容形如 {"plans": [{"slug","name","tier","period_days","prices":{"usd":999,...},"enabled"}]}。
+# 价格用**最小货币单位**(分/cent)的整数存，避免浮点；订单/支付走 DB(cosmac_order)。
+PLANS_EVENT_TYPE = "cosmac.plans"

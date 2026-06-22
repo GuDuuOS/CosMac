@@ -7,6 +7,16 @@
 
 ---
 
+## 2026-06-22 — 模块4(交易系统·会员订阅)开工：P1 地基(支付抽象+订单+会员到期)
+- 负责人拍板:主线=**会员订阅/充值**,多渠道(Stripe/PayPal/USDT/支付宝/微信)按 IP 地理路由,范围"较完整"。先落**与支付商无关的地基**(纯业务逻辑、mock 支付、单测验证,不需商户密钥):
+- **套餐定义**:控制室 `cosmac.plans` state event(后台配,同 workflows/gating 套路);`trading/plans.py` 强校验解析(免费等级/无价/非正时长/重复 slug 全丢)。价格用最小货币单位整数(分)。
+- **订单**:DB `cosmac_order`(`db/models.py` + `db/order_repo.py`);`mark_paid` 用原子 CAS(created→paid)做**恰好一次**闸,重复 webhook 不重复开通;开通失败可 `revert_to_created` 待重试,避免收钱没开会员。
+- **支付抽象**:`trading/base.py` 的 `PaymentProvider`(create_checkout/parse_callback),像多模型 AI 那样可插拔各渠道;**密钥只进服务端 env**。P1 实现 `trading/manual.py`(HMAC 验签的手动/测试确认渠道)。
+- **订单服务** `trading/service.py`:下单(校验套餐/货币/渠道→建单→出支付方式)+ 支付成功(幂等置 paid→开/续会员)。**续费从原到期日顺延**(还在有效期内续费不亏天数)。
+- **会员到期**:扩 `members.py`——`grant` 带 `expires_ts`(0=永久)、新增 `active_tier`(到期回落免费)/`get_record`(续费取当前到期日);`get_tier`/`get_all` 全部到期感知。
+- 验证:新增 `test_trading.py` 9 例(套餐解析/算价建单/开通到期/**幂等不重复续期**/**续费顺延**/手动验签);**全量 186 单测过**、ruff 通过。**纯后端地基、未接入 bot/HTTP 运行路径**,不改现网行为,无需部署(bot 下次重启 create_all 自动建 `cosmac_order` 表)。
+- **下一步(P2)**:Stripe adapter(test mode)+ 公开 webhook 端点(验签→`on_payment_success`)+ 前端套餐页/下单/支付方式选择。需要负责人提供 Stripe 测试密钥。
+
 ## 2026-06-21 — 权限与工作流可靠性复查修复
 - **门控 fail-closed + 退避**：控制室首次读取失败时临时收紧为仅管理员；已有成功缓存继续沿用。失败后短暂退避，避免 Synapse 故障时每条消息重复请求。
 - **会员按用户拆分 state**：新写入改用 `cosmac.member`，以 user_id 为 state_key；旧 `cosmac.members` 聚合事件只读兼容，free tombstone 可覆盖旧记录。消除并发整表覆盖和单事件容量上限。

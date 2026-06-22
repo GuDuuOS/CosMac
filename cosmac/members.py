@@ -76,6 +76,27 @@ def tier_level(tier: Optional[str]) -> int:
     return int(_TIER_BY_SLUG[normalize_tier(tier)]["level"])
 
 
+def active_tier(rec: Optional[Dict[str, Any]], now_ts: Optional[int] = None) -> str:
+    """一条会员记录**当前生效**的等级 slug：到期(expires_ts>0 且已过)→回落免费（订阅制）。
+
+    rec 形如 {"tier","expires_ts",...}；None/无 tier → 免费。``expires_ts`` 为 0/缺省 = 永久。
+    """
+    if not isinstance(rec, dict):
+        return DEFAULT_TIER
+    tier = normalize_tier(rec.get("tier"))
+    if tier == DEFAULT_TIER:
+        return DEFAULT_TIER
+    exp = rec.get("expires_ts") or 0
+    try:
+        exp = int(exp)
+    except (TypeError, ValueError):
+        exp = 0
+    now = int(now_ts if now_ts is not None else time.time())
+    if exp and now >= exp:
+        return DEFAULT_TIER  # 已到期 → 失效回落免费
+    return tier
+
+
 def parse_members(content: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """把 ``cosmac.members`` state event 的内容解析成 {user_id: {tier, source, updated_ts}}。
 
@@ -147,7 +168,8 @@ class MembersStore:
                 if not isinstance(uid, str) or not uid.startswith("@") or ":" not in uid:
                     continue
                 content = content if isinstance(content, dict) else {}
-                tier = normalize_tier(content.get("tier"))
+                # 到期的按免费处理(回落)→ 与 free tombstone 一样从 map 里移除
+                tier = active_tier(content)
                 if tier == DEFAULT_TIER:
                     legacy.pop(uid, None)
                 else:
@@ -155,6 +177,7 @@ class MembersStore:
                         "tier": tier,
                         "source": str(content.get("source") or "admin"),
                         "updated_ts": content.get("updated_ts"),
+                        "expires_ts": int(content.get("expires_ts") or 0),
                     }
             return legacy
         except Exception as e:
@@ -162,23 +185,37 @@ class MembersStore:
             return {}
 
     def get_tier(self, user_id: str) -> str:
-        """查某用户等级；优先单用户事件，缺失时回退旧聚合数据。"""
+        """查某用户**当前生效**的等级；优先单用户事件，缺失时回退旧聚合数据。到期自动回落免费。"""
+        rec = self.get_record(user_id)
+        return active_tier(rec)
+
+    def get_record(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """读某用户的原始会员记录 {tier, source, updated_ts, expires_ts}；无记录返回 None。
+
+        供续费逻辑用（要拿到当前 expires_ts 才能"在原到期日上顺延"）。读失败返回 None
+        → 上层按免费/无记录处理（fail-closed，不误授予）。
+        """
         room = self._ctrl_room()
         if not room:
-            return DEFAULT_TIER
+            return None
         try:
             current = self._client.get_state_event(room, MEMBER_EVENT_TYPE, user_id)
             if current is not None:
-                return normalize_tier(current.get("tier"))
+                t = normalize_tier(current.get("tier"))
+                return None if t == DEFAULT_TIER else {  # free 是 tombstone=无有效记录
+                    "tier": t,
+                    "source": str(current.get("source") or "admin"),
+                    "updated_ts": current.get("updated_ts"),
+                    "expires_ts": int(current.get("expires_ts") or 0),
+                }
             legacy = parse_members(
                 self._client.get_state_event(room, MEMBERS_EVENT_TYPE)
             )
-            rec = legacy.get(user_id)
-            return normalize_tier(rec.get("tier")) if rec else DEFAULT_TIER
+            return legacy.get(user_id)
         except Exception as e:
-            # 会员读失败按免费处理，使付费能力自然 fail-closed；不会误授予权限。
-            logger.warning("读取用户会员等级失败，按免费处理 user=%s: %s", user_id, e)
-            return DEFAULT_TIER
+            # 会员读失败按无记录处理，使付费能力自然 fail-closed；不会误授予权限。
+            logger.warning("读取用户会员记录失败，按免费处理 user=%s: %s", user_id, e)
+            return None
 
     def grant(
         self,
@@ -186,12 +223,15 @@ class MembersStore:
         tier: str,
         source: str = "admin",
         now_ts: Optional[int] = None,
+        expires_ts: Optional[int] = None,
     ) -> bool:
-        """授予/调整某用户的会员等级（**预留给模块4支付的服务端入口**，也用于 bot 命令）。
+        """授予/调整某用户的会员等级（**模块4支付成功的服务端入口**，也用于 bot 命令）。
 
         - tier 经校验：非法直接拒（返回 False），不写脏数据进控制室。
         - tier == 免费 写入 tombstone；既表示撤销，也能覆盖旧聚合事件里的历史等级。
         - source 记录来源（"admin"/"purchase"/…），便于以后审计「这级是怎么来的」。
+        - expires_ts：会员到期 unix 秒（订阅制）。``None``/``0`` = 永久（管理员授予默认永久）；
+          到期后查等级自动回落免费（见 :func:`active_tier`）。
         成功写入返回 True；控制室不存在/写失败返回 False（调用方据此提示）。
         """
         if not is_valid_tier(tier):
@@ -204,10 +244,11 @@ class MembersStore:
         if not user_id.startswith("@") or ":" not in user_id:
             logger.warning("授予会员失败：非法 user_id %r", user_id)
             return False
-        content = {
+        content: Dict[str, Any] = {
             "tier": tier,
             "source": source,
             "updated_ts": int(now_ts if now_ts is not None else time.time()),
+            "expires_ts": int(expires_ts) if expires_ts else 0,  # 0 = 永久
         }
         try:
             return bool(
