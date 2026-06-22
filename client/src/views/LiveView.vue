@@ -92,10 +92,7 @@ const { openSettings } = useUserProfile()
 
 // ── 数据看板（复用 DEMO 的画布组件 + 影视公司主题数据）──
 import KpiCard from '@/components/canvas/KpiCard.vue'
-import PanelChart from '@/components/canvas/PanelChart.vue'
-import UnitGrid from '@/components/canvas/UnitGrid.vue'
 import CommandCenter from '@/components/canvas/CommandCenter.vue'
-import BizPanels from '@/components/canvas/BizPanels.vue'
 import { getDashboard } from '@/data/dashboards'
 import { useActiveWorkspace } from '@/composables/useActiveWorkspace'
 import '@/styles/canvas.css' // 看板样式，命名空间在 .canvas/.panel 下，不与 LiveView 撞
@@ -1194,18 +1191,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
               <div class="kpis">
                 <KpiCard v-for="(k, i) in boardKpis" :key="k.label" :data="k" :delay="200 + i * 80" />
               </div>
-              <div class="grid-2">
-                <PanelChart :title="dash.prod.title" :config="dash.prod.build" :live="dash.prod.live" />
-                <PanelChart :title="dash.save.title" :config="dash.save.build" />
-              </div>
-              <div class="grid-3">
-                <div class="panel" style="grid-column: span 2">
-                  <div class="pt">{{ dash.unitsTitle }}</div>
-                  <UnitGrid :units="dash.units" />
-                </div>
-                <PanelChart :title="dash.pie.title" :config="dash.pie.build" :height="dash.pie.height ?? 180" />
-              </div>
-              <BizPanels />
+              <!-- （原影视业务演示图表：播放趋势/剧集列表/饼图/BizPanels——CosMac 不拥有这类
+                   业务数据，已移除。待负责人定数据源(后台手填 / 外部API)后再接真实图表。）-->
             </div>
           </div>
         </template>

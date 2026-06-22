@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-22 — 去 Demo（第3刀·续）：移除看板影视业务假图表（方案C）
+- 负责人"继续"→ 走方案 C（只留真实平台数据）。把看板里剩下的**影视业务假图表**全部移除:播放趋势/制作量双图(grid-2)、剧集列表 UnitGrid + 饼图(grid-3)、BizPanels——这些是 CosMac 不拥有的业务数据。
+- 级联删 5 个死文件:`PanelChart/UnitGrid/BizPanels` 组件 + `useChart` + `data/charts.ts`（build 验证无 live 引用）。
+- 现在数据看板 = 品牌标题 + AI 指令中枢(`CommandCenter`) + **4 张真实 KPI 卡**。干净、真实。
+- build 通过(`index-B3fs1BNA.js`)。纯前端,**发 dist**。
+- **剩最后一处看板 demo**:`CommandCenter`（"一句话下达创意"→出选题/脚本/方案卡，走 `useAiAgent` mock）。它是真·中枢 AI 侧栏的演示重复版。待负责人定:接真实 AI / 移除 / 保留。业务图表若要回来,定数据源(后台手填 or 外部API)。
+
 ## 2026-06-22 — 去 Demo（第3刀·起步）：数据看板 headline KPI 接真实平台数据
 - 看板原来 4 个大数字是影视业务假数据(剧集播放/粉丝数/AI制作)——这些 CosMac 不拥有(要工作室填或接外部API)。先把它们换成 **CosMac 真正拥有的平台运营指标**。
 - **后端** `GET /cosmac/stats`(带本人 token,whoami 校验)：付费会员/创作者数(控制室)+ 工作流运行/完成订单/知识库文档数(cosmac DB)。每项独立兜底,缺 DB 不报错;CORS 预检放行。
