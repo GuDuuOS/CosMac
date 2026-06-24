@@ -141,7 +141,25 @@ const TASK_COLS = [
   { key: 'done', label: '已完成' },
 ]
 async function loadTasks() { taskList.value = await getTasks() }
-function tasksByStatus(s: string) { return taskList.value.filter((t) => t.status === s) }
+// 按"项目/剧集"(任务的 goal=拆解时的总目标)分组，算每个项目的完成进度
+const activeGoal = ref('')   // '' = 全部项目
+const projects = computed(() => {
+  const m = new Map<string, TaskItem[]>()
+  for (const t of taskList.value) {
+    const g = t.goal || '未归类'
+    if (!m.has(g)) m.set(g, [])
+    m.get(g)!.push(t)
+  }
+  return [...m.entries()].map(([goal, ts]) => {
+    const done = ts.filter((t) => t.status === 'done').length
+    // 项目完成度：已完成算 100%，其余按各自 progress 平均
+    const pct = Math.round(ts.reduce((s, t) => s + (t.status === 'done' ? 100 : t.progress), 0) / ts.length)
+    return { goal, total: ts.length, done, pct }
+  })
+})
+const visibleTasks = computed(() =>
+  activeGoal.value ? taskList.value.filter((t) => (t.goal || '未归类') === activeGoal.value) : taskList.value)
+function tasksByStatus(s: string) { return visibleTasks.value.filter((t) => t.status === s) }
 function nextStatus(s: string) { return s === 'todo' ? 'doing' : 'done' }
 function prevStatus(s: string) { return s === 'done' ? 'doing' : 'todo' }
 async function moveTask(t: TaskItem, status: string) {
@@ -1169,6 +1187,24 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           <div class="board-scroll">
             <div class="kan-wrap">
             <p class="kan-tip">💡 在数据看板「一句话下达目标」让中枢 AI 拆解任务，会出现在这里。用卡片上的按钮改状态。</p>
+
+            <!-- 项目/剧集进度：每个目标(goal)一张卡，点选过滤下面的看板 -->
+            <div v-if="projects.length" class="proj-strip">
+              <button class="proj-card all" :class="{ active: activeGoal === '' }" @click="activeGoal = ''">
+                <div class="proj-name">📁 全部项目</div>
+                <div class="proj-meta">{{ taskList.length }} 个任务 · {{ projects.length }} 个项目</div>
+              </button>
+              <button
+                v-for="p in projects" :key="p.goal"
+                class="proj-card" :class="{ active: activeGoal === p.goal }"
+                @click="activeGoal = p.goal"
+              >
+                <div class="proj-name">🎬 {{ p.goal }}</div>
+                <div class="proj-bar"><div class="proj-bar-fill" :style="{ width: p.pct + '%' }" /></div>
+                <div class="proj-meta">{{ p.done }}/{{ p.total }} 完成 · {{ p.pct }}%</div>
+              </button>
+            </div>
+
             <div class="kanban">
               <div v-for="col in TASK_COLS" :key="col.key" class="kan-col" :class="'kan-' + col.key">
                 <div class="kan-col-h">
@@ -1809,6 +1845,16 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .board-ask-tip { font-size: var(--fs-75); color: var(--text-3); margin-top: 8px; }
 /* 任务看板 Kanban */
 .kan-wrap { padding: 22px var(--content-pad-x) 32px; max-width: 1180px; margin: 0 auto; }
+/* 项目/剧集进度条 */
+.proj-strip { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.proj-card { flex: 1 1 220px; min-width: 200px; text-align: left; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 13px; padding: 12px 14px; cursor: pointer; transition: border-color .14s ease, box-shadow .14s ease; }
+.proj-card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.07); }
+.proj-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.proj-card.all { flex: 0 0 auto; min-width: 160px; background: var(--bg-soft); }
+.proj-name { font-size: var(--fs-100); font-weight: var(--fw-bold); color: var(--text); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-bar { height: 6px; background: var(--bg-soft); border-radius: 4px; margin: 10px 0 7px; overflow: hidden; }
+.proj-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--warn, #e0883a)); border-radius: 4px; transition: width .3s ease; }
+.proj-meta { font-size: var(--fs-75); color: var(--text-3); }
 .kan-tip { font-size: var(--fs-75); color: var(--text-3); margin: 0 0 18px; line-height: 1.5; background: var(--bg-soft); border-radius: 10px; padding: 10px 13px; }
 .kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
 .kan-col { border: 1px solid var(--border); border-radius: 16px; padding: 6px 6px 12px; min-height: 220px; background: var(--bg-soft); }
