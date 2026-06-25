@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-25 — 修生产知识库入库失败(cosmac_kb_chunk 缺 embed_tag 列)
+- 自测 P2c 入驻知识库入库返回 ingested:0。查 bot 日志:`UndefinedColumn: column "embed_tag" of relation "cosmac_kb_chunk" does not exist`。
+- 根因:旧生产库建 cosmac_kb_chunk 时还没 embed_tag 列(后加的向量空间标识),create_all 只建表不补列 → 入库 INSERT 报错、整个 KB 写入失效(pgvector 本身没问题,embedding 列在)。
+- 修:`engine.py _heal_business_schema` 加非破坏性补列(同 cosmac_workflow_run 套路)——表缺 embed_tag 就 `ALTER TABLE cosmac_kb_chunk ADD COLUMN embed_tag VARCHAR(64) NOT NULL DEFAULT ''`。bot 重启自动补。
+- 验证:ruff + 本地 SQLite init+入库 OK。**重启 bot 即生效**(纯后端,可不发 dist)。
+- 自测记录:人设/模型/技能链路线上实测**通过**(测试房间+测试号已清理)。
+
 ## 2026-06-25 — 入驻模板边角①：付费模板门控
 - 之前付费模板只显示角标、不拦截。现在引导加门控:进来查当前会员等级(payGetMe)→付费模板(tier 高于用户等级)**锁住**,卡片显示「🔒 付费」+置灰,点了提示「X 是付费专享,先选免费的或升级」、不放行。
 - 等级比较按 MEMBER_TIERS 顺序(free<paid<creator)。UI 级门控(够用即止/单实例,符合 [[wf-reliability-scope]] 口径);彻底服务端强制(模板配置是客户端写 state event 应用的)是已知边界、本期不做。

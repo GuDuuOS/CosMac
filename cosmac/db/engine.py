@@ -23,7 +23,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from cosmac.db.models import Base, SeenTxn, WorkflowRun
+from cosmac.db.models import Base, KnowledgeChunk, SeenTxn, WorkflowRun
 
 logger = logging.getLogger("cosmac.db.engine")
 
@@ -116,25 +116,35 @@ def _heal_business_schema(engine: Engine) -> None:
     """
     try:
         insp = inspect(engine)
-        if not insp.has_table(WorkflowRun.__tablename__):
-            return
-        have = {c["name"] for c in insp.get_columns(WorkflowRun.__tablename__)}
-        with engine.begin() as conn:
-            if "status" not in have:
-                conn.execute(text(
-                    "ALTER TABLE cosmac_workflow_run "
-                    "ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'ok'"
-                ))
-            if "token" not in have:
-                conn.execute(text(
-                    "ALTER TABLE cosmac_workflow_run "
-                    "ADD COLUMN token VARCHAR(64) NOT NULL DEFAULT ''"
-                ))
-            if "source_key" not in have:
-                conn.execute(text(
-                    "ALTER TABLE cosmac_workflow_run "
-                    "ADD COLUMN source_key VARCHAR(255)"
-                ))
+        # 工作流运行表补列
+        if insp.has_table(WorkflowRun.__tablename__):
+            have = {c["name"] for c in insp.get_columns(WorkflowRun.__tablename__)}
+            with engine.begin() as conn:
+                if "status" not in have:
+                    conn.execute(text(
+                        "ALTER TABLE cosmac_workflow_run "
+                        "ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'ok'"
+                    ))
+                if "token" not in have:
+                    conn.execute(text(
+                        "ALTER TABLE cosmac_workflow_run "
+                        "ADD COLUMN token VARCHAR(64) NOT NULL DEFAULT ''"
+                    ))
+                if "source_key" not in have:
+                    conn.execute(text(
+                        "ALTER TABLE cosmac_workflow_run "
+                        "ADD COLUMN source_key VARCHAR(255)"
+                    ))
+        # 知识库分块表补列：旧生产库建表时还没 embed_tag（向量空间标识），补上否则入库报
+        # UndefinedColumn、整个 RAG/知识库写入失效。
+        if insp.has_table(KnowledgeChunk.__tablename__):
+            have = {c["name"] for c in insp.get_columns(KnowledgeChunk.__tablename__)}
+            if "embed_tag" not in have:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE cosmac_kb_chunk "
+                        "ADD COLUMN embed_tag VARCHAR(64) NOT NULL DEFAULT ''"
+                    ))
     except Exception:
         logger.warning("补齐业务表列失败（不致命，相关新功能可能降级）", exc_info=True)
 
