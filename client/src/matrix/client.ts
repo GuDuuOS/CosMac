@@ -406,6 +406,29 @@ export async function setSocialSources(spaceId: string, data: Record<string, any
   await (mx as any).sendStateEvent(spaceId, SOCIAL_SOURCES_EVENT, data, '')
 }
 
+/* ===== 首次引导标记（per-account）=====
+ * 存在**每账号 account data** `cosmac.onboarding`，内容 { done: boolean, ts }。
+ * 用 account data 而非"有没有工作区"来判首次——更可靠（用户删光工作区也不会被反复引导），
+ * 且每账号自动多端同步、零新基建（符合 CLAUDE.md 存储表「每账号轻量配置」走 account data）。
+ */
+const ONBOARDING_ACCOUNT_DATA = 'cosmac.onboarding'
+
+/** 是否已完成首次引导。读不到（新号/没写过）→ false。 */
+export function isOnboarded(): boolean {
+  try {
+    const c = (mx as any)?.getAccountData?.(ONBOARDING_ACCOUNT_DATA)?.getContent?.() || {}
+    return !!c.done
+  } catch {
+    return false
+  }
+}
+
+/** 标记首次引导已完成（含跳过）。 */
+export async function setOnboarded(done = true): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  await (mx as any).setAccountData(ONBOARDING_ACCOUNT_DATA, { done, ts: Date.now() })
+}
+
 /** 在某工作区(Space)下真建一个频道：建房间 + 邀请主 AI + 挂到 Space 下。返回 room_id。 */
 export async function createChannelInSpace(
   spaceId: string,

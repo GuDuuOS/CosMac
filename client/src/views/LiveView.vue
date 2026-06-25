@@ -70,6 +70,8 @@ import BoardSourcePanel from '@/components/layout/BoardSourcePanel.vue'
 import { useBoardSources } from '@/composables/useBoardSources'
 import SocialSourceModal from '@/components/board/SocialSourceModal.vue'
 import { useSocialSources } from '@/composables/useSocialSources'
+import OnboardingWizard from '@/components/onboarding/OnboardingWizard.vue'
+import { useOnboarding } from '@/composables/useOnboarding'
 import { useMarketplace } from '@/composables/useMarketplace'
 import { useCli } from '@/composables/useCli'
 import { useProfileHome } from '@/composables/useProfileHome'
@@ -87,6 +89,9 @@ const { visible: rightPanelVisible, toggle: toggleRightPanel, hide: hideRightPan
 const { sources, panelOpen: boardPanelOpen, toggleSourcePanel, closeSourcePanel: closeBoardSrcPanel, setSpace: setBoardSpace } = useBoardSources()
 // 社媒数据源：看板「社媒数据」组的真实取数配置（账号API / AI爬取），按工作区持久化
 const { openModal: openSocialModal, setSpace: setSocialSpace } = useSocialSources()
+// 首次引导：注册/登录后的「主 AI 问答」向导（建工作区/频道/AI人设）
+const { maybeAutoStart: maybeStartOnboarding } = useOnboarding()
+let onbChecked = false // 首屏只检测一次是否要弹引导
 const { open: openCli } = useCli()
 // profileVisible 接入 URL 同步（个人主页是页面级覆盖层，给它 /me 地址）
 const { open: openProfileHome, visible: profileVisible } = useProfileHome()
@@ -641,9 +646,22 @@ function refresh() {
       // 规范化地址（如登录默认页 → /s/<空间>/board）
       const path = computePath()
       if (route.path !== path) router.replace(path).catch(() => {})
+      // 首屏同步就绪后检测一次：**全新账号**（没引导过 且 还没有任何工作区）弹首次引导。
+      // 放这里是因为此刻 account data 已同步，isOnboarded() 读得准；额外用"无工作区"双保险，
+      // 避免给已有频道的老用户弹引导（maybeAutoStart 内部再判 isOnboarded）。
+      if (!onbChecked) { onbChecked = true; if (!spaces.value.length) maybeStartOnboarding() }
     }
   }
 }
+
+/** 引导完成：刷新工作区列表 + 切到新建的工作区 + 回到数据看板。 */
+function onOnboardingDone(spaceId: string) {
+  refresh()
+  if (spaceId) { activeSpace.value = spaceId; spaceChildIds.value = roomIdsInSpace(spaceId) }
+  openBoard()
+  toast('工作台已就绪', '欢迎使用 CosMac Star')
+}
+function onOnboardingSkip() { /* 跳过即可，已标记 onboarded */ }
 
 async function afterLogin(uid: string) {
   me.value = uid
@@ -1462,6 +1480,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
       <!-- 社媒数据源配置弹窗（看板「接入数据源」按钮打开）-->
       <SocialSourceModal />
+
+      <!-- 首次引导：注册/登录后的「主 AI 问答」向导（全屏覆盖，建工作区/频道/AI人设）-->
+      <OnboardingWizard @done="onOnboardingDone" @skip="onOnboardingSkip" />
 
       <!-- 放大态遮罩：盖住整页，点空白处还原 -->
       <div v-if="aiOpen && aiMax && !focused" class="ai-backdrop" @click="aiMax = false" />
