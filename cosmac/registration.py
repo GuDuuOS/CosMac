@@ -103,20 +103,70 @@ def registration_enabled() -> bool:
     return _smtp_conf() is not None and bool(_env("REGISTRATION_SHARED_SECRET"))
 
 
+def _email_logo_url() -> str:
+    """邮件里 logo 的公网地址（邮件不能内联打包图，必须用 URL）。可用 env 覆盖。"""
+    return _env("EMAIL_LOGO_URL", "https://app.cosmac.cc/email-logo.png")
+
+
+def _build_email(code: str) -> Tuple[str, str, str]:
+    """构造验证码邮件，返回 (主题, 纯文本, HTML)。
+
+    HTML 用「邮件安全」写法：表格布局 + 全内联样式（Gmail/Outlook 会剥离 <style>、不支持
+    flex/grid）。logo 走公网 URL（客户端默认可能不自动加载远程图，alt 文字兜底）。
+    """
+    mins = _CODE_TTL // 60
+    subject = f"【CosMac Star】注册验证码 {code}"
+    plain = (
+        f"你正在注册 CosMac Star。\n\n"
+        f"验证码：{code}\n\n"
+        f"{mins} 分钟内有效。如果这不是你本人的操作，忽略本邮件即可，账号不会有任何变化。"
+    )
+    logo = _email_logo_url()
+    html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;background:#f1efe9;font-family:-apple-system,'PingFang SC',sans-serif;">
+<div style="padding:32px 16px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="width:100%;max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #eae6df;">
+<tr><td style="padding:30px 36px 8px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="vertical-align:middle;"><img src="{logo}" alt="CosMac Star" width="30" height="30" style="display:block;border-radius:7px;"></td>
+<td style="vertical-align:middle;padding-left:9px;font-size:19px;font-weight:600;color:#2c2a26;letter-spacing:.3px;">CosMac&nbsp;<span style="color:#c96442;">Star</span></td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:14px 36px 0;">
+<div style="font-size:20px;font-weight:600;color:#2c2a26;">验证你的邮箱</div>
+<div style="font-size:14px;line-height:1.7;color:#6b665e;margin-top:10px;">你正在注册 CosMac Star。请在页面输入下面的验证码完成注册：</div>
+</td></tr>
+<tr><td style="padding:22px 36px 6px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#faece7;border:1px solid #f0d8cd;border-radius:12px;">
+<tr><td align="center" style="padding:20px 12px;">
+<div style="font-size:32px;font-weight:700;letter-spacing:10px;color:#993c1d;padding-left:10px;">{code}</div>
+</td></tr></table>
+<div style="font-size:12px;color:#8a8378;margin-top:10px;text-align:center;">验证码 {mins} 分钟内有效</div>
+</td></tr>
+<tr><td style="padding:14px 36px 0;">
+<div style="font-size:13px;line-height:1.7;color:#8a8378;">如果这不是你本人的操作，忽略本邮件即可，你的账号不会有任何变化。</div>
+</td></tr>
+<tr><td style="padding:22px 36px 28px;">
+<div style="border-top:1px solid #eee9e1;padding-top:14px;font-size:12px;color:#ada699;line-height:1.6;">此邮件由系统自动发送，请勿直接回复。<br>© CosMac Star</div>
+</td></tr>
+</table>
+</div>
+</body></html>"""
+    return subject, plain, html
+
+
 def _send_email(to_addr: str, code: str) -> None:
     """用 SMTP（SSL/465 优先）发验证码邮件；失败抛异常由调用方兜底。"""
     conf = _smtp_conf()
     if not conf:
         raise RuntimeError("SMTP 未配置")
+    subject, plain, html = _build_email(code)
     msg = EmailMessage()
-    msg["Subject"] = f"CosMac Star 注册验证码：{code}"
+    msg["Subject"] = subject
     msg["From"] = formataddr((conf["from_name"], conf["from"]))
     msg["To"] = to_addr
-    msg.set_content(
-        f"你正在注册 CosMac Star。\n\n"
-        f"验证码：{code}\n\n"
-        f"{_CODE_TTL // 60} 分钟内有效。如果不是你本人操作，请忽略本邮件。"
-    )
+    msg.set_content(plain)                       # 纯文本兜底（老客户端 / 不渲染 HTML 时显示）
+    msg.add_alternative(html, subtype="html")    # 品牌化 HTML 正文（现代客户端显示这个）
     ctx = ssl.create_default_context()
     # 465=SSL 直连；587=STARTTLS。Lark 两个都给，这里按端口择一。
     if conf["port"] == 587:

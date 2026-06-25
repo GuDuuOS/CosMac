@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-25 — 验证码邮件品牌化（HTML 模板 + logo + 纯文本兜底）
+- 把验证码邮件从纯文本升级成品牌化 HTML：吉祥物 logo + 「CosMac Star」抬头 + 大号验证码（陶土橙 #993c1d 底框）+ 有效期 + 安全提示 + 页脚。负责人预览确认。
+- 邮件安全写法：表格布局 + 全内联样式（Gmail/Outlook 剥 <style>、不支持 flex）。`registration.py` 加 `_build_email()` 返回 (主题/纯文本/HTML)，`_send_email` 用 set_content(纯文本)+add_alternative(html)。
+- 主题 `【CosMac Star】注册验证码 <code>`（码放标题方便看）。
+- logo：邮件不能内联打包图，走公网 URL `https://app.cosmac.cc/email-logo.png`(env `COSMAC_EMAIL_LOGO_URL` 可覆盖)。优化版 logo(694KB→17KB,120px)放 `client/public/email-logo.png`→构建复制到 dist 根。
+- 验证：ruff + 7 单测过；`_build_email` 产出主题/logo/code 正确；preview 真实渲染截图确认外观。
+- 部署：发 dist(含 email-logo.png) + 重启 bot(邮件模板在后端)。
+
 ## 2026-06-25 — 注册页修浏览器自动填充串味 + 验证码框文案
 - 现象:注册时输入邮箱后,验证码框被浏览器自动填成邮箱(autofill 启发式把相邻框也塞了)。
 - 修:给各框加 autocomplete 语义——邮箱=email、验证码=one-time-code(+inputmode=numeric+maxlength6)、用户名=username、密码=new-password。验证码框声明 one-time-code 后浏览器不再填邮箱。验证码框占位改「6 位验证码（填邮件里的数字）」更清楚。
