@@ -76,5 +76,64 @@ class RegistrationTest(unittest.TestCase):
         self.assertIn("用户名", payload["error"])
 
 
+class PasswordResetTest(unittest.TestCase):
+    def setUp(self) -> None:
+        reg._store.clear()
+        self._sent: list[tuple[str, str]] = []
+        self._reset_calls: list[tuple[str, str]] = []  # (user_id, new_password)
+        reg.reset_enabled = lambda: True  # type: ignore
+        reg._send_reset_email = lambda to, code: self._sent.append((to, code))  # type: ignore
+        # 只有 a@b.com 注册过 → 映射到 alice
+        reg._lookup_username = lambda email: "alice" if email == "a@b.com" else None  # type: ignore
+        reg._admin_reset_password = lambda hs, uid, pw: (  # type: ignore
+            self._reset_calls.append((uid, pw)) or (200, {"ok": True}))
+
+    def _last_code(self) -> str:
+        return self._sent[-1][1]
+
+    def test_registered_email_sends_code(self) -> None:
+        st, _ = reg.reset_request_code("a@b.com")
+        self.assertEqual(st, 200)
+        self.assertEqual(len(self._sent), 1)
+
+    def test_unknown_email_no_send_but_ok(self) -> None:
+        # 防枚举：未注册邮箱也回 200，但不真发信
+        st, _ = reg.reset_request_code("nope@x.com")
+        self.assertEqual(st, 200)
+        self.assertEqual(len(self._sent), 0)
+
+    def test_reset_happy_path(self) -> None:
+        reg.reset_request_code("a@b.com")
+        st, payload = reg.reset_verify(
+            "a@b.com", self._last_code(), "NewPass123!", hs_url="http://hs", server_name="cosmac.cc")
+        self.assertEqual(st, 200)
+        # 确认拿正确的 user_id + 新密码去调了重置
+        self.assertEqual(self._reset_calls, [("@alice:cosmac.cc", "NewPass123!")])
+
+    def test_reset_wrong_code(self) -> None:
+        reg.reset_request_code("a@b.com")
+        st, _ = reg.reset_verify(
+            "a@b.com", "000000", "NewPass123!", hs_url="http://hs", server_name="cosmac.cc")
+        self.assertEqual(st, 400)
+        self.assertEqual(self._reset_calls, [])  # 没验过码就不该调重置
+
+    def test_reset_weak_password(self) -> None:
+        reg.reset_request_code("a@b.com")
+        st, payload = reg.reset_verify(
+            "a@b.com", self._last_code(), "123", hs_url="http://hs", server_name="cosmac.cc")
+        self.assertEqual(st, 400)
+        self.assertIn("密码", payload["error"])
+
+    def test_register_code_cannot_reset(self) -> None:
+        # 注册码和找回码分桶：注册码不能拿去重置
+        reg.registration_enabled = lambda: True  # type: ignore
+        reg._send_email = lambda to, code: self._sent.append((to, code))  # type: ignore
+        reg.request_code("a@b.com")          # 注册码
+        reg_code = self._last_code()
+        st, _ = reg.reset_verify(
+            "a@b.com", reg_code, "NewPass123!", hs_url="http://hs", server_name="cosmac.cc")
+        self.assertEqual(st, 400)  # reset 桶里没这个码
+
+
 if __name__ == "__main__":
     unittest.main()

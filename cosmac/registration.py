@@ -32,7 +32,7 @@ import threading
 import time
 from email.message import EmailMessage
 from email.utils import formataddr
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import requests
 
@@ -65,9 +65,14 @@ class _PendingCode:
         self.sent_times: list[float] = []  # 最近一小时的发码时间戳（滑窗限频）
 
 
-# 邮箱(小写) → _PendingCode；多线程 HTTP server，必须加锁
+# key（"用途:邮箱小写"）→ _PendingCode；多线程 HTTP server，必须加锁。
+# 用「用途」前缀把注册码和找回密码码分开存——注册码不能拿去重置密码，反之亦然。
 _store: Dict[str, _PendingCode] = {}
 _lock = threading.Lock()
+
+
+def _key(purpose: str, email: str) -> str:
+    return f"{purpose}:{email}"
 
 
 def _gen_code() -> str:
@@ -103,20 +108,39 @@ def registration_enabled() -> bool:
     return _smtp_conf() is not None and bool(_env("REGISTRATION_SHARED_SECRET"))
 
 
-def _build_email(code: str) -> Tuple[str, str, str]:
-    """构造验证码邮件，返回 (主题, 纯文本, HTML)。
+def reset_enabled() -> bool:
+    """SMTP 与管理员令牌都配齐才算「找回密码」可用（重置密码要管理员权限）。"""
+    return _smtp_conf() is not None and bool(_env("ADMIN_TOKEN"))
+
+
+def _build_email(code: str, kind: str = "register") -> Tuple[str, str, str]:
+    """构造验证码邮件，返回 (主题, 纯文本, HTML)。kind: register（注册）/ reset（找回密码）。
 
     HTML 用「邮件安全」写法：表格布局 + 全内联样式（Gmail/Outlook 会剥离 <style>、不支持
     flex/grid）。抬头用**纯文字标识**（不外链图片）——邮件客户端默认不加载远程图、且跨域
     外链图会拉低投递评分（更易进垃圾箱），所以不放 logo 图。
     """
     mins = _CODE_TTL // 60
-    subject = f"【CosMac Star】注册验证码 {code}"
-    plain = (
-        f"你正在注册 CosMac Star。\n\n"
-        f"验证码：{code}\n\n"
-        f"{mins} 分钟内有效。如果这不是你本人的操作，忽略本邮件即可，账号不会有任何变化。"
-    )
+    if kind == "reset":
+        subject = f"【CosMac Star】重置密码验证码 {code}"
+        heading = "重置你的密码"
+        intro = "你正在重置 CosMac Star 的登录密码。请在页面输入下面的验证码："
+        plain = (
+            f"你正在重置 CosMac Star 的登录密码。\n\n"
+            f"验证码：{code}\n\n"
+            f"{mins} 分钟内有效。如果这不是你本人的操作，忽略本邮件即可，密码不会被更改。"
+        )
+        note = "如果这不是你本人的操作，忽略本邮件即可，你的密码不会被更改。"
+    else:
+        subject = f"【CosMac Star】注册验证码 {code}"
+        heading = "验证你的邮箱"
+        intro = "你正在注册 CosMac Star。请在页面输入下面的验证码完成注册："
+        plain = (
+            f"你正在注册 CosMac Star。\n\n"
+            f"验证码：{code}\n\n"
+            f"{mins} 分钟内有效。如果这不是你本人的操作，忽略本邮件即可，账号不会有任何变化。"
+        )
+        note = "如果这不是你本人的操作，忽略本邮件即可，你的账号不会有任何变化。"
     html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;background:#f1efe9;font-family:-apple-system,'PingFang SC',sans-serif;">
 <div style="padding:32px 16px;">
@@ -125,8 +149,8 @@ def _build_email(code: str) -> Tuple[str, str, str]:
 <div style="font-size:19px;font-weight:600;color:#2c2a26;letter-spacing:.3px;"><span style="color:#c96442;">✦</span>&nbsp;CosMac&nbsp;<span style="color:#c96442;">Star</span></div>
 </td></tr>
 <tr><td style="padding:14px 36px 0;">
-<div style="font-size:20px;font-weight:600;color:#2c2a26;">验证你的邮箱</div>
-<div style="font-size:14px;line-height:1.7;color:#6b665e;margin-top:10px;">你正在注册 CosMac Star。请在页面输入下面的验证码完成注册：</div>
+<div style="font-size:20px;font-weight:600;color:#2c2a26;">{heading}</div>
+<div style="font-size:14px;line-height:1.7;color:#6b665e;margin-top:10px;">{intro}</div>
 </td></tr>
 <tr><td style="padding:22px 36px 6px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#faece7;border:1px solid #f0d8cd;border-radius:12px;">
@@ -136,7 +160,7 @@ def _build_email(code: str) -> Tuple[str, str, str]:
 <div style="font-size:12px;color:#8a8378;margin-top:10px;text-align:center;">验证码 {mins} 分钟内有效</div>
 </td></tr>
 <tr><td style="padding:14px 36px 0;">
-<div style="font-size:13px;line-height:1.7;color:#8a8378;">如果这不是你本人的操作，忽略本邮件即可，你的账号不会有任何变化。</div>
+<div style="font-size:13px;line-height:1.7;color:#8a8378;">{note}</div>
 </td></tr>
 <tr><td style="padding:22px 36px 28px;">
 <div style="border-top:1px solid #eee9e1;padding-top:14px;font-size:12px;color:#ada699;line-height:1.6;">此邮件由系统自动发送，请勿直接回复。<br>© CosMac Star</div>
@@ -147,12 +171,11 @@ def _build_email(code: str) -> Tuple[str, str, str]:
     return subject, plain, html
 
 
-def _send_email(to_addr: str, code: str) -> None:
-    """用 SMTP（SSL/465 优先）发验证码邮件；失败抛异常由调用方兜底。"""
+def _smtp_send(to_addr: str, subject: str, plain: str, html: str) -> None:
+    """用 SMTP（SSL/465 优先）发一封 HTML+纯文本邮件；失败抛异常由调用方兜底。"""
     conf = _smtp_conf()
     if not conf:
         raise RuntimeError("SMTP 未配置")
-    subject, plain, html = _build_email(code)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = formataddr((conf["from_name"], conf["from"]))
@@ -172,40 +195,44 @@ def _send_email(to_addr: str, code: str) -> None:
             s.send_message(msg)
 
 
-def request_code(email: str) -> Tuple[int, Dict[str, Any]]:
-    """发验证码到邮箱。返回 (http状态, 响应体)。限频在这里强制。"""
-    if not registration_enabled():
-        return 503, {"error": "服务器未开启邮箱注册"}
-    email = (email or "").strip().lower()
-    if not _EMAIL_RE.match(email):
-        return 400, {"error": "邮箱格式不正确"}
+def _send_email(to_addr: str, code: str) -> None:
+    """发**注册**验证码邮件。"""
+    _smtp_send(to_addr, *_build_email(code, "register"))
 
+
+def _send_reset_email(to_addr: str, code: str) -> None:
+    """发**找回密码**验证码邮件。"""
+    _smtp_send(to_addr, *_build_email(code, "reset"))
+
+
+def _issue_code(key: str, send: Callable[[str], None]) -> Tuple[int, Dict[str, Any]]:
+    """通用「发码」：限频 + 存码 + 发信。注册/找回密码共用。send(code) 负责真正发信。"""
     now = time.time()
     with _lock:
-        pc = _store.get(email) or _PendingCode()
+        pc = _store.get(key) or _PendingCode()
         # 滑窗：清掉一小时前的发码记录，再判每小时上限
         pc.sent_times = [t for t in pc.sent_times if now - t < 3600]
         if pc.last_sent and now - pc.last_sent < _RESEND_COOLDOWN:
             wait = int(_RESEND_COOLDOWN - (now - pc.last_sent))
             return 429, {"error": f"发送太频繁，请 {wait} 秒后再试", "cooldown": wait}
         if len(pc.sent_times) >= _MAX_SENDS_PER_HOUR:
-            return 429, {"error": "今日该邮箱验证码请求过多，请稍后再试"}
+            return 429, {"error": "请求过于频繁，请稍后再试"}
         code = _gen_code()
         pc.code = code
         pc.expires = now + _CODE_TTL
         pc.attempts = 0
         pc.last_sent = now
         pc.sent_times.append(now)
-        _store[email] = pc
+        _store[key] = pc
 
     # 发信放锁外（网络 IO 可能慢，别占着锁）
     try:
-        _send_email(email, code)
+        send(code)
     except Exception:
-        logger.exception("发送验证码邮件失败: %s", email)
+        logger.exception("发送验证码邮件失败: %s", key)
         # 发失败就把这次的码作废，避免用户拿不到码却被限频
         with _lock:
-            cur = _store.get(email)
+            cur = _store.get(key)
             if cur and cur.code == code:
                 cur.code = ""
                 if cur.sent_times:
@@ -216,11 +243,21 @@ def request_code(email: str) -> Tuple[int, Dict[str, Any]]:
     return 200, {"ok": True, "cooldown": _RESEND_COOLDOWN}
 
 
-def _check_code(email: str, code: str) -> Tuple[bool, Optional[str]]:
-    """校验邮箱+码；通过返回 (True, None)，否则 (False, 错误文案)。通过即作废该码。"""
+def request_code(email: str) -> Tuple[int, Dict[str, Any]]:
+    """发**注册**验证码到邮箱。返回 (http状态, 响应体)。"""
+    if not registration_enabled():
+        return 503, {"error": "服务器未开启邮箱注册"}
+    email = (email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        return 400, {"error": "邮箱格式不正确"}
+    return _issue_code(_key("register", email), lambda c: _send_email(email, c))
+
+
+def _check_code(email: str, code: str, purpose: str = "register") -> Tuple[bool, Optional[str]]:
+    """校验邮箱+码（按用途分桶）；通过返回 (True, None)，否则 (False, 错误文案)。通过即作废。"""
     code = (code or "").strip()
     with _lock:
-        pc = _store.get(email)
+        pc = _store.get(_key(purpose, email))
         if not pc or not pc.code:
             return False, "请先获取验证码"
         if time.time() > pc.expires:
@@ -300,10 +337,97 @@ def verify_and_register(
     if len(password or "") < 8:
         return 400, {"error": "密码至少 8 位"}
 
-    ok, msg = _check_code(email, code)
+    ok, msg = _check_code(email, code, purpose="register")
     if not ok:
         return 400, {"error": msg}
 
     status, payload = _synapse_register(hs_url, username, password)
+    # 建号成功 → 登记「邮箱→用户名」映射，供以后找回密码按邮箱定位账号。失败不阻断注册。
+    if status == 200:
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.email_repo import set_email
+            with session_scope() as s:
+                set_email(s, email=email, username=username)
+        except Exception:
+            logger.warning("登记邮箱→用户名映射失败（不影响注册）", exc_info=True)
     # 建号失败时不还原码（已一次性作废）——让用户重新走流程，避免码被复用
     return status, payload
+
+
+def _lookup_username(email: str) -> Optional[str]:
+    """按邮箱反查用户名 localpart（找回密码用）。查不到/出错返回 None。"""
+    try:
+        from cosmac.db import session_scope
+        from cosmac.db.email_repo import get_username_by_email
+        with session_scope() as s:
+            return get_username_by_email(s, email)
+    except Exception:
+        logger.debug("查邮箱→用户名映射失败", exc_info=True)
+        return None
+
+
+def _admin_reset_password(hs_url: str, user_id: str, new_password: str) -> Tuple[int, Dict[str, Any]]:
+    """用管理员令牌调 Synapse 重置某账号密码（并登出其所有设备）。
+
+    /_synapse/admin/v1/reset_password/<user_id>：需**服务器管理员** access token
+    （env COSMAC_ADMIN_TOKEN）。as_token 权限不够，故单独配一个管理员令牌。
+    """
+    token = _env("ADMIN_TOKEN")
+    if not token:
+        return 503, {"error": "服务器未配置管理员令牌"}
+    base = hs_url.rstrip("/")
+    url = f"{base}/_synapse/admin/v1/reset_password/{user_id}"
+    try:
+        rr = requests.post(
+            url,
+            json={"new_password": new_password, "logout_devices": True},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=_HS_TIMEOUT,
+        )
+        if rr.status_code == 200:
+            return 200, {"ok": True}
+        logger.warning("重置密码失败 %s: %s", rr.status_code, rr.text[:200])
+        return (rr.status_code if rr.status_code >= 400 else 502), {"error": "重置失败，请稍后重试"}
+    except requests.RequestException:
+        logger.exception("调用 Synapse 重置密码失败")
+        return 502, {"error": "重置服务暂不可用，请稍后重试"}
+
+
+def reset_request_code(email: str) -> Tuple[int, Dict[str, Any]]:
+    """找回密码：发验证码到邮箱。
+
+    防邮箱枚举：无论该邮箱是否注册都返回成功，只有**确实注册过**才真正发信。
+    """
+    if not reset_enabled():
+        return 503, {"error": "服务器未开启密码找回"}
+    email = (email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        return 400, {"error": "邮箱格式不正确"}
+    if not _lookup_username(email):
+        # 不泄露"该邮箱有没有注册"，不发信但照样回成功
+        return 200, {"ok": True, "cooldown": _RESEND_COOLDOWN}
+    return _issue_code(_key("reset", email), lambda c: _send_reset_email(email, c))
+
+
+def reset_verify(
+    email: str, code: str, new_password: str, *, hs_url: str, server_name: str
+) -> Tuple[int, Dict[str, Any]]:
+    """找回密码：验码 → 重置该邮箱对应账号的密码。成功返回 (200, {ok})。"""
+    if not reset_enabled():
+        return 503, {"error": "服务器未开启密码找回"}
+    email = (email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        return 400, {"error": "邮箱格式不正确"}
+    if len(new_password or "") < 8:
+        return 400, {"error": "新密码至少 8 位"}
+
+    ok, msg = _check_code(email, code, purpose="reset")
+    if not ok:
+        return 400, {"error": msg}
+
+    username = _lookup_username(email)
+    if not username:
+        return 400, {"error": "该邮箱未注册"}
+    user_id = f"@{username}:{server_name}"
+    return _admin_reset_password(hs_url, user_id, new_password)

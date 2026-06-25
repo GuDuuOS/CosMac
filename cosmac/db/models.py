@@ -288,3 +288,23 @@ class Task(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Task #{self.id} {self.status} {self.title[:20]!r}>"
+
+
+class RegisteredEmail(Base, TimestampMixin):
+    """注册时把「邮箱 ↔ 用户名」存一份，给「找回密码」按邮箱定位账号用。
+
+    为什么单独存：我们用自建验证码注册，建号时没把邮箱绑成 Matrix 3pid；找回密码要
+    「邮箱 → 用户名」反查，故在 cosmac DB 留这份映射。一个邮箱对一个账号（唯一）。
+    （老账号注册时没存这条 → 暂不能用邮箱找回；目前账号极少，可接受。）
+    """
+
+    __tablename__ = "cosmac_registered_email"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 邮箱（小写存），唯一——一个邮箱只绑一个账号
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    # Matrix 用户名 localpart（如 alice，不含 @域名）
+    username: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+
+    def __repr__(self) -> str:
+        return f"<RegisteredEmail {self.email} -> {self.username}>"

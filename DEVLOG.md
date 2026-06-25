@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-25 — 找回密码（忘记密码）
+- 需求:登录页加「忘记密码」→ 发邮箱验证码 → 验码后输新密码(带确认)。
+- 后端(`cosmac/registration.py`):复用注册那套发码/验码（码按**用途分桶** register/reset，注册码不能拿去重置）。新增 `reset_request_code`(防邮箱枚举:未注册也回成功但不发信)、`reset_verify`(验码→反查账号→管理员令牌重置密码并登出所有设备)。重置走 `/_synapse/admin/v1/reset_password/<user_id>`，**需服务器管理员 access token**(env `COSMAC_ADMIN_TOKEN`，as_token 权限不够)。
+- 邮箱→账号映射:新表 `cosmac_registered_email`(注册成功时 upsert)+ `db/email_repo.py`。老账号注册时没存这条→暂不能用邮箱找回(目前账号极少可接受)。
+- 邮件:`_build_email(code, kind)` 复用模板,reset 文案「重置你的密码」+ 主题「【CosMac Star】重置密码验证码 <code>」。
+- 前端:鉴权页加第三态 `reset`;登录页「忘记密码？」入口;复用邮箱+发码+验证码,字段改新密码/确认新密码,成功后回登录。
+- 验证:ruff + 13 单测(7注册+6找回)全过;build(`index-DGlLnslK.js`)+ preview 截图确认。
+- 部署:发 dist + **加 env COSMAC_ADMIN_TOKEN**(管理员令牌) + 重启 bot。
+
 ## 2026-06-25 — 验证码邮件去掉 logo 图 + 投递排查
 - 邮件进 Gmail 垃圾箱。查 guduu.co DNS:SPF(spf.onlarksuite.com -all)✅、DMARC(p=reject)✅、MX(larksuite)✅,但**DKIM 没查到**(常见 selector 无记录)——这是主因之一;加上新域名无信誉、跨域外链图(logo 来自 app.cosmac.cc 而发件人 guduu.co)拉低评分。
 - 处理:① 去掉邮件 logo 图,抬头改纯文字标识「✦ CosMac Star」(文字字符、不外链图、不受远程图拦截、利于投递);删 `email-logo.png` 资产 + `_email_logo_url`。② DKIM 需负责人去 Lark 后台域名管理补 DKIM 记录;建议用 mail-tester.com 精确诊断。

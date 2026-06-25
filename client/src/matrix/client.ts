@@ -1486,6 +1486,35 @@ export async function registerVerify(
   return j
 }
 
+/* —— 找回密码：调 bot 的 /cosmac/reset/* 端点（同样登录前调，需传 HS 基址）—— */
+
+/** 请求把找回密码验证码发到邮箱。防枚举：未注册也回成功（不报错）。 */
+export async function resetRequestCode(baseUrl: string, email: string): Promise<void> {
+  const base = baseUrl.replace(/\/$/, '')
+  const r = await fetch(`${base}/cosmac/reset/request-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || '发送验证码失败')
+}
+
+/** 验码 + 重置密码。成功无返回；失败抛出带文案的错误。 */
+export async function resetVerify(
+  baseUrl: string,
+  args: { email: string; code: string; password: string },
+): Promise<void> {
+  const base = baseUrl.replace(/\/$/, '')
+  const r = await fetch(`${base}/cosmac/reset/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || '重置失败')
+}
+
 export interface PayPlan {
   slug: string; name: string; tier: string; period_days: number
   prices: Record<string, number>

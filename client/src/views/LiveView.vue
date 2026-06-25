@@ -19,6 +19,8 @@ import {
   login,
   registerRequestCode,
   registerVerify,
+  resetRequestCode,
+  resetVerify,
   restoreSession,
   logout,
   onUpdate,
@@ -195,7 +197,7 @@ const email = ref('')                   // 注册邮箱
 const emailCode = ref('')               // 邮箱验证码
 const codeCooldown = ref(0)             // 「发送验证码」倒计时（秒），>0 时按钮禁用
 const sendingCode = ref(false)
-const authMode = ref<'login' | 'register'>('login') // 鉴权页：登录 / 注册
+const authMode = ref<'login' | 'register' | 'reset'>('login') // 鉴权页：登录 / 注册 / 找回密码
 const loggedIn = ref(false)
 const me = ref('')
 const error = ref('')
@@ -709,7 +711,9 @@ async function sendCode() {
   if (codeCooldown.value > 0 || sendingCode.value) return
   sendingCode.value = true
   try {
-    await registerRequestCode(HS, e)
+    // 注册和找回密码用各自的发码端点
+    if (authMode.value === 'reset') await resetRequestCode(HS, e)
+    else await registerRequestCode(HS, e)
     toast('验证码已发送', `请查收 ${e}（含垃圾箱）`)
     // 启动 60s 倒计时
     codeCooldown.value = 60
@@ -747,8 +751,29 @@ async function doRegister() {
   }
 }
 
-/** 切换登录/注册，清掉上次的错误和注册相关字段 */
-function switchAuthMode(m: 'login' | 'register') {
+/** 找回密码：验码 → 重置密码 → 回登录页用新密码登录。 */
+async function doResetPassword() {
+  error.value = ''
+  const e = email.value.trim()
+  if (!e) { error.value = '请填邮箱'; return }
+  if (!emailCode.value.trim()) { error.value = '请填邮箱验证码'; return }
+  if (password.value.length < 8) { error.value = '新密码至少 8 位'; return }
+  if (password.value !== password2.value) { error.value = '两次输入的密码不一致'; return }
+  loading.value = true
+  try {
+    await resetVerify(HS, { email: e, code: emailCode.value.trim(), password: password.value })
+    toast('密码已重置', '请用新密码登录')
+    switchAuthMode('login')
+    password.value = ''
+  } catch (err: any) {
+    error.value = err?.message || String(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 切换登录/注册/找回密码，清掉上次的错误和相关字段 */
+function switchAuthMode(m: 'login' | 'register' | 'reset') {
   authMode.value = m
   error.value = ''
   password2.value = ''
@@ -1050,14 +1075,16 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   <div v-if="!loggedIn" class="login">
     <div class="login-card">
       <div class="brand login-brand"><img :src="logoUrl" class="brand-logo" alt="" />CosMac<span>Star</span></div>
-      <!-- 登录 / 注册 切换 -->
-      <div class="auth-tabs">
+      <!-- 登录 / 注册 切换（找回密码时隐藏 tab，显示标题）-->
+      <div class="auth-tabs" v-if="authMode !== 'reset'">
         <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">登录</button>
         <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
       </div>
-      <!-- 注册时：邮箱 + 发送验证码 + 验证码 -->
-      <!-- autocomplete 语义化防浏览器自动填充串味：邮箱=email，验证码=one-time-code（浏览器知道是一次性码、不会把邮箱塞进来）-->
-      <template v-if="authMode === 'register'">
+      <div v-else class="auth-reset-title">重置密码</div>
+
+      <!-- 注册 / 找回密码：邮箱 + 发送验证码 + 验证码 -->
+      <!-- autocomplete 语义化防浏览器自动填充串味：邮箱=email，验证码=one-time-code -->
+      <template v-if="authMode !== 'login'">
         <div class="auth-code-row">
           <input v-model="email" type="email" name="reg-email" autocomplete="email" placeholder="邮箱" />
           <button class="auth-code-btn" :disabled="codeCooldown > 0 || sendingCode || !email.trim()" @click="sendCode">
@@ -1065,20 +1092,26 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
           </button>
         </div>
         <input v-model="emailCode" name="reg-otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
-               placeholder="6 位验证码（填邮件里的数字）" @keyup.enter="doRegister" />
+               placeholder="6 位验证码（填邮件里的数字）"
+               @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
       </template>
-      <input v-model="user" name="reg-username" autocomplete="username" placeholder="用户名" />
-      <input v-model="password" type="password" :placeholder="authMode === 'register' ? '密码（至少 8 位）' : '密码'"
-             :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
-             @keyup.enter="authMode === 'login' ? doLogin() : doRegister()" />
-      <!-- 注册时多一个确认密码 -->
-      <input v-if="authMode === 'register'" v-model="password2" type="password" autocomplete="new-password" placeholder="确认密码"
-             @keyup.enter="doRegister" />
+      <!-- 用户名：仅登录/注册需要（找回密码靠邮箱定位账号，不填用户名）-->
+      <input v-if="authMode !== 'reset'" v-model="user" name="reg-username" autocomplete="username" placeholder="用户名" />
+      <input v-model="password" type="password"
+             :placeholder="authMode === 'login' ? '密码' : (authMode === 'reset' ? '新密码（至少 8 位）' : '密码（至少 8 位）')"
+             :autocomplete="authMode === 'login' ? 'current-password' : 'new-password'"
+             @keyup.enter="authMode === 'login' ? doLogin() : (authMode === 'reset' ? doResetPassword() : doRegister())" />
+      <!-- 注册 / 找回密码多一个确认密码 -->
+      <input v-if="authMode !== 'login'" v-model="password2" type="password" autocomplete="new-password"
+             :placeholder="authMode === 'reset' ? '确认新密码' : '确认密码'"
+             @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
       <button v-if="authMode === 'login'" class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
-      <button v-else class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
-      <p class="err" v-if="error">{{ authMode === 'login' ? '登录失败' : '注册失败' }}：{{ error }}</p>
-      <p class="auth-switch" v-if="authMode === 'login'">还没有账号？<a @click="switchAuthMode('register')">注册一个</a></p>
-      <p class="auth-switch" v-else>已有账号？<a @click="switchAuthMode('login')">去登录</a></p>
+      <button v-else-if="authMode === 'register'" class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
+      <button v-else class="login-btn" :disabled="loading" @click="doResetPassword">{{ loading ? '重置中…' : '重置密码' }}</button>
+      <p class="err" v-if="error">{{ authMode === 'login' ? '登录失败' : (authMode === 'reset' ? '重置失败' : '注册失败') }}：{{ error }}</p>
+      <p class="auth-switch" v-if="authMode === 'login'">还没有账号？<a @click="switchAuthMode('register')">注册一个</a> · <a @click="switchAuthMode('reset')">忘记密码？</a></p>
+      <p class="auth-switch" v-else-if="authMode === 'register'">已有账号？<a @click="switchAuthMode('login')">去登录</a></p>
+      <p class="auth-switch" v-else>想起来了？<a @click="switchAuthMode('login')">返回登录</a></p>
     </div>
   </div>
 
@@ -1902,6 +1935,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .auth-code-row input { flex: 1; min-width: 0; }
 .auth-code-btn { flex-shrink: 0; padding: 0 12px; border: 1px solid var(--border); background: var(--bg-panel, #fff); color: var(--accent); font-size: 13px; font-weight: 600; border-radius: 10px; cursor: pointer; white-space: nowrap; }
 .auth-code-btn:disabled { opacity: .5; cursor: default; color: var(--text-3); }
+.auth-reset-title { font-size: 16px; font-weight: 700; color: var(--text); text-align: center; padding: 2px 0; }
 .auth-switch { color: var(--text-3); font-size: 13px; text-align: center; margin: 0; }
 .auth-switch a { color: var(--accent); cursor: pointer; font-weight: 600; }
 .auth-switch a:hover { text-decoration: underline; }
