@@ -1074,44 +1074,54 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   <!-- ════════════════ 登录 / 注册页 ════════════════ -->
   <div v-if="!loggedIn" class="login">
     <div class="login-card">
-      <div class="brand login-brand"><img :src="logoUrl" class="brand-logo" alt="" />CosMac<span>Star</span></div>
-      <!-- 登录 / 注册 切换（找回密码时隐藏 tab，显示标题）-->
-      <div class="auth-tabs" v-if="authMode !== 'reset'">
-        <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">登录</button>
-        <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
-      </div>
-      <div v-else class="auth-reset-title">重置密码</div>
-
-      <!-- 注册 / 找回密码：邮箱 + 发送验证码 + 验证码 -->
-      <!-- autocomplete 语义化防浏览器自动填充串味：邮箱=email，验证码=one-time-code -->
-      <template v-if="authMode !== 'login'">
-        <div class="auth-code-row">
-          <input v-model="email" type="email" name="reg-email" autocomplete="email" placeholder="邮箱" />
-          <button class="auth-code-btn" :disabled="codeCooldown > 0 || sendingCode || !email.trim()" @click="sendCode">
-            {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? '发送中…' : '发送验证码') }}
-          </button>
+      <!-- 顶部：品牌 + tab/标题 -->
+      <div class="auth-top">
+        <div class="brand login-brand"><img :src="logoUrl" class="brand-logo" alt="" />CosMac<span>Star</span></div>
+        <!-- 登录 / 注册 切换（找回密码时隐藏 tab，显示标题）-->
+        <div class="auth-tabs" v-if="authMode !== 'reset'">
+          <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">登录</button>
+          <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
         </div>
-        <input v-model="emailCode" name="reg-otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
-               placeholder="6 位验证码（填邮件里的数字）"
+        <div v-else class="auth-reset-title">重置密码</div>
+      </div>
+
+      <!-- 中部：表单字段（三段式分布，让内容填满高框、不浮在中间）-->
+      <div class="auth-fields">
+        <!-- 注册 / 找回密码：邮箱 + 发送验证码 + 验证码 -->
+        <!-- autocomplete 语义化防浏览器自动填充串味：邮箱=email，验证码=one-time-code -->
+        <template v-if="authMode !== 'login'">
+          <div class="auth-code-row">
+            <input v-model="email" type="email" name="reg-email" autocomplete="email" placeholder="邮箱" />
+            <button class="auth-code-btn" :disabled="codeCooldown > 0 || sendingCode || !email.trim()" @click="sendCode">
+              {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? '发送中…' : '发送验证码') }}
+            </button>
+          </div>
+          <input v-model="emailCode" name="reg-otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
+                 placeholder="6 位验证码（填邮件里的数字）"
+                 @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
+        </template>
+        <!-- 用户名：仅登录/注册需要（找回密码靠邮箱定位账号，不填用户名）-->
+        <input v-if="authMode !== 'reset'" v-model="user" name="reg-username" autocomplete="username" placeholder="用户名" />
+        <input v-model="password" type="password"
+               :placeholder="authMode === 'login' ? '密码' : (authMode === 'reset' ? '新密码（至少 8 位）' : '密码（至少 8 位）')"
+               :autocomplete="authMode === 'login' ? 'current-password' : 'new-password'"
+               @keyup.enter="authMode === 'login' ? doLogin() : (authMode === 'reset' ? doResetPassword() : doRegister())" />
+        <!-- 注册 / 找回密码多一个确认密码 -->
+        <input v-if="authMode !== 'login'" v-model="password2" type="password" autocomplete="new-password"
+               :placeholder="authMode === 'reset' ? '确认新密码' : '确认密码'"
                @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
-      </template>
-      <!-- 用户名：仅登录/注册需要（找回密码靠邮箱定位账号，不填用户名）-->
-      <input v-if="authMode !== 'reset'" v-model="user" name="reg-username" autocomplete="username" placeholder="用户名" />
-      <input v-model="password" type="password"
-             :placeholder="authMode === 'login' ? '密码' : (authMode === 'reset' ? '新密码（至少 8 位）' : '密码（至少 8 位）')"
-             :autocomplete="authMode === 'login' ? 'current-password' : 'new-password'"
-             @keyup.enter="authMode === 'login' ? doLogin() : (authMode === 'reset' ? doResetPassword() : doRegister())" />
-      <!-- 注册 / 找回密码多一个确认密码 -->
-      <input v-if="authMode !== 'login'" v-model="password2" type="password" autocomplete="new-password"
-             :placeholder="authMode === 'reset' ? '确认新密码' : '确认密码'"
-             @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
-      <button v-if="authMode === 'login'" class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
-      <button v-else-if="authMode === 'register'" class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
-      <button v-else class="login-btn" :disabled="loading" @click="doResetPassword">{{ loading ? '重置中…' : '重置密码' }}</button>
-      <p class="err" v-if="error">{{ authMode === 'login' ? '登录失败' : (authMode === 'reset' ? '重置失败' : '注册失败') }}：{{ error }}</p>
-      <p class="auth-switch" v-if="authMode === 'login'">还没有账号？<a @click="switchAuthMode('register')">注册一个</a> · <a @click="switchAuthMode('reset')">忘记密码？</a></p>
-      <p class="auth-switch" v-else-if="authMode === 'register'">已有账号？<a @click="switchAuthMode('login')">去登录</a></p>
-      <p class="auth-switch" v-else>想起来了？<a @click="switchAuthMode('login')">返回登录</a></p>
+      </div>
+
+      <!-- 底部：提交按钮 + 错误 + 切换链接 -->
+      <div class="auth-bottom">
+        <button v-if="authMode === 'login'" class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
+        <button v-else-if="authMode === 'register'" class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
+        <button v-else class="login-btn" :disabled="loading" @click="doResetPassword">{{ loading ? '重置中…' : '重置密码' }}</button>
+        <p class="err" v-if="error">{{ authMode === 'login' ? '登录失败' : (authMode === 'reset' ? '重置失败' : '注册失败') }}：{{ error }}</p>
+        <p class="auth-switch" v-if="authMode === 'login'">还没有账号？<a @click="switchAuthMode('register')">注册一个</a> · <a @click="switchAuthMode('reset')">忘记密码？</a></p>
+        <p class="auth-switch" v-else-if="authMode === 'register'">已有账号？<a @click="switchAuthMode('login')">去登录</a></p>
+        <p class="auth-switch" v-else>想起来了？<a @click="switchAuthMode('login')">返回登录</a></p>
+      </div>
     </div>
   </div>
 
@@ -1919,16 +1929,21 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 /* ════════ 登录页 ════════ */
 .login { height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, var(--bg-panel), var(--bg-soft)); font-family: var(--font-body); }
-.login-card { width: 640px; max-width: 92vw; min-height: 502px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 36px 40px; background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.08); }
+.login-card { width: 640px; max-width: 92vw; min-height: 502px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; padding: 40px; background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.08); }
+/* 三段式：顶部品牌/tab、中部字段、底部按钮——space-between 把多出来的高度分配到段间，
+   内容均匀填满高框，不再挤成一团浮在中间。 */
+.auth-top { display: flex; flex-direction: column; gap: 16px; }
+.auth-fields { display: flex; flex-direction: column; gap: 14px; }
+.auth-bottom { display: flex; flex-direction: column; gap: 12px; }
 .login-brand { font-weight: 800; font-size: 22px; color: var(--text); display: inline-flex; align-items: center; gap: 8px; }
 .login-brand span { color: var(--accent); margin-left: 4px; }
 .brand-logo { width: 26px; height: 26px; object-fit: contain; border-radius: 6px; }
-.login-card input { padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; }
-.login-btn { padding: 11px; border: 0; border-radius: 10px; background: var(--action); color: #fff; font-size: 14px; cursor: pointer; }
+.login-card input { padding: 13px 15px; border: 1px solid var(--border); border-radius: 10px; font-size: 15px; }
+.login-btn { padding: 14px; border: 0; border-radius: 10px; background: var(--action); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
 .login-btn:disabled { opacity: .6; cursor: default; }
 /* 登录 / 注册 分段切换 */
-.auth-tabs { display: flex; gap: 4px; padding: 3px; background: var(--bg, #f1efe9); border: 1px solid var(--border); border-radius: 10px; }
-.auth-tab { flex: 1; padding: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 14px; font-weight: 600; border-radius: 8px; cursor: pointer; }
+.auth-tabs { display: flex; gap: 4px; padding: 4px; background: var(--bg, #f1efe9); border: 1px solid var(--border); border-radius: 10px; }
+.auth-tab { flex: 1; padding: 10px; border: 0; background: transparent; color: var(--text-3); font-size: 15px; font-weight: 600; border-radius: 8px; cursor: pointer; }
 .auth-tab.active { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 /* 注册：邮箱 + 发送验证码 一行 */
 .auth-code-row { display: flex; gap: 8px; }

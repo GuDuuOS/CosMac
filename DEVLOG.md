@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-25 — 登录卡片内容三段式分布 + 放大控件
+- 上一版等高用 justify-content:center → 登录内容挤成一团浮中间、上下大白边。改三段式:模板拆 `.auth-top`(品牌+tab)/`.auth-fields`(字段)/`.auth-bottom`(按钮+链接),卡片 `justify-content:space-between` 把多余高度分配到段间,内容均匀填满。
+- 控件放大适配宽卡片:输入框 padding 13×15、字号 15;按钮 padding 14、字号 15 加粗;tab 加大。
+- 验证:build(`index-N8sk2W1x.js`)+ preview 截图登录/注册都填满匀称。纯前端,**发 dist**。
+
 ## 2026-06-25 — 登录/注册卡片加宽一倍 + 三模式等高
 - 鉴权卡片 `.login-card` 宽 320→640px（+ max-width:92vw 防小屏溢出，padding 略增）。
 - 三模式等高：加 `min-height:502px`(以最高的注册为准) + `justify-content:center`(内容垂直居中) + box-sizing。登录/注册/找回切换时卡片不再跳高（实测都 502px）。纯 CSS。
