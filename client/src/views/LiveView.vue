@@ -68,6 +68,8 @@ import RightPanel from '@/components/layout/RightPanel.vue'
 import { useRightPanel } from '@/composables/useRightPanel'
 import BoardSourcePanel from '@/components/layout/BoardSourcePanel.vue'
 import { useBoardSources } from '@/composables/useBoardSources'
+import SocialSourceModal from '@/components/board/SocialSourceModal.vue'
+import { useSocialSources } from '@/composables/useSocialSources'
 import { useMarketplace } from '@/composables/useMarketplace'
 import { useCli } from '@/composables/useCli'
 import { useProfileHome } from '@/composables/useProfileHome'
@@ -83,6 +85,8 @@ const { open: openAdmin, setCurrent: setAdminChannel } = useChannelAdmin()
 const { visible: rightPanelVisible, toggle: toggleRightPanel, hide: hideRightPanel } = useRightPanel()
 // 看板数据源：数据看板/任务看板的数据源展示(展开列表) + 编辑(弹窗)，按工作区持久化
 const { sources, panelOpen: boardPanelOpen, toggleSourcePanel, closeSourcePanel: closeBoardSrcPanel, setSpace: setBoardSpace } = useBoardSources()
+// 社媒数据源：看板「社媒数据」组的真实取数配置（账号API / AI爬取），按工作区持久化
+const { openModal: openSocialModal, setSpace: setSocialSpace } = useSocialSources()
 const { open: openCli } = useCli()
 // profileVisible 接入 URL 同步（个人主页是页面级覆盖层，给它 /me 地址）
 const { open: openProfileHome, visible: profileVisible } = useProfileHome()
@@ -248,7 +252,7 @@ const activeSpaceName = computed(
   () => spaces.value.find((s) => s.id === activeSpace.value)?.name || tenant.hqTitle,
 )
 // 工作区切换 → 看板数据源跟着切到该工作区的配置（每个工作区一份）
-watch(activeSpace, (id) => setBoardSpace(id), { immediate: true })
+watch(activeSpace, (id) => { setBoardSpace(id); setSocialSpace(id) }, { immediate: true })
 function wsLabel(name: string) {
   return [...name.replace(/[·\s]/g, '')].slice(0, 2).join('')
 }
@@ -1207,7 +1211,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
                 <div class="board-ask-tip">交给中枢 AI 执行（建群 / 查任务 / 跑工作流…），结果在右侧中枢 AI 面板。</div>
               </div>
               <!-- 社媒数据（演示）：播放量 / 粉丝 / 粉丝增长 / 互动率 -->
-              <div class="board-group-h">📈 社媒数据 <span class="board-group-tag">演示</span></div>
+              <div class="board-group-h">
+                📈 社媒数据 <span class="board-group-tag">演示</span>
+                <!-- 接入真实数据源：配各平台账号 API / AI 爬取（存 cosmac.social_sources）-->
+                <button class="board-src-btn" title="接入社媒数据源（账号 API / AI 爬取）" @click="openSocialModal">
+                  🔌 接入数据源
+                </button>
+              </div>
               <div class="kpis">
                 <KpiCard v-for="(k, i) in socialKpis" :key="k.label" :data="k" :delay="200 + i * 80" />
               </div>
@@ -1449,6 +1459,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
       <!-- 右：数据源面板（数据看板/任务看板头的数据源按钮开关）-->
       <BoardSourcePanel v-if="boardPanelOpen && !focused" />
+
+      <!-- 社媒数据源配置弹窗（看板「接入数据源」按钮打开）-->
+      <SocialSourceModal />
 
       <!-- 放大态遮罩：盖住整页，点空白处还原 -->
       <div v-if="aiOpen && aiMax && !focused" class="ai-backdrop" @click="aiMax = false" />
@@ -1897,6 +1910,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 /* 看板"一句话下达目标"hero（真发给中枢 AI）*/
 /* 看板分组小标题：区分「社媒数据(演示)」与「平台运营(真实)」两组 KPI */
 .board-group-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-100); font-weight: var(--fw-bold); color: var(--text); margin: 18px 2px 10px; }
+/* 「接入数据源」按钮：靠右，弱化描边样式，不抢 KPI 视觉 */
+.board-src-btn { margin-left: auto; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-2); font-size: 12px; font-weight: var(--fw-bold); padding: 5px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.board-src-btn:hover { border-color: var(--accent); color: var(--accent); }
 .board-group-tag { font-size: var(--fs-75, 11px); font-weight: var(--fw-bold); padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--text-dim, #888); }
 .board-group-tag.real { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .board-ask { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }

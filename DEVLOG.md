@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-25 — 数据看板「接入社媒数据源」P1（前端配置 UI）
+- 需求:看板社媒数据要接真实源——配各平台账号 API,或挂 AI Agent 爬。要按钮 + 逻辑设计。
+- **设计**(写进 CLAUDE.md 存储表):两种取数模式 api(官方平台 API)/crawl(AI Agent 走模块3 工作流爬公开主页);与工作流连接器同构——定义存控制室·按工作区 state event `cosmac.social_sources`,凭据只放「名」、真值进服务端 env `COSMAC_SOCIAL_*`;取回指标进 cosmac DB `cosmac_social_metric`。数据流:配置+env凭据 → bot 采集器(定时/手动) → API直调 或 run_workflow → 归一化写 DB → 新 REST 端点回看板。
+- **本次落地 P1(纯前端、可交付)**:看板「社媒数据」组旁加 **🔌 接入数据源** 按钮 → 配置弹窗(`SocialSourceModal.vue` + `useSocialSources.ts` + client.ts get/setSocialSources)。可增删数据源:平台(抖音/B站/YouTube/小红书/微博/X)、账号、模式(api/crawl)、凭据名 或 工作流名、同步间隔、启用开关;按工作区存 `cosmac.social_sources`、多端同步。配置结构即最终版。
+- **暂未接(P2~P4,标记清楚)**:后端采集器/真实调 API/AI 爬取/写 DB/看板读真值。弹窗「立即同步」先占位提示;凭据真值永不进前端。
+- 关键决策:先交付配置 UI 把数据结构钉死,后端分期接(涉及平台开发者资质/爬取合规,需负责人定先接哪个平台)。建议 P2 先接 YouTube Data API(最开放)。
+- 验证:`npm run build`(产物 `index-DqzQTPqI.js`)。弹窗在登录后看板可见,画面需负责人眼验。纯前端,**发 dist**。
+
 ## 2026-06-25 — 左侧栏新增「粉丝社区」分组
 - 需求:侧栏现有「频道」「私信」两组,再加一个「粉丝社区」分组。
 - 实现:纯前端名称启发式,零后端。房间名带 后援会/歌迷会/粉丝/应援/社区/fans 等关键词的归「粉丝社区」组,其余留「频道」组(`channelRooms`/`fanRooms` 两个 computed 从 `filteredRooms` 派生)。新组带独立折叠态 `fanCommunityOpen` + 「添加粉丝频道」入口(复用新建频道弹窗,名字带粉丝关键词即自动归此组)。

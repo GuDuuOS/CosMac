@@ -383,6 +383,29 @@ export async function setBoardSources(spaceId: string, data: Record<string, any>
   await (mx as any).sendStateEvent(spaceId, BOARD_SOURCES_EVENT, data, '')
 }
 
+/* ===== 社媒数据源（数据看板真实取数的配置）=====
+ * 按工作区(Space)存一条 state event `cosmac.social_sources`，内容 { sources: SocialSource[] }。
+ * 设计要点（与模块3 工作流连接器同构）：
+ *  · 定义（平台/账号/模式/凭据名/间隔）存这里——浏览器够不到 DB，走 Matrix state event、多端同步。
+ *  · 凭据本身（API key/token/cookie）只进**服务端 env** `COSMAC_SOCIAL_<平台>_<字段>`，定义里只放凭据**名**。
+ *  · 运行态（lastSync/lastStatus）由后端采集器回写，前端只读。
+ * P1 只落「读写配置」；真实取数（采集器/工作流/写 DB）是 P2~P4，见 DEVLOG/CLAUDE.md 路线图。
+ */
+const SOCIAL_SOURCES_EVENT = 'cosmac.social_sources'
+
+/** 读某工作区的社媒数据源配置；无则返回 { sources: [] }。 */
+export function getSocialSources(spaceId: string): Record<string, any> {
+  const room = mx?.getRoom(spaceId)
+  const ev = room?.currentState?.getStateEvents?.(SOCIAL_SOURCES_EVENT, '')
+  return ev?.getContent?.() || {}
+}
+
+/** 写某工作区的社媒数据源配置（整体覆盖；需该 Space 发状态事件的权限）。 */
+export async function setSocialSources(spaceId: string, data: Record<string, any>): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  await (mx as any).sendStateEvent(spaceId, SOCIAL_SOURCES_EVENT, data, '')
+}
+
 /** 在某工作区(Space)下真建一个频道：建房间 + 邀请主 AI + 挂到 Space 下。返回 room_id。 */
 export async function createChannelInSpace(
   spaceId: string,
