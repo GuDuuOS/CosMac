@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-25 — 注册页修浏览器自动填充串味 + 验证码框文案
+- 现象:注册时输入邮箱后,验证码框被浏览器自动填成邮箱(autofill 启发式把相邻框也塞了)。
+- 修:给各框加 autocomplete 语义——邮箱=email、验证码=one-time-code(+inputmode=numeric+maxlength6)、用户名=username、密码=new-password。验证码框声明 one-time-code 后浏览器不再填邮箱。验证码框占位改「6 位验证码（填邮件里的数字）」更清楚。
+- 线上已确认:邮箱验证码注册整条链路打通(收到验证码邮件)。SMTP(Lark)+ 共享密钥建号 OK。
+- 验证:build(`index-zGE1DsHc.js`)+ preview 确认各框 autocomplete 属性正确。纯前端,**发 dist**。
+- 仍待办:关 Synapse 开放注册(enable_registration:false)收尾。
+
 ## 2026-06-25 — 自建「邮箱验证码」注册（前端 + cosmac 后端）
 - 需求(负责人定):注册走邮箱验证码(非链接)。Synapse 原生只发验证链接,故自建。
 - 后端 `cosmac/registration.py`:发码→验码→用 registration_shared_secret 调 Synapse `/_synapse/admin/v1/register` 建号(该端点不受 enable_registration 影响)。码存内存(TTL+锁)、限频(同邮箱冷却60s/每小时5次)、验码尝试上限5、一次性作废。SMTP 走 smtplib(SSL465/STARTTLS587),密钥全从 env 读。

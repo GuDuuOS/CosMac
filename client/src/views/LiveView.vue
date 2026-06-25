@@ -1056,20 +1056,23 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
       </div>
       <!-- 注册时：邮箱 + 发送验证码 + 验证码 -->
+      <!-- autocomplete 语义化防浏览器自动填充串味：邮箱=email，验证码=one-time-code（浏览器知道是一次性码、不会把邮箱塞进来）-->
       <template v-if="authMode === 'register'">
         <div class="auth-code-row">
-          <input v-model="email" type="email" placeholder="邮箱" />
+          <input v-model="email" type="email" name="reg-email" autocomplete="email" placeholder="邮箱" />
           <button class="auth-code-btn" :disabled="codeCooldown > 0 || sendingCode || !email.trim()" @click="sendCode">
             {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? '发送中…' : '发送验证码') }}
           </button>
         </div>
-        <input v-model="emailCode" placeholder="邮箱验证码" @keyup.enter="doRegister" />
+        <input v-model="emailCode" name="reg-otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
+               placeholder="6 位验证码（填邮件里的数字）" @keyup.enter="doRegister" />
       </template>
-      <input v-model="user" placeholder="用户名" />
+      <input v-model="user" name="reg-username" autocomplete="username" placeholder="用户名" />
       <input v-model="password" type="password" :placeholder="authMode === 'register' ? '密码（至少 8 位）' : '密码'"
+             :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
              @keyup.enter="authMode === 'login' ? doLogin() : doRegister()" />
       <!-- 注册时多一个确认密码 -->
-      <input v-if="authMode === 'register'" v-model="password2" type="password" placeholder="确认密码"
+      <input v-if="authMode === 'register'" v-model="password2" type="password" autocomplete="new-password" placeholder="确认密码"
              @keyup.enter="doRegister" />
       <button v-if="authMode === 'login'" class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
       <button v-else class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
