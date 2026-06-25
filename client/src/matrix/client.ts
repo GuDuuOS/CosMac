@@ -139,6 +139,63 @@ export async function login(
   })
 }
 
+/**
+ * 注册新账号（用户名+密码），成功后直接登录并记住会话。返回完整用户 id。
+ *
+ * 走 Matrix 标准注册 + UIA（user-interactive auth）：
+ *  1) 先不带 auth 发一次 → 服务器返回 401 + flows + session（这是 UIA 协议，不是失败）。
+ *  2) 若服务器开放注册、流程只需 `m.login.dummy`（无邮箱/验证码）→ 带 dummy 再发一次完成注册。
+ *  3) 若服务器要求邮箱/验证码/注册令牌等额外步骤 → 这里给不出，抛友好错误（让用户走管理员开号）。
+ *
+ * 前提：服务器需 `enable_registration: true`（且未强制额外验证）。否则会收到 M_FORBIDDEN。
+ */
+export async function register(
+  baseUrl: string,
+  user: string,
+  password: string,
+): Promise<string> {
+  const tmp = createClient({ baseUrl })
+  const doReq = (auth?: any) =>
+    (tmp as any).registerRequest({
+      username: user,
+      password,
+      auth,
+      initial_device_display_name: 'CosMac Web',
+    })
+
+  let res: any
+  try {
+    // 第一次通常会 401（UIA 要 session）；若服务器允许无 UIA 注册则可能直接成功
+    res = await doReq()
+  } catch (e: any) {
+    const data = e?.data
+    if (e?.httpStatus === 401 && data?.session) {
+      const flows: any[] = Array.isArray(data.flows) ? data.flows : []
+      // 只接受「只需 dummy」的开放注册；要邮箱/验证码/令牌的流程不在此处理
+      const dummyOk = flows.some((f) => Array.isArray(f.stages) && f.stages.includes('m.login.dummy'))
+      if (dummyOk) {
+        res = await doReq({ type: 'm.login.dummy', session: data.session })
+      } else {
+        throw new Error('该服务器的注册需要额外验证（邮箱/验证码/邀请码），暂无法在此直接注册')
+      }
+    } else if (e?.errcode === 'M_USER_IN_USE') {
+      throw new Error('该用户名已被占用，请换一个')
+    } else if (e?.errcode === 'M_FORBIDDEN') {
+      throw new Error('服务器未开放注册，请联系管理员开通账号')
+    } else {
+      throw e
+    }
+  }
+
+  saveSession(baseUrl, res)
+  return startFrom({
+    baseUrl,
+    accessToken: res.access_token,
+    userId: res.user_id,
+    deviceId: res.device_id,
+  })
+}
+
 /** 尝试用上次记住的会话恢复登录；没有/失效返回 null。 */
 export async function restoreSession(): Promise<string | null> {
   const raw = localStorage.getItem(SESSION_KEY)

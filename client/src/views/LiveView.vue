@@ -17,6 +17,7 @@ import { ref, computed, reactive, watch, onMounted, onBeforeUnmount, nextTick } 
 import { useRoute, useRouter } from 'vue-router'
 import {
   login,
+  register,
   restoreSession,
   logout,
   onUpdate,
@@ -188,6 +189,8 @@ const HS = 'https://hs.cosmac.cc'
 // ── 登录态 ──────────────────────────────────────────────
 const user = ref('admin')
 const password = ref('')
+const password2 = ref('')               // 注册时的「确认密码」
+const authMode = ref<'login' | 'register'>('login') // 鉴权页：登录 / 注册
 const loggedIn = ref(false)
 const me = ref('')
 const error = ref('')
@@ -693,6 +696,29 @@ async function doLogin() {
   }
 }
 
+/** 注册新账号：校验两次密码一致 → 调 register → 注册即登录（随后会自动触发首次引导）。 */
+async function doRegister() {
+  error.value = ''
+  const u = user.value.trim()
+  if (!u || !password.value) { error.value = '请填用户名和密码'; return }
+  if (password.value !== password2.value) { error.value = '两次输入的密码不一致'; return }
+  loading.value = true
+  try {
+    await afterLogin(await register(HS, u, password.value))
+  } catch (e: any) {
+    error.value = e?.message || String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 切换登录/注册，清掉上次的错误和确认密码 */
+function switchAuthMode(m: 'login' | 'register') {
+  authMode.value = m
+  error.value = ''
+  password2.value = ''
+}
+
 // ── Discord 化：反应 / 回复 / 消息分组 ──
 import type { ReactionAgg } from '@/matrix/client'
 const reactions = ref<Record<string, ReactionAgg[]>>({})
@@ -984,14 +1010,26 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <!-- ════════════════ 登录页 ════════════════ -->
+  <!-- ════════════════ 登录 / 注册页 ════════════════ -->
   <div v-if="!loggedIn" class="login">
     <div class="login-card">
       <div class="brand login-brand"><img :src="logoUrl" class="brand-logo" alt="" />CosMac<span>Star</span></div>
+      <!-- 登录 / 注册 切换 -->
+      <div class="auth-tabs">
+        <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">登录</button>
+        <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
+      </div>
       <input v-model="user" placeholder="用户名（如 admin）" />
-      <input v-model="password" type="password" placeholder="密码" @keyup.enter="doLogin" />
-      <button class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
-      <p class="err" v-if="error">登录失败：{{ error }}</p>
+      <input v-model="password" type="password" placeholder="密码"
+             @keyup.enter="authMode === 'login' ? doLogin() : doRegister()" />
+      <!-- 注册时多一个确认密码 -->
+      <input v-if="authMode === 'register'" v-model="password2" type="password" placeholder="确认密码"
+             @keyup.enter="doRegister" />
+      <button v-if="authMode === 'login'" class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
+      <button v-else class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
+      <p class="err" v-if="error">{{ authMode === 'login' ? '登录失败' : '注册失败' }}：{{ error }}</p>
+      <p class="auth-switch" v-if="authMode === 'login'">还没有账号？<a @click="switchAuthMode('register')">注册一个</a></p>
+      <p class="auth-switch" v-else>已有账号？<a @click="switchAuthMode('login')">去登录</a></p>
     </div>
   </div>
 
@@ -1805,6 +1843,14 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .brand-logo { width: 26px; height: 26px; object-fit: contain; border-radius: 6px; }
 .login-card input { padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; }
 .login-btn { padding: 11px; border: 0; border-radius: 10px; background: var(--action); color: #fff; font-size: 14px; cursor: pointer; }
+.login-btn:disabled { opacity: .6; cursor: default; }
+/* 登录 / 注册 分段切换 */
+.auth-tabs { display: flex; gap: 4px; padding: 3px; background: var(--bg, #f1efe9); border: 1px solid var(--border); border-radius: 10px; }
+.auth-tab { flex: 1; padding: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 14px; font-weight: 600; border-radius: 8px; cursor: pointer; }
+.auth-tab.active { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.auth-switch { color: var(--text-3); font-size: 13px; text-align: center; margin: 0; }
+.auth-switch a { color: var(--accent); cursor: pointer; font-weight: 600; }
+.auth-switch a:hover { text-decoration: underline; }
 .err { color: var(--danger); font-size: 13px; }
 .hint { color: var(--text-3); font-size: 12px; }
 .hint.pad { padding: 16px; }
