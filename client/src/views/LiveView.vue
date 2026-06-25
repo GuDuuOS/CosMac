@@ -187,7 +187,7 @@ async function moveTask(t: TaskItem, status: string) {
 const HS = 'https://hs.cosmac.cc'
 
 // ── 登录态 ──────────────────────────────────────────────
-const user = ref('admin')
+const user = ref('')
 const password = ref('')
 const password2 = ref('')               // 注册时的「确认密码」
 const authMode = ref<'login' | 'register'>('login') // 鉴权页：登录 / 注册
@@ -1019,7 +1019,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">登录</button>
         <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
       </div>
-      <input v-model="user" placeholder="用户名（如 admin）" />
+      <input v-model="user" placeholder="用户名" />
       <input v-model="password" type="password" placeholder="密码"
              @keyup.enter="authMode === 'login' ? doLogin() : doRegister()" />
       <!-- 注册时多一个确认密码 -->
