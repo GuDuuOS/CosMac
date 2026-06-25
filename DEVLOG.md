@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-25 — 入驻模板边角①：付费模板门控
+- 之前付费模板只显示角标、不拦截。现在引导加门控:进来查当前会员等级(payGetMe)→付费模板(tier 高于用户等级)**锁住**,卡片显示「🔒 付费」+置灰,点了提示「X 是付费专享,先选免费的或升级」、不放行。
+- 等级比较按 MEMBER_TIERS 顺序(free<paid<creator)。UI 级门控(够用即止/单实例,符合 [[wf-reliability-scope]] 口径);彻底服务端强制(模板配置是客户端写 state event 应用的)是已知边界、本期不做。
+- 验证:build(`index-iBwVINmc.js`)。纯前端,**发 dist**。
+
 ## 2026-06-25 — 入驻模板 P2c：模板预置知识库灌进新用户
 - 模板的预置知识库文档在注册时灌进新用户。KB 要写 cosmac DB+向量化,前端做不了,加后端端点。
 - 后端 `/cosmac/onboard/ingest-kb`(带本人 token):whoami→把 docs 灌进**本人个人知识库**(scope=USER,kb.ingest_document)。选个人库是因为 bot `_kb_context` 检索时会带上发送人个人库→模板知识在该用户**任何频道**都可用,免去按频道重复入库。一次最多50篇、受 MAX_DOCS_PER_SCOPE(200) 限。best-effort 失败回200不阻断。

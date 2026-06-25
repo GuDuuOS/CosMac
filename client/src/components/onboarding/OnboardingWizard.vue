@@ -22,10 +22,10 @@
       <footer class="onb-foot">
         <!-- ① 行业模板 -->
         <div v-if="step === 'template'" class="onb-tpls">
-          <button v-for="t in templates" :key="t.key" class="onb-tpl" @click="pickTemplate(t.key)">
+          <button v-for="t in templates" :key="t.key" class="onb-tpl" :class="{ locked: templateLocked(t) }" @click="pickTemplate(t.key)">
             <span class="onb-tpl-ic">{{ t.icon }}</span>
             <span class="onb-tpl-main">
-              <span class="onb-tpl-label">{{ t.label }}<span v-if="t.paid" class="onb-tpl-paid">付费</span></span>
+              <span class="onb-tpl-label">{{ t.label }}<span v-if="t.paid" class="onb-tpl-paid">{{ templateLocked(t) ? '🔒 付费' : '付费' }}</span></span>
               <span class="onb-tpl-desc">{{ t.desc }}</span>
             </span>
           </button>
@@ -86,7 +86,7 @@ import { useOnboarding } from '@/composables/useOnboarding'
 const emit = defineEmits<{ (e: 'done', spaceId: string): void; (e: 'skip'): void }>()
 
 const {
-  visible, step, messages, busy, error, answers, templates,
+  visible, step, messages, busy, error, answers, templates, templateLocked,
   pickTemplate: pick, submitName, addChannel, removeChannel, confirmChannels,
   submitPersona, goStep, runCreate, skip,
 } = useOnboarding()
@@ -156,6 +156,8 @@ watch(messages, () => { nextTick(() => { if (scroll.value) scroll.value.scrollTo
 .onb-tpls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .onb-tpl { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); cursor: pointer; }
 .onb-tpl:hover { border-color: var(--accent); }
+.onb-tpl.locked { opacity: .6; }
+.onb-tpl.locked:hover { border-color: var(--border); }
 .onb-tpl-ic { font-size: 20px; }
 .onb-tpl-main { display: flex; flex-direction: column; min-width: 0; }
 .onb-tpl-label { font-size: 13px; font-weight: 700; color: var(--text); }

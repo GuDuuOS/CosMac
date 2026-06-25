@@ -3,6 +3,7 @@ import {
   isOnboarded, setOnboarded,
   createSpace, createChannelInSpace, setChannelConfig, onboardIngestKb,
   getOnboardingTemplates, type OnboardingTemplateDef,
+  payGetMe, MEMBER_TIERS, memberTierLabel,
 } from '@/matrix/client'
 import { ONBOARDING_TEMPLATES } from '@/data/onboardingTemplates'
 
@@ -63,6 +64,7 @@ const busy = ref(false)
 const error = ref('')
 const createdSpaceId = ref('')
 const templates = ref<OnbPickTemplate[]>([])
+const userTier = ref('free') // 当前用户会员等级（用于付费模板门控）
 const answers = reactive<OnbAnswers>({
   templateKey: '', workspace: '', channels: [], aiName: '', aiPersona: '', rules: '',
   model: '', skillSlugs: [], kbDocs: [],
@@ -96,7 +98,7 @@ function builtinTemplates(): OnbPickTemplate[] {
   }))
 }
 
-/** 加载模板：优先后台已上架的；没有则回退内置。 */
+/** 加载模板：优先后台已上架的；没有则回退内置。同时查当前用户会员等级（付费门控用）。 */
 async function loadTemplates() {
   try {
     const backend = await getOnboardingTemplates()
@@ -105,6 +107,22 @@ async function loadTemplates() {
   } catch {
     templates.value = builtinTemplates()
   }
+  try {
+    const me = await payGetMe()
+    userTier.value = me?.tier || 'free'
+  } catch {
+    userTier.value = 'free'
+  }
+}
+
+/** 等级排序：free < paid < creator（按 MEMBER_TIERS 顺序）。 */
+function tierRank(slug: string): number {
+  const i = MEMBER_TIERS.findIndex((t) => t.slug === slug)
+  return i < 0 ? 0 : i
+}
+/** 该模板是否被当前会员等级锁住（付费模板高于用户等级）。 */
+function templateLocked(t: OnbPickTemplate): boolean {
+  return tierRank(t.tier) > tierRank(userTier.value)
 }
 
 /** 复位到初始问候 */
@@ -129,7 +147,8 @@ function reset() {
 
 export function useOnboarding() {
   return {
-    visible, step, messages, busy, error, answers, createdSpaceId, templates,
+    visible, step, messages, busy, error, answers, createdSpaceId, templates, userTier,
+    templateLocked,
 
     /** 登录后调用：没引导过才自动弹（已引导/已跳过则什么都不做）。 */
     maybeAutoStart() {
@@ -142,10 +161,15 @@ export function useOnboarding() {
     open() { reset(); loadTemplates(); visible.value = true },
     close() { visible.value = false },
 
-    /** ① 选模板 → 预填后进入「工作区名」 */
+    /** ① 选模板 → 预填后进入「工作区名」（付费模板高于用户等级则拦截、提示升级）*/
     pickTemplate(key: string) {
       const t = templates.value.find((x) => x.key === key)
       if (!t) return
+      if (templateLocked(t)) {
+        user(`${t.icon} ${t.label}`)
+        ai(`「${t.label}」是${memberTierLabel(t.tier)}专享方案，你当前是${memberTierLabel(userTier.value)}。先选个免费方案，或升级会员后再用～`)
+        return
+      }
       answers.templateKey = key
       answers.channels = [...t.channels]
       answers.aiName = t.aiName
