@@ -7,6 +7,12 @@
 
 ---
 
+## 2026-06-25 — 验证码邮件去掉 logo 图 + 投递排查
+- 邮件进 Gmail 垃圾箱。查 guduu.co DNS:SPF(spf.onlarksuite.com -all)✅、DMARC(p=reject)✅、MX(larksuite)✅,但**DKIM 没查到**(常见 selector 无记录)——这是主因之一;加上新域名无信誉、跨域外链图(logo 来自 app.cosmac.cc 而发件人 guduu.co)拉低评分。
+- 处理:① 去掉邮件 logo 图,抬头改纯文字标识「✦ CosMac Star」(文字字符、不外链图、不受远程图拦截、利于投递);删 `email-logo.png` 资产 + `_email_logo_url`。② DKIM 需负责人去 Lark 后台域名管理补 DKIM 记录;建议用 mail-tester.com 精确诊断。
+- 验证:ruff + 7 单测过;`_build_email` 产出无 img、有 ✦ 文字标识;preview 真实渲染截图确认。
+- 部署:发 dist + 重启 bot。
+
 ## 2026-06-25 — 验证码邮件品牌化（HTML 模板 + logo + 纯文本兜底）
 - 把验证码邮件从纯文本升级成品牌化 HTML：吉祥物 logo + 「CosMac Star」抬头 + 大号验证码（陶土橙 #993c1d 底框）+ 有效期 + 安全提示 + 页脚。负责人预览确认。
 - 邮件安全写法：表格布局 + 全内联样式（Gmail/Outlook 剥 <style>、不支持 flex）。`registration.py` 加 `_build_email()` 返回 (主题/纯文本/HTML)，`_send_email` 用 set_content(纯文本)+add_alternative(html)。

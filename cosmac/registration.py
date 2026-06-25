@@ -103,16 +103,12 @@ def registration_enabled() -> bool:
     return _smtp_conf() is not None and bool(_env("REGISTRATION_SHARED_SECRET"))
 
 
-def _email_logo_url() -> str:
-    """邮件里 logo 的公网地址（邮件不能内联打包图，必须用 URL）。可用 env 覆盖。"""
-    return _env("EMAIL_LOGO_URL", "https://app.cosmac.cc/email-logo.png")
-
-
 def _build_email(code: str) -> Tuple[str, str, str]:
     """构造验证码邮件，返回 (主题, 纯文本, HTML)。
 
     HTML 用「邮件安全」写法：表格布局 + 全内联样式（Gmail/Outlook 会剥离 <style>、不支持
-    flex/grid）。logo 走公网 URL（客户端默认可能不自动加载远程图，alt 文字兜底）。
+    flex/grid）。抬头用**纯文字标识**（不外链图片）——邮件客户端默认不加载远程图、且跨域
+    外链图会拉低投递评分（更易进垃圾箱），所以不放 logo 图。
     """
     mins = _CODE_TTL // 60
     subject = f"【CosMac Star】注册验证码 {code}"
@@ -121,16 +117,12 @@ def _build_email(code: str) -> Tuple[str, str, str]:
         f"验证码：{code}\n\n"
         f"{mins} 分钟内有效。如果这不是你本人的操作，忽略本邮件即可，账号不会有任何变化。"
     )
-    logo = _email_logo_url()
     html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;background:#f1efe9;font-family:-apple-system,'PingFang SC',sans-serif;">
 <div style="padding:32px 16px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="width:100%;max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #eae6df;">
 <tr><td style="padding:30px 36px 8px;">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td style="vertical-align:middle;"><img src="{logo}" alt="CosMac Star" width="30" height="30" style="display:block;border-radius:7px;"></td>
-<td style="vertical-align:middle;padding-left:9px;font-size:19px;font-weight:600;color:#2c2a26;letter-spacing:.3px;">CosMac&nbsp;<span style="color:#c96442;">Star</span></td>
-</tr></table>
+<div style="font-size:19px;font-weight:600;color:#2c2a26;letter-spacing:.3px;"><span style="color:#c96442;">✦</span>&nbsp;CosMac&nbsp;<span style="color:#c96442;">Star</span></div>
 </td></tr>
 <tr><td style="padding:14px 36px 0;">
 <div style="font-size:20px;font-weight:600;color:#2c2a26;">验证你的邮箱</div>
