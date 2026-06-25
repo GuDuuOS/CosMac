@@ -144,8 +144,11 @@ function openBoard() { board.value = true; tasks.value = false; currentRoom.valu
 function openTasks() { tasks.value = true; board.value = false; currentRoom.value = ''; loadTasks() }
 
 // 任务看板（AI 任务编排 P1）：主 AI 拆解的真实任务，三列 Kanban + 手动改状态。
-import { getTasks, updateTask, type TaskItem } from '@/matrix/client'
+import { getTasks, updateTask, kbListMine, type TaskItem } from '@/matrix/client'
 const taskList = ref<TaskItem[]>([])
+// AI 侧栏放大态右栏：进度=真实任务完成数，项目文件=真实个人知识库文档
+const doneCount = computed(() => taskList.value.filter((t) => t.status === 'done').length)
+const kbDocsMine = ref<{ title: string; source: string }[]>([])
 const TASK_COLS = [
   { key: 'todo', label: '待办' },
   { key: 'doing', label: '进行中' },
@@ -214,6 +217,12 @@ const aiOpen = ref(true)
 const aiMax = ref(false)
 // 关闭面板时一并退出放大态，避免下次打开还停在放大
 watch(aiOpen, (v) => { if (!v) aiMax.value = false })
+// 进入放大态时拉真实数据填右栏（任务进度 + 个人知识库文档）
+watch(aiMax, async (v) => {
+  if (!v) return
+  if (!taskList.value.length) loadTasks()
+  kbDocsMine.value = await kbListMine()
+})
 
 // 中枢 AI 对话区：来新消息 / 打开面板时自动滚到底部（否则 bot 回复在视口下方看不到）
 const aiBodyRef = ref<HTMLElement | null>(null)
@@ -1694,32 +1703,27 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
             </div>
           </div>
 
-          <!-- 右栏：进度 + 项目文件（仅放大态，对齐 Cowork 右栏）-->
+          <!-- 右栏（仅放大态）：进度=真实任务看板 / 项目文件=真实知识库文档 -->
           <div v-if="aiMax" class="ai-cw-right">
             <div class="ai-cw-sec">
-              <div class="ai-cw-sec-h with-meta"><span>Progress</span><span class="ai-cw-meta">5/8</span></div>
-              <ul class="ai-cw-progress">
-                <li class="done">热点选题扫描</li>
-                <li class="done">对标账号拆解</li>
-                <li class="done">爆款标题生成</li>
-                <li class="done">脚本初稿草拟</li>
-                <li class="done">封面方案生成</li>
-                <li class="in">数据复盘报告生成中…</li>
-                <li>素材库去重</li>
-                <li>推送发布排期</li>
+              <div class="ai-cw-sec-h with-meta"><span>进度</span><span class="ai-cw-meta">{{ doneCount }}/{{ taskList.length }}</span></div>
+              <ul v-if="taskList.length" class="ai-cw-progress">
+                <li v-for="t in taskList.slice(0, 9)" :key="t.id"
+                    :class="{ done: t.status === 'done', in: t.status === 'doing' }">
+                  {{ t.title }}<template v-if="t.status === 'doing' && t.progress"> · {{ t.progress }}%</template>
+                </li>
               </ul>
+              <div v-else class="ai-cw-empty">还没有任务。在数据看板「一句话下达目标」让中枢 AI 拆解。</div>
             </div>
             <div class="ai-cw-sec">
               <div class="ai-cw-proj-h">
-                <span class="ai-cw-proj-nm">{{ activeSpaceName }} · 本周专班</span>
+                <span class="ai-cw-proj-nm">知识库 · {{ activeSpaceName }}</span>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
               </div>
-              <ul class="ai-cw-files">
-                <li><span class="ic">📄</span>Instructions · CLAUDE.md</li>
-                <li><span class="ic">📊</span>全平台数据_2026Q2.xlsx</li>
-                <li><span class="ic">📑</span>平台规则与避雷.pdf</li>
-                <li><span class="ic">🧾</span>商单合作合同模板.docx</li>
+              <ul v-if="kbDocsMine.length" class="ai-cw-files">
+                <li v-for="(d, i) in kbDocsMine" :key="i"><span class="ic">📄</span>{{ d.title }}</li>
               </ul>
+              <div v-else class="ai-cw-empty">还没有知识库文档。在频道里发「知识库 添加 标题|内容」，或注册时按模板预置。</div>
             </div>
           </div>
 
@@ -2504,6 +2508,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .ai-cw-sec-h.with-meta { display: flex; justify-content: space-between; }
 .ai-cw-meta { color: var(--accent); font-weight: var(--fw-bold); }
 .ai-cw-progress, .ai-cw-files { list-style: none; margin: 0; padding: 0; }
+.ai-cw-empty { font-size: var(--fs-75, 12px); color: var(--text-3); line-height: 1.6; padding: 6px 4px; }
 .ai-cw-progress li { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: var(--fs-100); color: var(--text-2); position: relative; padding-left: 26px; }
 .ai-cw-progress li::before { content: ""; position: absolute; left: 4px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--text-dim); }
 .ai-cw-progress li.done { color: var(--text-3); text-decoration: line-through; }

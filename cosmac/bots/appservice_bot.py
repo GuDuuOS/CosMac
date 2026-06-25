@@ -1407,6 +1407,23 @@ class CosmacBot:
             b.get("email", ""), b.get("password", ""), hs_url=self.config.homeserver_url,
         )
 
+    def handle_kb_list_mine(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
+        """列出本人**个人知识库**文档（标题）。给 AI 侧栏「项目文件」展示真实知识库用。需登录。"""
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        docs: List[Dict[str, Any]] = []
+        try:
+            from cosmac.db import kb, session_scope
+            from cosmac.db.models import SCOPE_USER
+
+            with session_scope() as s:
+                for d in kb.list_docs(s, scope=SCOPE_USER, scope_id=user_id):
+                    docs.append({"title": d.title, "source": d.source})
+        except Exception:
+            logger.debug("列知识库失败", exc_info=True)
+        return 200, {"docs": docs}
+
     def handle_onboard_ingest_kb(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
@@ -1860,7 +1877,8 @@ class _Handler(BaseHTTPRequestHandler):
                 or p.startswith("/cosmac/register/")
                 or p.startswith("/cosmac/reset/")
                 or p.startswith("/cosmac/login/")
-                or p.startswith("/cosmac/onboard/")):
+                or p.startswith("/cosmac/onboard/")
+                or p == "/cosmac/kb/list"):
             origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", origin)
@@ -1947,6 +1965,13 @@ class _Handler(BaseHTTPRequestHandler):
             auth = self.headers.get("Authorization", "")
             token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
             code, payload = self.bot.handle_tasks_list(token)
+            self._send_json(code, payload, cors=True)
+            return
+        # AI 侧栏「项目文件」：列本人个人知识库文档（带本人 token）
+        if self.path.split("?", 1)[0] == "/cosmac/kb/list":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            code, payload = self.bot.handle_kb_list_mine(token)
             self._send_json(code, payload, cors=True)
             return
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在

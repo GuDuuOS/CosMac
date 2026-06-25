@@ -1609,6 +1609,22 @@ export async function onboardIngestKb(
   }
 }
 
+/** 列本人个人知识库文档（给 AI 侧栏「项目文件」展示）。失败/未登录返回 []。 */
+export async function kbListMine(): Promise<{ title: string; source: string }[]> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token) return []
+  try {
+    const r = await fetch(`${payBase()}/cosmac/kb/list`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) return []
+    const j = await r.json().catch(() => ({}))
+    return Array.isArray(j?.docs) ? j.docs : []
+  } catch {
+    return []
+  }
+}
+
 /** 验码 + 重置密码。成功无返回；失败抛出带文案的错误。 */
 export async function resetVerify(
   baseUrl: string,
