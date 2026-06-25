@@ -1,7 +1,7 @@
 import { ref, reactive } from 'vue'
 import {
   isOnboarded, setOnboarded,
-  createSpace, createChannelInSpace, setChannelConfig,
+  createSpace, createChannelInSpace, setChannelConfig, onboardIngestKb,
   getOnboardingTemplates, type OnboardingTemplateDef,
 } from '@/matrix/client'
 import { ONBOARDING_TEMPLATES } from '@/data/onboardingTemplates'
@@ -38,6 +38,7 @@ export interface OnbPickTemplate {
   rules: string
   model: string
   skillSlugs: string[]
+  kbDocs: { title: string; content: string }[]
   tier: string
   paid: boolean
 }
@@ -51,6 +52,7 @@ interface OnbAnswers {
   rules: string
   model: string
   skillSlugs: string[]
+  kbDocs: { title: string; content: string }[]
 }
 
 /* ===== 模块级单例 ===== */
@@ -63,7 +65,7 @@ const createdSpaceId = ref('')
 const templates = ref<OnbPickTemplate[]>([])
 const answers = reactive<OnbAnswers>({
   templateKey: '', workspace: '', channels: [], aiName: '', aiPersona: '', rules: '',
-  model: '', skillSlugs: [],
+  model: '', skillSlugs: [], kbDocs: [],
 })
 
 function ai(text: string) { messages.value.push({ role: 'ai', text }) }
@@ -79,6 +81,7 @@ function fromBackend(t: OnboardingTemplateDef): OnbPickTemplate {
     rules: t.rules,
     model: t.model,
     skillSlugs: [...t.skillSlugs],
+    kbDocs: t.kbDocs.map((d) => ({ ...d })),
     tier: t.tier || 'free',
     paid: (t.tier || 'free') !== 'free',
   }
@@ -89,7 +92,7 @@ function builtinTemplates(): OnbPickTemplate[] {
   return ONBOARDING_TEMPLATES.map((t) => ({
     key: t.key, label: t.label, icon: t.icon, desc: t.desc,
     channels: [...t.channels], aiName: t.aiName, aiPersona: t.aiPersona,
-    rules: '', model: '', skillSlugs: [], tier: 'free', paid: false,
+    rules: '', model: '', skillSlugs: [], kbDocs: [], tier: 'free', paid: false,
   }))
 }
 
@@ -119,6 +122,7 @@ function reset() {
   answers.rules = ''
   answers.model = ''
   answers.skillSlugs = []
+  answers.kbDocs = []
   ai('👋 欢迎来到 CosMac Star！我是你的中枢 AI。')
   ai('先花一分钟把你的工作台搭起来——你主要做哪个方向？')
 }
@@ -149,6 +153,7 @@ export function useOnboarding() {
       answers.rules = t.rules
       answers.model = t.model
       answers.skillSlugs = [...t.skillSlugs]
+      answers.kbDocs = t.kbDocs.map((d) => ({ ...d }))
       user(`${t.icon} ${t.label}`)
       ai(`好的，按「${t.label}」给你预置了一套频道和助手人设，后面都能改。`)
       ai('给你的工作区起个名字吧？这个名字会显示在左上角。')
@@ -223,7 +228,11 @@ export function useOnboarding() {
         for (const cid of channelIds) {
           try { await setChannelConfig(cid, personaPatch) } catch { /* 单频道写失败不阻断 */ }
         }
-        // 4) 标记已引导
+        // 4) 把模板预置知识库文档灌进本人个人知识库（best-effort，灌不进不阻断引导）
+        if (answers.kbDocs.length) {
+          try { await onboardIngestKb(answers.kbDocs) } catch { /* 忽略 */ }
+        }
+        // 5) 标记已引导
         try { await setOnboarded(true) } catch { /* 标记失败也无妨，下次最多再问一次 */ }
         step.value = 'done'
         ai('🎉 搭好了！正在把你带进新工作区…')

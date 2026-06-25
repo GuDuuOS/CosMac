@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-25 — 入驻模板 P2c：模板预置知识库灌进新用户
+- 模板的预置知识库文档在注册时灌进新用户。KB 要写 cosmac DB+向量化,前端做不了,加后端端点。
+- 后端 `/cosmac/onboard/ingest-kb`(带本人 token):whoami→把 docs 灌进**本人个人知识库**(scope=USER,kb.ingest_document)。选个人库是因为 bot `_kb_context` 检索时会带上发送人个人库→模板知识在该用户**任何频道**都可用,免去按频道重复入库。一次最多50篇、受 MAX_DOCS_PER_SCOPE(200) 限。best-effort 失败回200不阻断。
+- 前端:client.ts `onboardIngestKb`(引导登录后跑、用当前 token);OnbPickTemplate/answers 加 kbDocs;runCreate 建完工作区后灌库。
+- 至此模板的 **人设/RULE/模型/技能/知识库** 全部随注册落地生效。
+- **留**:默认工作流绑定(概念待定)、tier 门控强制、KB 改群级共享(现在是个人库)。注:服务端 embedder 若无 API 走哈希兜底,检索质量一般但能用。
+- 验证:ruff + 34 单测(group_agent/registration/kb)全过;前端 build(`index-Cb8DAKae.js`)。**发 dist + 重启 bot**。
+
 ## 2026-06-25 — 入驻模板 P2b：模型 + 技能也按工作区生效
 - 接着 P2(人设)，让模板的**模型/技能**也在新工作区生效，且不绑全局智能体、尊重用户改的人设。
 - bot 小改:`_group_context` 自定义人设路径也读 `persona.model` + `persona.skill_slugs`(skill_slugs 经 `_agent_skill_items` 解析技能库全局技能)。+1 单测。

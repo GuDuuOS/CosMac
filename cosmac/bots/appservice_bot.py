@@ -1407,6 +1407,45 @@ class CosmacBot:
             b.get("email", ""), b.get("password", ""), hs_url=self.config.homeserver_url,
         )
 
+    def handle_onboard_ingest_kb(
+        self, access_token: str, body: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """入驻引导：把模板预置文档灌进**本人个人知识库**(scope=USER)。需登录。
+
+        个人库 → bot 在该用户任何房间检索 RAG 时都会带上，所以模板知识全工作区可用。
+        best-effort：DB/embedder 出问题也回 200、不阻断引导（前端只当少灌了几篇）。
+        """
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        docs = (body or {}).get("docs")
+        if not isinstance(docs, list):
+            return 400, {"error": "docs 无效"}
+        ingested = 0
+        try:
+            from cosmac.db import kb, session_scope
+            from cosmac.db.kb_cmd import MAX_DOCS_PER_SCOPE
+            from cosmac.db.models import SCOPE_USER
+
+            with session_scope() as s:
+                count = len(kb.list_docs(s, scope=SCOPE_USER, scope_id=user_id))
+                for d in docs[:50]:  # 一次最多灌 50 篇，防滥用
+                    if count >= MAX_DOCS_PER_SCOPE:
+                        break
+                    title = str((d or {}).get("title") or "").strip()
+                    text = str((d or {}).get("content") or "").strip()
+                    if not title or not text:
+                        continue
+                    kb.ingest_document(
+                        s, scope=SCOPE_USER, scope_id=user_id,
+                        title=title, source="onboarding", text=text,
+                    )
+                    count += 1
+                    ingested += 1
+        except Exception:
+            logger.exception("入驻知识库入库失败")
+        return 200, {"ingested": ingested}
+
     def handle_pay_checkout(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
@@ -1820,7 +1859,8 @@ class _Handler(BaseHTTPRequestHandler):
                 or p.startswith("/cosmac/tasks")
                 or p.startswith("/cosmac/register/")
                 or p.startswith("/cosmac/reset/")
-                or p.startswith("/cosmac/login/")):
+                or p.startswith("/cosmac/login/")
+                or p.startswith("/cosmac/onboard/")):
             origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", origin)
@@ -1997,6 +2037,18 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "请求无效"}, cors=True)
                 return
             code, payload = self.bot.handle_login_email(body)
+            self._send_json(code, payload, cors=True)
+            return
+
+        # 入驻引导：把模板文档灌进本人个人知识库（带本人 token、浏览器调，需 CORS）。
+        if path == "/cosmac/onboard/ingest-kb":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            body = self._read_json_body(_MAX_CALLBACK_BODY)
+            if body is None:
+                self._send_json(400, {"error": "请求无效"}, cors=True)
+                return
+            code, payload = self.bot.handle_onboard_ingest_kb(token, body)
             self._send_json(code, payload, cors=True)
             return
 

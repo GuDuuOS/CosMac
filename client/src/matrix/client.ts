@@ -1589,6 +1589,26 @@ export async function resetRequestCode(baseUrl: string, email: string): Promise<
   if (!r.ok) throw new Error(j?.error || '发送验证码失败')
 }
 
+/** 入驻引导：把模板预置文档灌进本人个人知识库（引导是登录后跑的，用当前会话 token）。
+ *  best-effort：返回入库篇数；失败返回 0、不抛错（不阻断引导）。 */
+export async function onboardIngestKb(
+  docs: { title: string; content: string }[],
+): Promise<number> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token || !docs.length) return 0
+  try {
+    const r = await fetch(`${payBase()}/cosmac/onboard/ingest-kb`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ docs }),
+    })
+    const j = await r.json().catch(() => ({}))
+    return Number(j?.ingested) || 0
+  } catch {
+    return 0
+  }
+}
+
 /** 验码 + 重置密码。成功无返回；失败抛出带文案的错误。 */
 export async function resetVerify(
   baseUrl: string,
