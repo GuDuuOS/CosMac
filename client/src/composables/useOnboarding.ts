@@ -36,6 +36,8 @@ export interface OnbPickTemplate {
   aiName: string
   aiPersona: string
   rules: string
+  model: string
+  skillSlugs: string[]
   tier: string
   paid: boolean
 }
@@ -47,6 +49,8 @@ interface OnbAnswers {
   aiName: string
   aiPersona: string
   rules: string
+  model: string
+  skillSlugs: string[]
 }
 
 /* ===== 模块级单例 ===== */
@@ -59,6 +63,7 @@ const createdSpaceId = ref('')
 const templates = ref<OnbPickTemplate[]>([])
 const answers = reactive<OnbAnswers>({
   templateKey: '', workspace: '', channels: [], aiName: '', aiPersona: '', rules: '',
+  model: '', skillSlugs: [],
 })
 
 function ai(text: string) { messages.value.push({ role: 'ai', text }) }
@@ -72,6 +77,8 @@ function fromBackend(t: OnboardingTemplateDef): OnbPickTemplate {
     aiName: '中枢 AI',           // 后台模板没单独的 AI 名字段，用默认；用户可在人设步改
     aiPersona: t.persona,
     rules: t.rules,
+    model: t.model,
+    skillSlugs: [...t.skillSlugs],
     tier: t.tier || 'free',
     paid: (t.tier || 'free') !== 'free',
   }
@@ -82,7 +89,7 @@ function builtinTemplates(): OnbPickTemplate[] {
   return ONBOARDING_TEMPLATES.map((t) => ({
     key: t.key, label: t.label, icon: t.icon, desc: t.desc,
     channels: [...t.channels], aiName: t.aiName, aiPersona: t.aiPersona,
-    rules: '', tier: 'free', paid: false,
+    rules: '', model: '', skillSlugs: [], tier: 'free', paid: false,
   }))
 }
 
@@ -110,6 +117,8 @@ function reset() {
   answers.aiName = ''
   answers.aiPersona = ''
   answers.rules = ''
+  answers.model = ''
+  answers.skillSlugs = []
   ai('👋 欢迎来到 CosMac Star！我是你的中枢 AI。')
   ai('先花一分钟把你的工作台搭起来——你主要做哪个方向？')
 }
@@ -138,6 +147,8 @@ export function useOnboarding() {
       answers.aiName = t.aiName
       answers.aiPersona = t.aiPersona
       answers.rules = t.rules
+      answers.model = t.model
+      answers.skillSlugs = [...t.skillSlugs]
       user(`${t.icon} ${t.label}`)
       ai(`好的，按「${t.label}」给你预置了一套频道和助手人设，后面都能改。`)
       ai('给你的工作区起个名字吧？这个名字会显示在左上角。')
@@ -202,7 +213,13 @@ export function useOnboarding() {
         const prompt = answers.rules
           ? `${answers.aiPersona}\n\n[平台规则]\n${answers.rules}`
           : answers.aiPersona
-        const personaPatch = { persona: { aiName: answers.aiName, prompt } }
+        // 人设 + 模型 + 技能一起写进频道配置；bot 的 _group_context 会读 model/skill_slugs（P2b）
+        const personaPatch = {
+          persona: {
+            aiName: answers.aiName, prompt,
+            model: answers.model, skill_slugs: answers.skillSlugs,
+          },
+        }
         for (const cid of channelIds) {
           try { await setChannelConfig(cid, personaPatch) } catch { /* 单频道写失败不阻断 */ }
         }

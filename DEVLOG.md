@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-06-25 — 入驻模板 P2b：模型 + 技能也按工作区生效
+- 接着 P2(人设)，让模板的**模型/技能**也在新工作区生效，且不绑全局智能体、尊重用户改的人设。
+- bot 小改:`_group_context` 自定义人设路径也读 `persona.model` + `persona.skill_slugs`(skill_slugs 经 `_agent_skill_items` 解析技能库全局技能)。+1 单测。
+- 前端:OnbPickTemplate/answers 加 model/skillSlugs;引导创建时把 model+skill_slugs 一起写进每频道 `channel_config.persona`。
+- 至此模板的 **人设/RULE/模型/技能** 都按工作区生效(房间级、普通用户有权限写)。
+- **留 P2c**:知识库文档入库(要写 cosmac DB + pgvector,需后端端点)、默认工作流绑定(概念待定)、tier 门控强制。
+- 验证:ruff + group_agent 10 单测全过;前端 build(`index-C7alqq42.js`)。纯前端+bot小改,**发 dist + 重启 bot**。
+
 ## 2026-06-25 — 入驻模板 P2：引导接后台模板 + 人设真生效
 - 引导从写死模板改成**读后台** `cosmac.onboarding_templates`（getOnboardingTemplates，过滤已上架）；后台没配则回退内置 ONBOARDING_TEMPLATES。模板卡显示「付费」角标(tier≠free)。
 - **修人设没生效**：创建时不再写全局 setAiConfig(管理员级、普通用户静默失败)，改成给**每个频道**写 `channel_config.persona.prompt`(=人设+RULE)。bot 的 `_group_context` 读它→在该工作区以此人设回应，**房间级、用户自己有权限写→普通用户真生效**。

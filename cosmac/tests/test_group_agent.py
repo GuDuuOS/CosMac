@@ -111,6 +111,20 @@ class TestGroupAgent(unittest.TestCase):
         bot = _bot(channel_cfg=None, agents=None, skills=None)
         self.assertEqual(bot._skill_addendum(ROOM, "@u:host"), "")
 
+    def test_custom_persona_carries_model_and_skills(self) -> None:
+        # 入驻模板 P2b：自定义人设里带 model/skill_slugs（引导写入），_group_context 应读出来
+        bot = _bot(
+            channel_cfg={"persona": {
+                "prompt": "影视助手", "model": "claude-opus-4-8", "skill_slugs": ["weekly"],
+            }},
+            agents={"agents": []},
+            skills={"skills": []},
+        )
+        gctx = bot._group_context(ROOM)
+        self.assertEqual(gctx["model"], "claude-opus-4-8")
+        self.assertEqual(gctx["skill_slugs"], ["weekly"])
+        self.assertIn("影视助手", gctx["persona"])
+
     def test_group_model_override_picks_distinct_agent(self) -> None:
         bot = _bot(
             channel_cfg={"persona": {"agentSlug": "planner"}},

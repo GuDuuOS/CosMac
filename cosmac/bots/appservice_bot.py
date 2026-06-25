@@ -500,10 +500,17 @@ class CosmacBot:
                     out["skill_slugs"] = [str(s) for s in (agent.get("skill_slugs") or [])]
                     out["model"] = (agent.get("model") or "").strip()
                     return out
-            # 退回自定义人设（自由文本）
+            # 退回自定义人设（自由文本）。引导按模板写入时，persona 里还可带 model/skill_slugs
+            # （不绑全局智能体也能让模板的模型/技能在本群生效——房间级配置用户自己有权限写）。
             free = (persona.get("prompt") or "").strip()
             if free:
                 out["persona"] = f"本群人设：\n{free}"
+            m = (persona.get("model") or "").strip()
+            if m:
+                out["model"] = m
+            ss = persona.get("skill_slugs")
+            if isinstance(ss, list):
+                out["skill_slugs"] = [str(s) for s in ss if s]
             return out
         except Exception as e:
             logger.debug("读取本群上下文失败（忽略）：%s", e)
