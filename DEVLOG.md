@@ -7,6 +7,10 @@
 
 ---
 
+## 2026-06-25 — 登录/注册卡片加宽一倍
+- 鉴权卡片 `.login-card` 宽 320→640px（+ max-width:92vw 防小屏溢出，padding 略增）。纯 CSS。
+- 验证：build(`index-CHaDi6jG.js`)+ preview 截图。纯前端，**发 dist**。
+
 ## 2026-06-25 — 找回密码（忘记密码）
 - 需求:登录页加「忘记密码」→ 发邮箱验证码 → 验码后输新密码(带确认)。
 - 后端(`cosmac/registration.py`):复用注册那套发码/验码（码按**用途分桶** register/reset，注册码不能拿去重置）。新增 `reset_request_code`(防邮箱枚举:未注册也回成功但不发信)、`reset_verify`(验码→反查账号→管理员令牌重置密码并登出所有设备)。重置走 `/_synapse/admin/v1/reset_password/<user_id>`，**需服务器管理员 access token**(env `COSMAC_ADMIN_TOKEN`，as_token 权限不够)。

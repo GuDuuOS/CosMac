@@ -1919,7 +1919,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 
 /* ════════ 登录页 ════════ */
 .login { height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, var(--bg-panel), var(--bg-soft)); font-family: var(--font-body); }
-.login-card { width: 320px; display: flex; flex-direction: column; gap: 12px; padding: 28px; background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.08); }
+.login-card { width: 640px; max-width: 92vw; display: flex; flex-direction: column; gap: 12px; padding: 36px 40px; background: #fff; border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.08); }
 .login-brand { font-weight: 800; font-size: 22px; color: var(--text); display: inline-flex; align-items: center; gap: 8px; }
 .login-brand span { color: var(--accent); margin-left: 4px; }
 .brand-logo { width: 26px; height: 26px; object-fit: contain; border-radius: 6px; }
