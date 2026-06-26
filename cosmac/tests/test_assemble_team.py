@@ -37,6 +37,11 @@ class FakeClient:
         self.sent.append((room_id, text))
         return "$e"
 
+    def send_card(self, room_id, body, card):
+        self.cards = getattr(self, "cards", [])
+        self.cards.append((room_id, card))
+        return "$e"
+
 
 class TestAssembleTeam(unittest.TestCase):
     def setUp(self) -> None:
@@ -77,6 +82,10 @@ class TestAssembleTeam(unittest.TestCase):
         # 开班消息 + 回灌含 room_id
         self.assertTrue(any("专班" in t for _r, t in self.client.sent))
         self.assertIn("!team:h", out)
+        # team_created 信号卡发到发起人所在房间（DM），带新专班 room_id，供客户端挂工作区
+        tc = [c for r, c in self.client.cards if c.get("kind") == "team_created"]
+        self.assertEqual(len(tc), 1)
+        self.assertEqual(tc[0]["team_room"], "!team:h")
 
     def test_failed_invite_does_not_break_team(self) -> None:
         # 健壮性：某成员邀请失败（如账号不存在）→ 专班照样建成、配置照写、如实告知未邀到

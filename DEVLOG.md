@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-26 — 修复·bot 建的专班挂进当前工作区（频道树可见）
+- **问题**:线上实测——中枢AI 确实建了专班，但**左侧工作区里看不到这个频道**。根因:bot 建的是裸房间，没写 `m.space.child`(频道挂工作区的关系);而写它要在「工作区房间」里有权限，**bot(@guduu) 不在用户的 Space 里、写不了**;客户端(用户)在 Space 里有权限。
+- **修法(bot 发信号 + 客户端补挂)**:
+  - **后端**:assemble_team 建完专班，往发起人所在房间(DM)发一张 `cosmac.card{kind:'team_created', team_room, project}` 信号卡。
+  - **前端**:client.ts 加 `linkRoomToSpace(spaceId, roomId)`(join + 写 m.space.child/parent);LiveView `processTeamCards()` 在 refresh 时扫到 team_created 卡 → 把新专班**自动挂进当前工作区**(linkedTeams 去重)→ 刷新使其出现在频道树;并渲染"✅ 专班已建好，进入专班 →"卡片(enterTeam 按钮兜底再挂一次+打开)。
+- **顺带说明**(非本次改):线上"选择卡没弹"是因为**人员能力名册还没人**——AI 没东西可选只能打字问"邀请谁";后台加了人之后,AI 调 ask_user_choice 才有内容可弹。
+- **测试**:test_assemble_team 加 team_created 卡断言;278 通过、ruff 全绿、client build OK。
+- **部署**:动了 client + cosmac → **发 dist + 重启 bot**。新 hash index-BkFIHbPb.js。
+
 ## 2026-06-26 — 健壮性·建专班邀请尽力而为（坏 id 不搞崩）
 - **背景**:测试时发现——assemble_team 把所有成员一股脑塞进 createRoom 的 invite，万一某个 user_id 不存在(如还没注册的测试人员)，整个建房可能失败、专班建不出来。
 - **修法**:`invite_user` 改为**返回 bool + 吞网络异常**(不抛);`assemble_team` 改为**只用发起人(必然存在)建房，其余成员逐个 invite_user 尽力邀请**——某个邀不到只记进 failed、不影响专班建成;开班消息与回灌**如实**告知"邀到 N 人 / X 人没邀到(账号可能不存在)"，不假装都拉进来了。

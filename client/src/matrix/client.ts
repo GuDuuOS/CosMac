@@ -546,6 +546,24 @@ export function serverName(): string {
   return (mx?.getUserId() || '').split(':')[1] || 'cosmac.cc'
 }
 
+/** 把一个房间挂进某工作区(Space)：先加入它（bot 已邀请），再写 m.space.child 让它进频道树。
+ *
+ * 用于 bot 建好专班后的"挂工作区"——bot 不在用户 Space 里写不了 m.space.child，由客户端
+ * （在 Space 有权限）补这一步。best-effort：已加入/无权限都吞掉，不抛。返回是否挂上。 */
+export async function linkRoomToSpace(spaceId: string, roomId: string): Promise<boolean> {
+  if (!mx || !spaceId || !roomId) return false
+  try { await mx.joinRoom(roomId) } catch { /* 可能已加入 */ }
+  const via = serverName()
+  try {
+    await (mx as any).sendStateEvent(spaceId, 'm.space.child', { via: [via] }, roomId)
+  } catch {
+    return false  // 在该工作区没有写权限（理论上创建者有），挂接失败
+  }
+  // 子房间指回父 Space（有权限就写，没有也无妨——频道树只看 Space 里的 m.space.child）
+  try { await (mx as any).sendStateEvent(roomId, 'm.space.parent', { via: [via], canonical: true }, spaceId) } catch { /* ignore */ }
+  return true
+}
+
 /** 把"用户名"或"@用户名"规范成完整 Matrix id（@用户名:本服务器）。 */
 export function normalizeUserId(input: string): string {
   const s = input.trim()

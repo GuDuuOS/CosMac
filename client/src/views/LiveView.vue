@@ -40,6 +40,7 @@ import {
   roomIdsInSpace,
   createSpace,
   createChannelInSpace,
+  linkRoomToSpace,
   updateSpace,
   updateRoom,
   leaveAndForget,
@@ -667,6 +668,8 @@ function refresh() {
     reactions.value = listReactions(currentRoom.value)
   }
   if (aiRoom.value) aiMsgs.value = listMessages(aiRoom.value)
+  // bot 建专班后发来的 team_created 信号卡：把新专班挂进当前工作区（bot 没权限、客户端来补）
+  processTeamCards()
 
   // 首屏按浏览器地址还原导航状态（支持刷新留在原页 / 深链直达某频道）。
   // 深链到频道时需等房间列表加载好再解析；其余地址不必等。只做一次。
@@ -943,6 +946,31 @@ async function pickChoice(text: string, room: string) {
   if (!t || !room) return
   await sendText(room, t)
   setTimeout(refresh, 400)
+}
+
+// bot 建专班 → 发 team_created 信号卡 → 客户端把新专班挂进当前工作区（bot 无权限写 m.space.child）。
+// linkedTeams 去重，避免每次 refresh 重复挂接。
+const linkedTeams = new Set<string>()
+async function processTeamCards() {
+  if (!activeSpace.value) return
+  for (const m of aiMsgs.value) {
+    const c = (m as any).card
+    if (c?.kind !== 'team_created' || !c.team_room) continue
+    if (linkedTeams.has(c.team_room)) continue
+    linkedTeams.add(c.team_room)
+    // 已在工作区里就别重复挂
+    if (spaceChildIds.value.has(c.team_room)) continue
+    const ok = await linkRoomToSpace(activeSpace.value, c.team_room)
+    if (ok) setTimeout(refresh, 300)  // 挂上后刷新，频道树立刻出现新专班
+  }
+}
+// 点「进入专班」按钮：确保挂好并打开
+async function enterTeam(roomId: string) {
+  if (activeSpace.value && !spaceChildIds.value.has(roomId)) {
+    await linkRoomToSpace(activeSpace.value, roomId)
+    refresh()
+  }
+  openRoom(roomId)
 }
 
 async function doLogout() {
@@ -1593,6 +1621,10 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="!m.card" class="text"><span v-html="renderMd(m.body)"></span><span v-if="m.edited" class="edited">（已编辑）</span></div>
               <ChoiceCard v-else-if="m.card.kind === 'choice'" :card="m.card" @pick="(t) => pickChoice(t, currentRoom)" />
+              <div v-else-if="m.card.kind === 'team_created'" class="rich team">
+                <div class="team-h">✅ 专班「{{ m.card.project }}」已建好，已加入「{{ activeSpaceName }}」</div>
+                <button class="team-enter" @click="enterTeam(m.card.team_room)">进入专班 →</button>
+              </div>
               <div v-else class="rich info">
                 <div class="r-head"><span class="t">🗂 {{ m.card.title }}</span></div>
                 <p v-if="m.card.subtitle">{{ m.card.subtitle }}</p>
@@ -1728,6 +1760,10 @@ onBeforeUnmount(() => {
               <div v-for="m in aiMsgs" :key="m.id" class="ai-msg" :class="{ mine: isMe(m.sender) }">
                 <div v-if="!m.card" class="ai-bubble" v-html="renderMd(m.body)"></div>
                 <ChoiceCard v-else-if="m.card.kind === 'choice'" :card="m.card" @pick="(t) => pickChoice(t, aiRoom)" />
+                <div v-else-if="m.card.kind === 'team_created'" class="rich team">
+                  <div class="team-h">✅ 专班「{{ m.card.project }}」已建好，已加入「{{ activeSpaceName }}」</div>
+                  <button class="team-enter" @click="enterTeam(m.card.team_room)">进入专班 →</button>
+                </div>
                 <div v-else class="rich info">
                   <div class="r-head"><span class="t">🗂 {{ m.card.title }}</span></div>
                   <p v-if="m.card.subtitle">{{ m.card.subtitle }}</p>
@@ -2455,6 +2491,9 @@ onBeforeUnmount(() => {
 .text :deep(del), .ai-bubble :deep(del) { opacity: .7; }
 .rich { margin-top: 8px; border: 1px solid var(--border); background: var(--bg-panel); border-radius: 6px; padding: 14px 16px; }
 .rich.info { border-left: 3px solid var(--info); }
+.rich.team { border-left: 3px solid var(--accent); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.rich.team .team-h { font-size: 13.5px; font-weight: 600; color: var(--text); line-height: 1.45; }
+.rich.team .team-enter { border: none; background: var(--accent); color: #fff; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: var(--fs-75, 12px); font-weight: 600; }
 .rich .r-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .rich .r-head .t { font-weight: 600; font-size: 14px; }
 .rich p { font-size: 13px; color: var(--text-3); margin: 4px 0 0; }

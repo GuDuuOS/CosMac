@@ -949,6 +949,17 @@ class Toolbox:
             parts.append(f"已派 {n_tasks} 个任务，详见任务看板。")
         self.client.send_text(room_id, "\n".join(parts))
 
+        # 让客户端把这个专班挂进用户**当前工作区**：bot 不在用户的 Space、没权限写 m.space.child；
+        # 客户端在 Space 里有权限，收到这张信号卡会自动 join 新专班 + 挂到当前工作区，使其显示在频道树。
+        try:
+            self.client.send_card(
+                ctx.room_id,
+                f"专班「{project}」已建好（room_id={room_id}）。",
+                {"kind": "team_created", "team_room": room_id, "project": project},
+            )
+        except Exception:
+            logger.debug("发送 team_created 信号卡失败（忽略）", exc_info=True)
+
         # 回灌给模型（让它知道建好了、可继续编排/汇报；邀请失败也如实告知，别假装都拉进来了）
         summary = [f"已建好专班「{project}」(room_id={room_id})，邀到 {len(invited)} 人"]
         if failed:
