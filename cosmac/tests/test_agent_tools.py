@@ -193,6 +193,25 @@ class TestAgentTools(unittest.TestCase):
         names = [s.name for s in Toolbox(FakeClient()).specs()]
         self.assertIn("search_knowledge", names)
 
+    def test_web_search_default_on(self) -> None:
+        # 联网搜索是"会上网查"的核心，默认出现在工具清单里
+        names = [s.name for s in Toolbox(FakeClient()).specs()]
+        self.assertIn("web_search", names)
+
+    def test_web_search_degrades_without_key(self) -> None:
+        # 没配搜索 key（测试环境）→ get_searcher 降级 Disabled → 工具明确说"未配置"，不报错
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for k in ("COSMAC_SEARCH_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY"):
+                os.environ.pop(k, None)
+            out = Toolbox(FakeClient()).execute(
+                ToolCall(id="w", name="web_search", arguments={"query": "今天的新闻"}),
+                ToolContext("!c:test", "@a:test"),
+            )
+        self.assertIn("未配置", out)
+
     def test_max_steps_guard(self) -> None:
         # 模型一直要求调工具（不收敛），Agent 应在 max_steps 后兜底退出，不死循环
         loop = TurnResult(

@@ -91,7 +91,9 @@ class Toolbox:
     # 会被当成"未勾选=禁用"。这类核心、低风险工具放这里，避免旧配置一存就把它们关掉。
     # search_knowledge 只读、按 knowledge 门控、且是"智能问答"的核心，也放这里默认常开
     # （旧 AI 配置的工具白名单里没有它，不放这会被当未勾选=禁用）。
-    _ALWAYS_ON: Set[str] = {"create_tasks", "search_knowledge"}
+    # web_search 也默认常开——它本身受 web_search 门控(默认仅管理员)+ 无 key 自动降级，
+    # 双保险，不靠工具开关来拦；放这里免得旧 AI 配置白名单没有它而被当禁用。
+    _ALWAYS_ON: Set[str] = {"create_tasks", "search_knowledge", "web_search"}
 
     def _is_enabled(self, name: str) -> bool:
         if name in self._ALWAYS_ON:
@@ -317,6 +319,32 @@ class Toolbox:
             fn=self._tool_search_knowledge,
         )
 
+        # 8) 联网搜索（让主 AI"会上网查"）：可插拔搜索后端、无 key 自动降级。
+        #    共享付费 key、有成本，受 web_search 门控（默认仅管理员，同 run_workflow 思路）。
+        self._register(
+            name="web_search",
+            description=(
+                "联网搜索互联网上的实时/外部信息（新闻、资料、事实核查等）。"
+                "当问题涉及你知识截止之后的、或需要最新/外部网页信息时调用。"
+                "返回若干条标题+链接+摘要；据此作答并可附上来源链接。未配置或搜不到会明确告知。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索查询语句（用自然语言或关键词，尽量具体）。",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "返回结果条数，默认 5（最多 10）。",
+                    },
+                },
+                "required": ["query"],
+            },
+            fn=self._tool_web_search,
+        )
+
     # —— 各工具的具体执行（转发到 MatrixClient）——
 
     def _tool_create_room(self, args: Dict[str, Any], ctx: ToolContext) -> str:
@@ -529,6 +557,36 @@ class Toolbox:
         except Exception:
             logger.exception("知识库检索工具执行出错")
             return "检索知识库时出错了。"
+
+    def _tool_web_search(self, args: Dict[str, Any], ctx: ToolContext) -> str:
+        """联网搜索（走 cosmac.ai.websearch 的可插拔后端）。门控由 execute 的 gate_check
+        统一裁决(web_search→web_search 能力)，这里不重复判。绝不抛异常。"""
+        query = (args.get("query") or "").strip()
+        if not query:
+            return "请给出要搜索的关键词或问题。"
+        try:
+            limit = max(1, min(10, int(args.get("limit") or 5)))
+        except (TypeError, ValueError):
+            limit = 5
+        try:
+            from cosmac.ai.websearch import get_searcher
+
+            searcher = get_searcher()
+            if not searcher.available:
+                return "（联网搜索未配置：管理员需在服务端设置搜索服务 key 后才能用。）"
+            hits = searcher.search(query, k=limit)
+        except Exception:
+            logger.exception("联网搜索工具执行出错")
+            return "联网搜索时出错了。"
+        if not hits:
+            return f"没搜到与「{query}」相关的结果（可换个说法再试）。"
+        lines = ["联网搜索结果（请据此作答，并可附上来源链接）："]
+        for i, h in enumerate(hits, 1):
+            title = h.get("title") or "(无标题)"
+            url = h.get("url") or ""
+            snippet = (h.get("snippet") or "")[:300]
+            lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
+        return "\n".join(lines)
 
     def _record_workflow_run(self, slug, platform, ctx, user_input, result) -> None:
         """尽力把运行记录落库；DB 不可用就跳过（不影响已拿到的结果）。"""

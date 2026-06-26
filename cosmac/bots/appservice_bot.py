@@ -1819,6 +1819,7 @@ class CosmacBot:
         "create_room": "create_room",
         "run_workflow": "workflow_run",
         "search_knowledge": "knowledge",  # 与「知识」命令、RAG 自动注入同一道 knowledge 门
+        "web_search": "web_search",       # 联网搜索：共享付费 key、默认仅管理员（见 GATE_CATALOG）
     }
 
     def _tool_gate_check(self, sender: str, tool_name: str) -> Optional[str]:

@@ -1229,6 +1229,7 @@ export const GATE_CATALOG: { key: string; label: string; default: string }[] = [
   { key: 'knowledge', label: '知识库（RAG 检索 + 知识命令）', default: 'free' },
   { key: 'create_room', label: '建群 / 开专班', default: 'free' },
   { key: 'workflow_run', label: '跑工作流（外部/付费、共享凭据）', default: 'admin' },
+  { key: 'web_search', label: '联网搜索（外部 API、共享凭据有成本）', default: 'admin' },
 ]
 
 /** 门控策略 map：能力 key → 门槛 slug。 */

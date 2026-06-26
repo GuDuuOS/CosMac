@@ -328,6 +328,7 @@ GATE_CATALOG: List[Dict[str, str]] = [
     {"key": "knowledge", "label": "知识库（RAG 检索 + 知识命令）", "default": TIER_FREE},
     {"key": "create_room", "label": "建群 / 开专班", "default": TIER_FREE},
     {"key": "workflow_run", "label": "跑工作流（外部/付费、共享凭据）", "default": GATE_ADMIN},
+    {"key": "web_search", "label": "联网搜索（外部 API、共享凭据有成本）", "default": GATE_ADMIN},
 ]
 
 # 由目录派生的便捷映射

@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-26 — 模块2增强·联网搜索工具 web_search（增量②）
+- **做了什么**:给主 AI 加"会上网查"的 `web_search` 工具——问到知识截止之后/需要最新外部信息时，模型自己联网检索，返回标题+链接+摘要据此作答。
+- **可插拔 + 无 key 自动降级**(照搬 LLM/embeddings 一贯做法,所以**不需要预先拍板服务商**):新建 `cosmac/ai/websearch.py` 抽象,内置 **Tavily**(默认,专为 Agent 设计)+ **Brave** 两家;`COSMAC_SEARCH_PROVIDER` 选家、`COSMAC_SEARCH_API_KEY`(或各家专用 TAVILY/BRAVE_API_KEY)给 key;没 key → `DisabledSearcher`,工具明确回"未配置"、绝不报错。新增一家只需加个子类。
+- **门控**:联网搜索走外部 API、共享凭据有成本,新增 `web_search` 能力,**默认仅管理员**(同 run_workflow 思路);GATE_CATALOG 前后端各加一条(members.py + client.ts);_TOOL_GATE_MAP 映射 + 工具 `_ALWAYS_ON` 默认常开(门控+降级双保险,不靠工具开关拦)。
+- **激活方式**(上线后按需):服务端设 `COSMAC_SEARCH_API_KEY`(Tavily 注册即得免费额度) → 后台「会员权限」把 web_search 门槛按需下调 → 主 AI 即可联网。
+- **测试**:新增 `test_websearch.py`(provider 选择/无 key 降级/Tavily+Brave 解析/错误兜底)+ 工具默认常开/未配置降级;更新 runtime_config 工具集断言(7→8)。228 通过、ruff 全绿;10 个失败仍是 manual 支付缺 env 的既有问题、无关。
+- **部署**:动了 client.ts(GATE_CATALOG)→ **需发 dist**(新 hash index-9QDMrb4b.js)+ 重启 bot。
+- 下一步:③ 流式回复。
+
 ## 2026-06-26 — 模块2增强·知识库检索工具化（search_knowledge）
 - **背景**:核对"注册后 AI 能否像 Claude Code 那样问答"——链路已通(注册→引导写频道人设→bot 读人设回应)、真·ReAct Agent、短期记忆、RAG 自动注入都在;线上模型已接 **DeepSeek(走方舟/ARK)**、非 echo。负责人定下一步"问答智能增强"逐项推,先做最高性价比且零新依赖的一项。
 - **做了什么(增量①)**:把知识库 RAG 从"每轮盲塞参考资料"升级为**模型可主动调用的 `search_knowledge` 工具**——AI 自己决定何时查、用什么词查、可多次深挖(Claude-Code 式问答的核心手感)。**保留**原自动注入做 baseline,二者互补(自动给底、工具深挖)。
