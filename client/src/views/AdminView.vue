@@ -143,19 +143,20 @@
                 </span>
               </td>
               <td>
-                <!-- 会员等级独立于"管理员"：直接下拉调整，即时写控制室 cosmac.members。
-                     中枢AI 不是会员、不显示下拉。 -->
+                <!-- 等级下拉：免费/付费/创作者 + 管理员（最高档）。选管理员=授服务器管理员；
+                     选会员档时若原是管理员则先撤管理员。中枢AI 不显示。 -->
                 <select
                   v-if="!u.isBot"
                   class="adm-tier"
-                  :class="memberTier(u.id)"
-                  :value="memberTier(u.id)"
-                  :disabled="tierBusy === u.id"
-                  @change="onTierChange(u, ($event.target as HTMLSelectElement).value)"
+                  :class="u.admin ? 'admin' : memberTier(u.id)"
+                  :value="u.admin ? 'admin' : memberTier(u.id)"
+                  :disabled="tierBusy === u.id || busy === u.id"
+                  @change="onLevelChange(u, ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="t in MEMBER_TIERS" :key="t.slug" :value="t.slug">
                     {{ t.label }}
                   </option>
+                  <option value="admin">管理员</option>
                 </select>
                 <span v-else class="adm-muted">—</span>
               </td>
@@ -1294,6 +1295,40 @@ async function onTierChange(u: AdminUser, tier: string) {
   } finally {
     tierBusy.value = null
   }
+}
+
+// 等级下拉统一处理：免费/付费/创作者会员 + 管理员（最高档）。
+async function onLevelChange(u: AdminUser, level: string) {
+  const cur = u.admin ? 'admin' : memberTier(u.id)
+  if (level === cur) return
+  if (level === 'admin') {
+    // 升为管理员（会员档保留在 cosmac.members，管理员本就不受会员门控）
+    if (!confirm(`确认把 ${u.name} 设为管理员？`)) return
+    busy.value = u.id
+    try {
+      await setUserAdmin(u.id, true)
+      u.admin = true
+      success('已更新', `${u.name} 现在是管理员`)
+    } catch (e: any) {
+      warn('操作失败', e?.message || '权限修改失败')
+    } finally { busy.value = null }
+    return
+  }
+  // 选了某会员档：若原是管理员，先撤管理员，再设会员等级
+  if (u.admin) {
+    if (!confirm(`确认把 ${u.name} 从管理员改为「${memberTierLabel(level)}」？（会撤销其管理员权限）`)) return
+    busy.value = u.id
+    try {
+      const synced = await setUserAdmin(u.id, false)
+      u.admin = false
+      if (!synced) warn('已撤管理员，但控制室同步失败', `请重试，否则 ${u.name} 可能仍能写 AI 配置`)
+    } catch (e: any) {
+      warn('撤管理员失败', e?.message || '权限修改失败')
+      busy.value = null
+      return
+    } finally { busy.value = null }
+  }
+  await onTierChange(u, level)  // 复用：写会员等级
 }
 
 async function toggleAdmin(u: AdminUser) {
@@ -2475,6 +2510,10 @@ onMounted(check)
 .adm-tier.creator {
   color: #b45309; border-color: #f59e0b;
   background: color-mix(in srgb, #f59e0b 14%, transparent);
+}
+.adm-tier.admin {
+  color: #7c3aed; border-color: #7c3aed;
+  background: color-mix(in srgb, #7c3aed 14%, transparent);
 }
 .adm-muted { color: var(--text-3); }
 
