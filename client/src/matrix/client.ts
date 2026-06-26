@@ -564,12 +564,15 @@ export async function linkRoomToSpace(spaceId: string, roomId: string): Promise<
   return true
 }
 
-/** 把"用户名"或"@用户名"规范成完整 Matrix id（@用户名:本服务器）。 */
+/** 把"用户名 / @用户名 / @用户名:域名"都规范成完整 Matrix id（@用户名:本服务器）。
+ *
+ * 关键容错：输入 `@wenan`（带 @ 但**没域名**）以前会被原样返回成非法 id `@wenan`，导致
+ * 建账号/邀请失败。现在统一：去掉前导 @ → 没冒号就补本服务器域名 → 补回 @。 */
 export function normalizeUserId(input: string): string {
-  const s = input.trim()
+  const s = input.trim().replace(/^@+/, '')   // 去掉开头的 @（可能多个/没有）
   if (!s) return ''
-  if (s.startsWith('@')) return s
-  return `@${s.replace(/^@/, '')}:${serverName()}`
+  if (s.includes(':')) return `@${s}`          // 已带 :域名 → 只补 @
+  return `@${s}:${serverName()}`               // 只有 localpart → 补本服务器域名
 }
 
 /** 这个房间是否被收藏（Matrix 标准 m.favourite 标签）。 */
@@ -680,12 +683,13 @@ export async function createUser(
 ): Promise<string> {
   if (!mx) throw new Error('未登录')
   const uid = normalizeUserId(username)
+  const localpart = uid.slice(1).split(':')[0]  // 干净的默认显示名（去掉 @ 和域名）
   const base = (mx as any).baseUrl as string
   const token = (mx as any).getAccessToken?.() as string
   const res = await fetch(`${base}/_synapse/admin/v2/users/${encodeURIComponent(uid)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, displayname: displayname || username, admin: false }),
+    body: JSON.stringify({ password, displayname: displayname || localpart, admin: false }),
   })
   if (!res.ok) {
     let msg = `${res.status}`

@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-26 — 修复·后台新建用户输入 @ 前缀建不了账号
+- **问题**:后台「用户管理→新建用户」输入 `@wenan`(带@)建不了账号。根因:`normalizeUserId` 逻辑是"以 @ 开头就原样返回"，于是 `@wenan`(缺 `:域名`)被原样当成完整 id → 非法 Matrix ID → Synapse Admin API 400。
+- **修法(纯前端)**:`normalizeUserId` 改为容错——去前导 @ → 没冒号补本服务器域名 → 补回 @。`@wenan`/`wenan`/`@wenan:cosmac.cc` 都规范成 `@wenan:cosmac.cc`。顺带 createUser 默认显示名用干净 localpart(不再是 `@wenan`)。影响所有 normalizeUserId 调用方(建用户/邀请成员)，都变更健壮。
+- **测试**:client build OK、preview 零 console 报错。**纯前端**——只发 dist,不用重启 bot。新 hash index-DuE3bPaw.js。
+
 ## 2026-06-26 — 修复·bot 建的专班挂进当前工作区（频道树可见）
 - **问题**:线上实测——中枢AI 确实建了专班，但**左侧工作区里看不到这个频道**。根因:bot 建的是裸房间，没写 `m.space.child`(频道挂工作区的关系);而写它要在「工作区房间」里有权限，**bot(@guduu) 不在用户的 Space 里、写不了**;客户端(用户)在 Space 里有权限。
 - **修法(bot 发信号 + 客户端补挂)**:
