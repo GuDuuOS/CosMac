@@ -7,6 +7,10 @@
 
 ---
 
+## 2026-06-26 — 变现第一步续·个人协作人设为付费
+- 新增权限 `people_manage`「个人协作人名册」默认付费 + 在 `handle_people_add` 强制(查看/删除自己数据不拦，同知识库做法，只对"添加/更新"增值动作收费)。前后端 GATE_CATALOG 各加。test_person 加门控用例。
+- 283 通过、ruff 全绿、client build OK。**发 dist + 重启 bot**。新 hash index-BmIJJRfR.js。
+
 ## 2026-06-26 — 变现第一步续·自定义技能设为付费
 - 又找到一个高价值未门控功能：`技能 添加/删除…` 聊天命令(用户建自己的 AI 技能)。新增权限 `custom_skill`「自定义技能」默认付费 + 在 `_try_handle_command` 技能命令分支强制(低于门槛提示升级)。前后端 GATE_CATALOG 各加。
 - 282 通过、ruff 全绿、client build OK。**发 dist + 重启 bot**。新 hash index-B0m_Ftj3.js。

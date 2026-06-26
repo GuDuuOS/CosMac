@@ -1995,10 +1995,13 @@ class CosmacBot:
     def handle_people_add(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
-        """新增/更新本人名册里某个协作人的能力备注。需登录。person_id 必须是完整 user_id。"""
+        """新增/更新本人名册里某个协作人的能力备注。需登录 + people_manage 门控（付费功能）。
+        查看/删除自己的数据不拦（同知识库做法），只对"添加/更新"这个增值动作收费。"""
         user_id = self.client.whoami(access_token)
         if not user_id:
             return 401, {"error": "登录已失效，请重新登录"}
+        if not self._gate_allows(user_id, "people_manage"):
+            return 403, {"error": self._gate_denied_text("people_manage")}
         person_id = str((body or {}).get("person_id") or "").strip()
         if not person_id.startswith("@") or ":" not in person_id:
             return 400, {"error": "请填写完整的用户 ID（如 @bob:cosmac.cc）"}

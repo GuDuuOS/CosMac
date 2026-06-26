@@ -83,5 +83,21 @@ class TestPersonEndpointsAndMerge(unittest.TestCase):
         self.assertEqual(bot.handle_people_list_mine("a")[1]["people"], [])
 
 
+class TestPersonGating(unittest.TestCase):
+    """个人协作人是付费功能：添加受 people_manage 门控。"""
+
+    def setUp(self) -> None:
+        init_engine("sqlite://", create_all=True)
+
+    def test_add_gated_for_free_user(self) -> None:
+        bot = _bot()
+        bot.client.whoami = lambda t: "@free:h" if t == "f" else None  # type: ignore
+        bot._gate_allows = lambda u, c: c != "people_manage"  # type: ignore
+        bot._gate_denied_text = lambda c: "需升级会员"  # type: ignore
+        code, p = bot.handle_people_add("f", {"person_id": "@x:h"})
+        self.assertEqual(code, 403)
+        self.assertIn("升级", p["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

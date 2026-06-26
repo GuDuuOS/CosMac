@@ -333,6 +333,7 @@ GATE_CATALOG: List[Dict[str, str]] = [
     {"key": "create_room", "label": "建群 / 频道", "default": TIER_FREE, "group": "任务编排与协作"},
     {"key": "task_board", "label": "AI 拆解任务到看板", "default": TIER_PAID, "group": "任务编排与协作"},
     {"key": "assemble_team", "label": "一键建专班（AI 组队 + 派单）", "default": TIER_PAID, "group": "任务编排与协作"},
+    {"key": "people_manage", "label": "个人协作人名册（给常合作的人加能力，供 AI 派单）", "default": TIER_PAID, "group": "任务编排与协作"},
     {"key": "workflow_run", "label": "跑工作流（外部/付费、共享凭据）", "default": GATE_ADMIN, "group": "自动化"},
 ]
 
