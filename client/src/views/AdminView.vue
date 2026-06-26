@@ -91,7 +91,28 @@
 
         <div v-if="loading" class="adm-center"><div class="adm-spin" /> 加载用户列表…</div>
 
-        <table v-else class="adm-table">
+        <template v-else>
+          <!-- 搜索 + 筛选（用户多了能快速定位）-->
+          <div class="adm-filters">
+            <input v-model.trim="userSearch" class="adm-search" placeholder="🔍 搜索用户名 / ID…" />
+            <select v-model="filterRole" class="adm-fsel">
+              <option value="all">全部角色</option>
+              <option value="admin">管理员</option>
+              <option value="member">成员</option>
+            </select>
+            <select v-model="filterTier" class="adm-fsel">
+              <option value="all">全部会员</option>
+              <option v-for="t in MEMBER_TIERS" :key="t.slug" :value="t.slug">{{ t.label }}</option>
+            </select>
+            <select v-model="filterStatus" class="adm-fsel">
+              <option value="all">全部状态</option>
+              <option value="ok">正常</option>
+              <option value="off">已停用</option>
+            </select>
+            <span class="adm-filter-n">{{ filteredUsers.length }} / {{ users.length }}</span>
+          </div>
+
+        <table class="adm-table">
           <thead>
             <tr>
               <th>用户</th>
@@ -102,7 +123,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in users" :key="u.id" :class="{ off: u.deactivated }">
+            <tr v-if="!filteredUsers.length"><td colspan="5" class="adm-empty-row">没有匹配的用户，换个筛选条件试试。</td></tr>
+            <tr v-for="u in filteredUsers" :key="u.id" :class="{ off: u.deactivated }">
               <td>
                 <div class="adm-user">
                   <span class="adm-ava">{{ avatarOf(u) }}</span>
@@ -162,6 +184,7 @@
             </tr>
           </tbody>
         </table>
+        </template>
       </template>
 
       <!-- 频道管理面板 -->
@@ -1155,6 +1178,24 @@ const tierBusy = ref<string | null>(null)
 function memberTier(userId: string): string {
   return members.value[userId] || 'free'
 }
+
+// —— 用户管理：搜索 + 筛选（用户多了能快速定位）——
+const userSearch = ref('')
+const filterRole = ref<'all' | 'admin' | 'member'>('all')
+const filterTier = ref('all')   // 'all' 或某会员等级 slug
+const filterStatus = ref<'all' | 'ok' | 'off'>('all')
+const filteredUsers = computed(() => {
+  const q = userSearch.value.toLowerCase()
+  return users.value.filter((u) => {
+    if (q && !(u.id.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q))) return false
+    if (filterRole.value === 'admin' && !u.admin) return false
+    if (filterRole.value === 'member' && u.admin) return false
+    if (filterTier.value !== 'all' && memberTier(u.id) !== filterTier.value) return false
+    if (filterStatus.value === 'ok' && u.deactivated) return false
+    if (filterStatus.value === 'off' && !u.deactivated) return false
+    return true
+  })
+})
 
 const domain = computed(() => serverName())
 
@@ -2324,6 +2365,12 @@ onMounted(check)
 }
 
 /* 表格 */
+.adm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.adm-search { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-soft); color: var(--text); font-size: var(--fs-100); }
+.adm-search:focus { outline: none; border-color: var(--accent); }
+.adm-fsel { padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-soft); color: var(--text); font-size: var(--fs-75); cursor: pointer; }
+.adm-filter-n { font-size: var(--fs-75); color: var(--text-3); margin-left: auto; }
+.adm-empty-row { text-align: center; color: var(--text-3); padding: 24px 0; font-size: var(--fs-75); }
 .adm-table { width: 100%; border-collapse: collapse; font-size: var(--fs-100); }
 .adm-table th {
   text-align: left; font-size: var(--fs-75); color: var(--text-3); font-weight: 400;
