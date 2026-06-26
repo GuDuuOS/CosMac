@@ -329,6 +329,7 @@ GATE_CATALOG: List[Dict[str, str]] = [
     {"key": "knowledge", "label": "知识库（RAG 检索 + 知识命令）", "default": TIER_FREE, "group": "AI 对话与检索"},
     {"key": "memory", "label": "长期记忆（AI 跨多轮/跨天记得你）", "default": TIER_PAID, "group": "AI 对话与检索"},
     {"key": "web_search", "label": "联网搜索（外部 API、共享凭据有成本）", "default": TIER_PAID, "group": "AI 对话与检索"},
+    {"key": "custom_skill", "label": "自定义技能（用聊天命令建/管理自己的技能）", "default": TIER_PAID, "group": "AI 对话与检索"},
     {"key": "create_room", "label": "建群 / 频道", "default": TIER_FREE, "group": "任务编排与协作"},
     {"key": "task_board", "label": "AI 拆解任务到看板", "default": TIER_PAID, "group": "任务编排与协作"},
     {"key": "assemble_team", "label": "一键建专班（AI 组队 + 派单）", "default": TIER_PAID, "group": "任务编排与协作"},

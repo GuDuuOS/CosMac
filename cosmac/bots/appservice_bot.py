@@ -1210,8 +1210,12 @@ class CosmacBot:
                 name = text[len(prefix):].strip(" :：") or "新专班"
                 self._launch_campaign(room_id, sender, name)
                 return True
-        # 技能管理命令：先用不连 DB 的前缀闸判断，命中再执行（DB 不可用则提示未启用）
+        # 技能管理命令：先用不连 DB 的前缀闸判断，命中再执行（DB 不可用则提示未启用）。
+        # 自定义技能是付费功能（custom_skill 门控）：低于门槛提示升级。
         if self._is_skill_command(text):
+            if not self._gate_allows(sender, "custom_skill"):
+                self.client.send_text(room_id, self._gate_denied_text("custom_skill"))
+                return True
             self.client.send_text(room_id, self._run_skill_command(room_id, sender, text))
             return True
         # 知识库管理命令（同套路）
