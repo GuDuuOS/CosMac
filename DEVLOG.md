@@ -7,6 +7,12 @@
 
 ---
 
+## 2026-06-26 — 改进·人员能力页同步真实账号（不再重敲 user_id）
+- **反馈**:人员能力页让你重新敲一遍 user_id 填备注，应该直接同步「用户管理」的真实账号。
+- **改法(纯前端)**:人员能力页改为 `listUsers()`(真实账号) + `getPeople()`(能力名册) 合并展示——**表格列出所有真实账号**(排除中枢AI)，每行叠加其能力备注(角色/擅长)，未设的标"未设"。编辑时 **user_id 固定取自账号、只读不可改**，只填 角色/擅长/备注/启用;保存写回 cosmac.people。去掉了"添加成员"(自由敲 user_id)，改成每个账号"设置能力/编辑能力";"清除"只移除能力备注、不删账号。
+- 数据格式不变(仍 cosmac.people {user_id,name,role,expertise,note,enabled})，bot 读取逻辑零改动。
+- **测试**:client build OK、preview 零 console 报错。**纯前端**——只发 dist。新 hash index-CI1XrAjW.js。
+
 ## 2026-06-26 — 修复·后台新建用户输入 @ 前缀建不了账号
 - **问题**:后台「用户管理→新建用户」输入 `@wenan`(带@)建不了账号。根因:`normalizeUserId` 逻辑是"以 @ 开头就原样返回"，于是 `@wenan`(缺 `:域名`)被原样当成完整 id → 非法 Matrix ID → Synapse Admin API 400。
 - **修法(纯前端)**:`normalizeUserId` 改为容错——去前导 @ → 没冒号补本服务器域名 → 补回 @。`@wenan`/`wenan`/`@wenan:cosmac.cc` 都规范成 `@wenan:cosmac.cc`。顺带 createUser 默认显示名用干净 localpart(不再是 `@wenan`)。影响所有 normalizeUserId 调用方(建用户/邀请成员)，都变更健壮。

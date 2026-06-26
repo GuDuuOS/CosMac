@@ -450,34 +450,30 @@
         </div>
       </template>
 
-      <!-- 人员能力面板（模块3.5）：admin 给真人成员登记能力备注，主 AI 拆任务时据此匹配"找谁" -->
+      <!-- 人员能力面板（模块3.5）：直接同步「用户管理」的真实账号，给每个人补能力备注（无需重建人）-->
       <template v-else-if="tab === 'people'">
         <header class="adm-head">
           <div>
             <h1 class="adm-h1">人员能力</h1>
             <p class="adm-hint">
-              给团队成员登记"擅长什么" · 主 AI 拆任务/分配时据此把活派给最合适的人
+              给「用户管理」里的真实账号补上"擅长什么" · 主 AI 拆任务时据此把活派给最合适的人（无需重新建人）
             </p>
           </div>
           <div class="adm-actions">
             <button class="adm-btn ghost" :disabled="plLoading || plSaving" @click="loadPeople">
               {{ plLoading ? '加载中…' : '重新加载' }}
             </button>
-            <button class="adm-btn" :disabled="plLoading || plSaving" @click="startAddPerson">＋ 添加成员</button>
           </div>
         </header>
 
-        <div v-if="plLoading" class="adm-center"><div class="adm-spin" /> 加载人员名册…</div>
+        <div v-if="plLoading" class="adm-center"><div class="adm-spin" /> 加载用户与能力…</div>
 
         <div v-else class="adm-form">
+          <!-- 编辑某账号的能力（user_id 固定来自真实账号、不可改） -->
           <div v-if="plEditing" class="adm-skill-edit">
             <label class="adm-field">
-              <span>用户 ID（完整，如 @alice:cosmac.cc）</span>
-              <input v-model.trim="plForm.user_id" :disabled="plForm._isEdit" placeholder="@alice:cosmac.cc" />
-            </label>
-            <label class="adm-field">
-              <span>显示名</span>
-              <input v-model.trim="plForm.name" placeholder="小雨" />
+              <span>用户（来自用户管理，不可改）</span>
+              <input :value="plForm.user_id + (plForm.name ? '（' + plForm.name + '）' : '')" disabled />
             </label>
             <label class="adm-field">
               <span>角色 / 岗位</span>
@@ -493,31 +489,36 @@
             </label>
             <label class="adm-tool">
               <input type="checkbox" v-model="plForm.enabled" />
-              <span class="adm-tool-l">启用</span>
+              <span class="adm-tool-l">启用（参与 AI 派单）</span>
             </label>
             <div class="adm-actions">
               <button class="adm-btn ghost" :disabled="plSaving" @click="plEditing = false">取消</button>
-              <button class="adm-btn" :disabled="plSaving || !plForm.user_id" @click="savePerson">
+              <button class="adm-btn" :disabled="plSaving" @click="savePerson">
                 {{ plSaving ? '保存中…' : '保存' }}
               </button>
             </div>
           </div>
 
-          <p v-if="!people.length" class="adm-hint">还没有登记成员。点右上「添加成员」开始。</p>
+          <p v-if="!peopleRows.length" class="adm-hint">还没有用户。先去「用户管理」建账号，这里会自动同步。</p>
           <table v-else class="adm-table">
             <thead>
-              <tr><th>用户</th><th>角色</th><th>擅长</th><th>状态</th><th>操作</th></tr>
+              <tr><th>用户</th><th>角色</th><th>擅长</th><th>能力</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="p in people" :key="p.user_id">
-                <td><code>{{ p.user_id }}</code><template v-if="p.name"> · {{ p.name }}</template></td>
-                <td>{{ p.role || '—' }}</td>
-                <td class="adm-skill-desc">{{ p.expertise || '—' }}</td>
-                <td><span class="adm-badge" :class="{ on: p.enabled }">{{ p.enabled ? '启用' : '停用' }}</span></td>
+              <tr v-for="r in peopleRows" :key="r.id">
+                <td><code>{{ r.id }}</code><template v-if="r.name"> · {{ r.name }}</template></td>
+                <td>{{ r.role || '—' }}</td>
+                <td class="adm-skill-desc">{{ r.expertise || '—' }}</td>
+                <td>
+                  <span class="adm-badge" :class="{ on: r.hasProfile && r.enabled }">
+                    {{ r.hasProfile ? (r.enabled ? '已设' : '停用') : '未设' }}
+                  </span>
+                </td>
                 <td class="adm-row-actions">
-                  <button class="adm-btn ghost sm" :disabled="plSaving" @click="startEditPerson(p)">编辑</button>
-                  <button class="adm-btn ghost sm" :disabled="plSaving" @click="togglePerson(p)">{{ p.enabled ? '停用' : '启用' }}</button>
-                  <button class="adm-btn ghost sm danger" :disabled="plSaving" @click="removePerson(p)">删除</button>
+                  <button class="adm-btn ghost sm" :disabled="plSaving" @click="startEditPersonForUser(r)">
+                    {{ r.hasProfile ? '编辑能力' : '设置能力' }}
+                  </button>
+                  <button v-if="r.hasProfile" class="adm-btn ghost sm danger" :disabled="plSaving" @click="removePersonById(r.id)">清除</button>
                 </td>
               </tr>
             </tbody>
@@ -1627,14 +1628,15 @@ async function removeAgent(a: GlobalAgent) {
   try { await persistAgents(next, '已删除') } catch { /* 已提示 */ }
 }
 
-/* —— 人员能力名册（模块3.5 档1：admin 给成员登记能力备注，主 AI 拆任务匹配用）—— */
-const people = ref<Person[]>([])
+/* —— 人员能力（模块3.5：直接同步「用户管理」真实账号，给每人补能力备注，不重建人）—— */
+const people = ref<Person[]>([])          // 能力名册（cosmac.people）
+const peopleUsers = ref<AdminUser[]>([])  // 真实账号（来自 listUsers，排除中枢AI）
 const plLoading = ref(false)
 const plSaving = ref(false)
 const plLoaded = ref(false)
 const plEditing = ref(false)
-const plForm = reactive<Person & { _isEdit: boolean }>({
-  user_id: '', name: '', role: '', expertise: '', note: '', enabled: true, _isEdit: false,
+const plForm = reactive<Person>({
+  user_id: '', name: '', role: '', expertise: '', note: '', enabled: true,
 })
 
 function switchToPeople() {
@@ -1645,31 +1647,56 @@ function switchToPeople() {
 async function loadPeople() {
   plLoading.value = true
   try {
-    people.value = await getPeople()
+    // 同时拉真实账号 + 能力名册，合并展示——账号是主体，能力是叠加上去的备注
+    const [reg, us] = await Promise.all([getPeople(), listUsers()])
+    people.value = reg
+    peopleUsers.value = us.filter((u) => !u.isBot)  // 排除中枢 AI
     plLoaded.value = true
   } catch (e: any) {
-    warn('加载失败', e?.message || '无法读取人员名册')
+    warn('加载失败', e?.message || '无法读取用户/能力')
   } finally {
     plLoading.value = false
   }
 }
 
-function startAddPerson() {
-  Object.assign(plForm, {
-    user_id: '', name: '', role: '', expertise: '', note: '', enabled: true, _isEdit: false,
-  })
-  plEditing.value = true
-}
+// user_id → 能力备注
+const peopleMap = computed(() => {
+  const m: Record<string, Person> = {}
+  for (const p of people.value) m[p.user_id] = p
+  return m
+})
+// 表格行 = 真实账号 + 叠加其能力（没设的 hasProfile=false）
+const peopleRows = computed(() =>
+  peopleUsers.value.map((u) => {
+    const p = peopleMap.value[u.id]
+    return {
+      id: u.id,
+      name: p?.name || u.name || '',
+      role: p?.role || '',
+      expertise: p?.expertise || '',
+      enabled: p ? p.enabled : true,
+      hasProfile: !!p,
+    }
+  }),
+)
 
-function startEditPerson(p: Person) {
-  Object.assign(plForm, { ...p, _isEdit: true })
+function startEditPersonForUser(r: { id: string; name: string }) {
+  const ex = peopleMap.value[r.id]
+  Object.assign(plForm, {
+    user_id: r.id,
+    name: ex?.name || r.name || '',
+    role: ex?.role || '',
+    expertise: ex?.expertise || '',
+    note: ex?.note || '',
+    enabled: ex ? ex.enabled : true,
+  })
   plEditing.value = true
 }
 
 async function persistPeople(next: Person[], okMsg: string) {
   if (!plLoaded.value) {
-    warn('请先成功加载', '人员名册尚未加载成功，无法保存（避免覆盖线上配置）')
-    throw new Error('人员名册未加载')
+    warn('请先成功加载', '尚未加载成功，无法保存（避免覆盖线上配置）')
+    throw new Error('未加载')
   }
   plSaving.value = true
   try {
@@ -1700,22 +1727,15 @@ async function savePerson() {
   if (i >= 0) next[i] = item
   else next.push(item)
   try {
-    await persistPeople(next, '已保存成员')
+    await persistPeople(next, '已保存能力')
     plEditing.value = false
   } catch { /* 已提示 */ }
 }
 
-async function togglePerson(p: Person) {
-  const next = people.value.map((x) =>
-    x.user_id === p.user_id ? { ...x, enabled: !x.enabled } : x,
-  )
-  try { await persistPeople(next, p.enabled ? '已停用' : '已启用') } catch { /* 已提示 */ }
-}
-
-async function removePerson(p: Person) {
-  if (!confirm(`确认删除成员「${p.name || p.user_id}」？`)) return
-  const next = people.value.filter((x) => x.user_id !== p.user_id)
-  try { await persistPeople(next, '已删除') } catch { /* 已提示 */ }
+async function removePersonById(uid: string) {
+  if (!confirm('清除该成员的能力备注？（不会删除账号，只是从 AI 派单名册移除）')) return
+  const next = people.value.filter((p) => p.user_id !== uid)
+  try { await persistPeople(next, '已清除') } catch { /* 已提示 */ }
 }
 
 /* —— 入驻模板（管理员定义注册引导可选的「方案」，写控制室 state event）—— */
