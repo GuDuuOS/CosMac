@@ -324,11 +324,14 @@ GATE_LEVELS: List[Dict[str, str]] = [
 # 可门控的能力目录：key=能力标识（与 bot 执行点一致，**稳定别改**），label=后台显示，
 # default=未配置时的默认门槛。**新增功能就往这里加一条**（前后端各加，见 client.ts GATE_CATALOG）。
 GATE_CATALOG: List[Dict[str, str]] = [
-    {"key": "ai_chat", "label": "基础 AI 对话（@中枢AI / 私聊回复）", "default": TIER_FREE},
-    {"key": "knowledge", "label": "知识库（RAG 检索 + 知识命令）", "default": TIER_FREE},
-    {"key": "create_room", "label": "建群 / 开专班", "default": TIER_FREE},
-    {"key": "workflow_run", "label": "跑工作流（外部/付费、共享凭据）", "default": GATE_ADMIN},
-    {"key": "web_search", "label": "联网搜索（外部 API、共享凭据有成本）", "default": GATE_ADMIN},
+    # group：分类（后台「会员权限」按它分组展示）。新增功能往对应分类加一条（前后端各一份）。
+    {"key": "ai_chat", "label": "基础 AI 对话（@中枢AI / 私聊回复）", "default": TIER_FREE, "group": "AI 对话与检索"},
+    {"key": "knowledge", "label": "知识库（RAG 检索 + 知识命令）", "default": TIER_FREE, "group": "AI 对话与检索"},
+    {"key": "web_search", "label": "联网搜索（外部 API、共享凭据有成本）", "default": GATE_ADMIN, "group": "AI 对话与检索"},
+    {"key": "create_room", "label": "建群 / 频道", "default": TIER_FREE, "group": "任务编排与协作"},
+    {"key": "task_board", "label": "AI 拆解任务到看板", "default": TIER_FREE, "group": "任务编排与协作"},
+    {"key": "assemble_team", "label": "一键建专班（AI 组队 + 派单）", "default": TIER_FREE, "group": "任务编排与协作"},
+    {"key": "workflow_run", "label": "跑工作流（外部/付费、共享凭据）", "default": GATE_ADMIN, "group": "自动化"},
 ]
 
 # 由目录派生的便捷映射

@@ -2283,7 +2283,8 @@ class CosmacBot:
         "run_workflow": "workflow_run",
         "search_knowledge": "knowledge",  # 与「知识」命令、RAG 自动注入同一道 knowledge 门
         "web_search": "web_search",       # 联网搜索：共享付费 key、默认仅管理员（见 GATE_CATALOG）
-        "assemble_team": "create_room",   # 建专班=建房+拉人+配置，归到 create_room 门槛
+        "assemble_team": "assemble_team",  # 一键建专班：独立门控（默认免费，可在后台调成付费）
+        "create_tasks": "task_board",      # AI 拆解任务到看板：独立门控（默认免费）
     }
 
     def _tool_gate_check(self, sender: str, tool_name: str) -> Optional[str]:

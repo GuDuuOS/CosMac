@@ -1292,13 +1292,15 @@ export const GATE_LEVELS: { slug: string; label: string }[] = [
   { slug: 'admin', label: '仅平台管理员' },
 ]
 
-/** 可门控能力目录（与 bot 端 GATE_CATALOG 一致；key 稳定、default 为未配置时的默认门槛）。 */
-export const GATE_CATALOG: { key: string; label: string; default: string }[] = [
-  { key: 'ai_chat', label: '基础 AI 对话（@中枢AI / 私聊回复）', default: 'free' },
-  { key: 'knowledge', label: '知识库（RAG 检索 + 知识命令）', default: 'free' },
-  { key: 'create_room', label: '建群 / 开专班', default: 'free' },
-  { key: 'workflow_run', label: '跑工作流（外部/付费、共享凭据）', default: 'admin' },
-  { key: 'web_search', label: '联网搜索（外部 API、共享凭据有成本）', default: 'admin' },
+/** 可门控能力目录（与 bot 端 GATE_CATALOG 一致；key 稳定、default 为未配置时的默认门槛，group 用于后台分组展示）。 */
+export const GATE_CATALOG: { key: string; label: string; default: string; group: string }[] = [
+  { key: 'ai_chat', label: '基础 AI 对话（@中枢AI / 私聊回复）', default: 'free', group: 'AI 对话与检索' },
+  { key: 'knowledge', label: '知识库（RAG 检索 + 知识命令）', default: 'free', group: 'AI 对话与检索' },
+  { key: 'web_search', label: '联网搜索（外部 API、共享凭据有成本）', default: 'admin', group: 'AI 对话与检索' },
+  { key: 'create_room', label: '建群 / 频道', default: 'free', group: '任务编排与协作' },
+  { key: 'task_board', label: 'AI 拆解任务到看板', default: 'free', group: '任务编排与协作' },
+  { key: 'assemble_team', label: '一键建专班（AI 组队 + 派单）', default: 'free', group: '任务编排与协作' },
+  { key: 'workflow_run', label: '跑工作流（外部/付费、共享凭据）', default: 'admin', group: '自动化' },
 ]
 
 /** 门控策略 map：能力 key → 门槛 slug。 */

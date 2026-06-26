@@ -902,16 +902,19 @@
               <tr><th>能力</th><th>最低会员等级</th></tr>
             </thead>
             <tbody>
-              <tr v-for="g in GATE_CATALOG" :key="g.key">
-                <td>{{ g.label }}</td>
-                <td>
-                  <select class="adm-tier" :class="gates[g.key]" v-model="gates[g.key]">
-                    <option v-for="lv in GATE_LEVELS" :key="lv.slug" :value="lv.slug">
-                      {{ lv.label }}
-                    </option>
-                  </select>
-                </td>
-              </tr>
+              <template v-for="grp in gateGroups" :key="grp.group">
+                <tr class="adm-grp-row"><td colspan="2">{{ grp.group }}</td></tr>
+                <tr v-for="g in grp.items" :key="g.key">
+                  <td>{{ g.label }}</td>
+                  <td>
+                    <select class="adm-tier" :class="gates[g.key]" v-model="gates[g.key]">
+                      <option v-for="lv in GATE_LEVELS" :key="lv.slug" :value="lv.slug">
+                        {{ lv.label }}
+                      </option>
+                    </select>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -2036,6 +2039,17 @@ async function saveRules() {
 
 /* —— 会员权限（功能门控，写控制室 cosmac.gating）—— */
 const gates = ref<GatingMap>({})
+// 按 group 分组展示能力目录（保持目录里的出现顺序）
+const gateGroups = computed(() => {
+  const order: string[] = []
+  const map: Record<string, typeof GATE_CATALOG> = {}
+  for (const g of GATE_CATALOG) {
+    const k = g.group || '其他'
+    if (!map[k]) { map[k] = []; order.push(k) }
+    map[k].push(g)
+  }
+  return order.map((group) => ({ group, items: map[group] }))
+})
 const gateLoading = ref(false)
 const gateSaving = ref(false)
 const gateLoaded = ref(false)
@@ -2471,6 +2485,7 @@ onMounted(check)
 .adm-fsel { padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-soft); color: var(--text); font-size: var(--fs-75); cursor: pointer; }
 .adm-filter-n { font-size: var(--fs-75); color: var(--text-3); margin-left: auto; }
 .adm-empty-row { text-align: center; color: var(--text-3); padding: 24px 0; font-size: var(--fs-75); }
+.adm-grp-row td { padding-top: 16px; font-size: var(--fs-75); font-weight: var(--fw-bold); color: var(--text-2); border-bottom: 1px solid var(--border); }
 .adm-table { width: 100%; border-collapse: collapse; font-size: var(--fs-100); }
 .adm-table th {
   text-align: left; font-size: var(--fs-75); color: var(--text-3); font-weight: 400;

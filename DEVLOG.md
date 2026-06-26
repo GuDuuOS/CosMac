@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-06-26 — 会员权限扩充 + 分类（覆盖新功能）
+- **需求**:做了这么多功能，会员权限要增项 + 分类。
+- **改法**:GATE_CATALOG 给每项加 `group` 分类字段，并补 2 个新权限项（覆盖本期任务编排功能）：
+  - `task_board`「AI 拆解任务到看板」(默认免费)、`assemble_team`「一键建专班（AI 组队+派单）」(默认免费，原合并在 create_room 下、现独立)。
+  - 分类：**AI 对话与检索**(ai_chat/knowledge/web_search)、**任务编排与协作**(create_room/task_board/assemble_team)、**自动化**(workflow_run)。
+- **后端强制**:`_TOOL_GATE_MAP` 改 assemble_team→assemble_team(独立)、create_tasks→task_board(新);默认免费=零回归，admin 可在后台调成付费/创作者/仅管理员。前后端 GATE_CATALOG 各加一份(同步)。
+- **后台 UI**:会员权限表按 group 分组展示(加分类标题行)。
+- **测试**:281 通过、ruff 全绿、client build OK。**发 dist + 重启 bot**。新 hash index-CEt96ewb.js。
+
 ## 2026-06-26 — 会员等级下拉加「管理员」最高档
 - **需求**:会员等级下拉里加上「管理员」(Admin=管理员)。
 - **改法(纯前端)**:用户管理「会员等级」下拉做成统一等级选择器 免费<付费<创作者<**管理员**。下拉值:是服务器管理员→显示管理员，否则显示会员档。`onLevelChange`:选「管理员」→ setUserAdmin(true);选某会员档→若原是管理员先撤管理员(setUserAdmin false)再写会员等级。复用现有 setMemberTier/setUserAdmin;角色列+设/撤管理员按钮保留(与下拉同步)。加 .adm-tier.admin 紫色样式。
