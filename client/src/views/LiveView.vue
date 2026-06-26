@@ -75,8 +75,10 @@ import ChannelAdminModal from '@/components/channel/ChannelAdminModal.vue'
 import KnowledgeModal from '@/components/layout/KnowledgeModal.vue'
 import ChoiceCard from '@/components/chat/ChoiceCard.vue'
 import MyPeopleModal from '@/components/chat/MyPeopleModal.vue'
+import MyUsageModal from '@/components/layout/MyUsageModal.vue'
 import { useKnowledge } from '@/composables/useKnowledge'
 import { useMyPeople } from '@/composables/useMyPeople'
+import { useMyUsage } from '@/composables/useMyUsage'
 import RightPanel from '@/components/layout/RightPanel.vue'
 import { useRightPanel } from '@/composables/useRightPanel'
 import BoardSourcePanel from '@/components/layout/BoardSourcePanel.vue'
@@ -160,6 +162,8 @@ const doneCount = computed(() => taskList.value.filter((t) => t.status === 'done
 const { docs: kbDocsMine, load: loadKb, open: openKnowledge } = useKnowledge()
 // 「我的协作人」弹窗（普通用户维护个人能力名册）
 const { open: openMyPeople } = useMyPeople()
+// 「我的额度」弹窗（用量配额展示）
+const { open: openMyUsage } = useMyUsage()
 const TASK_COLS = [
   { key: 'todo', label: '待办' },
   { key: 'doing', label: '进行中' },
@@ -1280,6 +1284,7 @@ onBeforeUnmount(() => {
             <div class="um-sep" />
             <button class="um-item" @click="onSettings('profile')"><span class="um-ic">👤</span>个人资料</button>
             <button class="um-item" @click="openMyPeople(); userMenuOpen = false"><span class="um-ic">🧑‍🤝‍🧑</span>我的协作人</button>
+            <button class="um-item" @click="openMyUsage(); userMenuOpen = false"><span class="um-ic">📈</span>我的额度</button>
             <button class="um-item" @click="onSettings('perms')"><span class="um-ic">🔒</span>我的权限</button>
             <button class="um-item" @click="onSettings('share')"><span class="um-ic">🔔</span>数据调用授权</button>
             <!-- 管理后台入口：仅服务器管理员可见（isAdmin 探测为真）-->
@@ -1846,6 +1851,7 @@ onBeforeUnmount(() => {
     <ChannelAdminModal />
     <KnowledgeModal />
     <MyPeopleModal />
+    <MyUsageModal />
 
     <!-- 平台管理后台（全屏覆盖层；仅管理员可从用户菜单进入）-->
     <AdminView v-if="adminOpen" @close="adminOpen = false" />

@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-26 — 配额增强·更多计量项 + 我的额度展示
+- **增强1·更多计量项**:QUOTA_CATALOG 加 `teams`「专班数」(免费1/付费20/创作者不限,单调计数)、`workflow_runs`「工作流运行/月」(免费0/付费200/不限)。加 track 字段(usage 走计数表 / existing 数存量)。强制:Toolbox 加 `quota_check` 钩子(execute 门控后调)，bot `_tool_quota_check`(assemble_team→teams、run_workflow→workflow_runs)注入。
+- **增强2·我的额度**:bot 端点 `/cosmac/usage/mine`(各计量项 已用/上限,usage 类查计数表、existing 类数知识库存量)。前端 client.ts `getMyUsage` + `useMyUsage` + `MyUsageModal.vue`(进度条,超额标红,-1 显示"不限");入口用户菜单「我的额度」。QUOTA_CATALOG 前端补齐 4 项(后台「用量配额」也自动多出 teams/workflow_runs 可配)。
+- **测试**:test_quota 加 工具配额(teams 撞墙)/usage 端点 用例。292 通过、ruff 全绿、client build OK。**发 dist + 重启 bot**。新 hash index-DzPJ7XX-.js。
+
 ## 2026-06-26 — 变现第二步·用量配额系统（订阅真引擎）
 - **背景**:门控管"能不能用",配额管"能用多少"——免费版撞墙才升级,这是订阅主要付费驱动。开工第二步。
 - **引擎**:新建 `cosmac/quotas.py`(QUOTA_CATALOG 计量目录 + `QuotaStore` 读控制室 cosmac.quotas 配额配置,带 TTL 缓存,-1=不限) + 新表 `cosmac_usage`(user+metric+周期键累计) + `db/quota_repo.py`(period_key/get_count/incr)。两类指标:rate(按天/月计数)、total(数现有存量)。

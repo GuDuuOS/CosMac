@@ -115,6 +115,8 @@ class CosmacBot:
             self.toolbox.dispatch_async = self._dispatch_async
         # 功能门控：把工具调用也接进会员门控（"让 AI 帮我建群/跑工作流"与命令同一道闸）。
         self.toolbox.gate_check = self._tool_gate_check
+        # 用量配额：可计量工具（建专班数/工作流次数）按 tier 限量（变现第二步）。
+        self.toolbox.quota_check = self._tool_quota_check
         # 知识库检索工具化：把 bot 的检索逻辑注入 Toolbox，让主 AI 能主动调 search_knowledge
         # 工具（在每轮盲塞 RAG 之外，模型还能用精准关键词多次深挖）。门控走 knowledge 闸。
         self.toolbox.kb_search = self._kb_search_for_tool
@@ -2060,6 +2062,39 @@ class CosmacBot:
             logger.exception("删除个人协作人失败")
             return 500, {"error": "删除失败"}
 
+    # —— 我的额度（变现第二步：给用户看每个计量项的 已用/上限）——
+
+    def handle_usage_mine(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
+        """返回本人各计量项的当前用量与上限（前端「我的额度」展示）。需登录。"""
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        from cosmac.quotas import QUOTA_CATALOG
+
+        out: List[Dict[str, Any]] = []
+        try:
+            from cosmac.db import kb, session_scope
+            from cosmac.db.models import SCOPE_USER
+            from cosmac.db.quota_repo import get_count, period_key
+
+            with session_scope() as s:
+                for q in QUOTA_CATALOG:
+                    metric = q["key"]
+                    limit = self._quota_limit(user_id, metric)
+                    if q.get("track") == "existing" and metric == "kb_docs":
+                        used = len(kb.list_docs(s, scope=SCOPE_USER, scope_id=user_id))
+                    else:
+                        used = get_count(
+                            s, user_id, metric, period_key(str(q.get("period") or "day"))
+                        )
+                    out.append({
+                        "key": metric, "label": q["label"], "unit": q.get("unit", ""),
+                        "group": q.get("group", ""), "used": used, "limit": limit,
+                    })
+        except Exception:
+            logger.debug("读取我的用量失败", exc_info=True)
+        return 200, {"usage": out}
+
     def handle_pay_checkout(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
@@ -2367,6 +2402,19 @@ class CosmacBot:
             return None
         return self._gate_denied_text(cap)
 
+    # 工具名 → 可计量配额 metric（超额拦 + 计数）。其余工具不计量。
+    _TOOL_QUOTA_MAP = {
+        "assemble_team": "teams",       # 专班数（单调累计）
+        "run_workflow": "workflow_runs",  # 工作流运行次数（每月）
+    }
+
+    def _tool_quota_check(self, sender: str, tool_name: str) -> Optional[str]:
+        """工具配额钩子（注入 Toolbox.quota_check）：超额返回升级提示，否则计数后放行。"""
+        metric = self._TOOL_QUOTA_MAP.get(tool_name)
+        if not metric:
+            return None
+        return self._rate_quota_blocked(sender, metric)
+
     def _launch_campaign(self, origin_room: str, requester: str, name: str) -> None:
         """建一个专班群、拉发起人进来，并在群里发一张"派单"富卡。"""
         new_room = self.client.create_room(name, invitees=[requester])
@@ -2525,7 +2573,8 @@ class _Handler(BaseHTTPRequestHandler):
                 or p.startswith("/cosmac/login/")
                 or p.startswith("/cosmac/onboard/")
                 or p.startswith("/cosmac/kb/")
-                or p.startswith("/cosmac/people/")):  # 都走浏览器，需预检
+                or p.startswith("/cosmac/people/")
+                or p.startswith("/cosmac/usage/")):  # 都走浏览器，需预检
             origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", origin)
@@ -2626,6 +2675,13 @@ class _Handler(BaseHTTPRequestHandler):
             auth = self.headers.get("Authorization", "")
             token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
             code, payload = self.bot.handle_people_list_mine(token)
+            self._send_json(code, payload, cors=True)
+            return
+        # 我的额度：本人各计量项的 已用/上限（前端「我的额度」展示）
+        if self.path.split("?", 1)[0] == "/cosmac/usage/mine":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            code, payload = self.bot.handle_usage_mine(token)
             self._send_json(code, payload, cors=True)
             return
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在

@@ -21,18 +21,29 @@ from cosmac.members import MEMBER_TIERS
 
 logger = logging.getLogger("cosmac.quotas")
 
-# 计量维度目录。period: day=每天 / month=每月 / total=当前存量。limit -1 = 不限。
-# 新增计量项往这里加一条（前后端各一份，见 client.ts QUOTA_CATALOG）。
+# 计量维度目录。limit -1 = 不限。新增计量项往这里加一条（前后端各一份，见 client.ts）。
+#   track=usage  → 走 cosmac_usage 计数表，period: day/month/total(单调累计)。
+#   track=existing → 直接数现有实体行（如知识库文档数），period 仅用于"是否分周期"（这里 total）。
 QUOTA_CATALOG: List[Dict[str, Any]] = [
     {
         "key": "ai_msg_daily", "label": "AI 对话（每天）", "unit": "条/天",
-        "period": "day", "group": "AI",
+        "track": "usage", "period": "day", "group": "AI",
         "defaults": {"free": 30, "paid": -1, "creator": -1},
     },
     {
         "key": "kb_docs", "label": "知识库文档数", "unit": "篇",
-        "period": "total", "group": "知识库",
+        "track": "existing", "period": "total", "group": "知识库",
         "defaults": {"free": 5, "paid": 200, "creator": -1},
+    },
+    {
+        "key": "teams", "label": "专班数（一键建专班）", "unit": "个",
+        "track": "usage", "period": "total", "group": "任务编排",
+        "defaults": {"free": 1, "paid": 20, "creator": -1},
+    },
+    {
+        "key": "workflow_runs", "label": "工作流运行（每月）", "unit": "次/月",
+        "track": "usage", "period": "month", "group": "自动化",
+        "defaults": {"free": 0, "paid": 200, "creator": -1},
     },
 ]
 

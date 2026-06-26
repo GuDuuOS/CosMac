@@ -61,6 +61,9 @@ class Toolbox:
         # 在 execute() 里、真正跑工具前调用——让"让 AI 帮我建群/跑工作流"也受会员门控约束
         # （与聊天命令同一道闸，防止绕过命令直接走自然语言）。None = 不做门控（如单测）。
         self.gate_check: Optional[Callable[[str, str], Optional[str]]] = None
+        # 用量配额钩子：由 bot 注入。签名 (sender, tool_name) -> 超额提示文案 或 None(放行+计数)。
+        # 在 execute() 门控之后调用——给"建专班数/工作流次数"等可计量工具按 tier 限量。
+        self.quota_check: Optional[Callable[[str, str], Optional[str]]] = None
         # 知识库检索回调：由 bot 注入 self._kb_search_for_tool。签名 (query, ctx) -> 结果文本。
         # 让 search_knowledge 工具的检索逻辑(embedder/DB/作用域)留在 bot 一侧，Toolbox 保持薄。
         # None（如单测/未注入）→ search_knowledge 工具返回"暂不可用"，绝不报错。
@@ -129,6 +132,11 @@ class Toolbox:
             denial = self.gate_check(ctx.sender, call.name)
             if denial:
                 return denial
+        # 用量配额：门控之后再过配额钩子（如建专班数/工作流次数）。超额返回升级提示。
+        if self.quota_check is not None:
+            over = self.quota_check(ctx.sender, call.name)
+            if over:
+                return over
         try:
             logger.info("执行工具 %s 参数=%s", call.name, call.arguments)
             return entry["fn"](call.arguments, ctx)

@@ -94,6 +94,31 @@ class TestBotQuotaEnforce(unittest.TestCase):
         for _ in range(50):
             self.assertIsNone(bot._rate_quota_blocked("@p:h", "ai_msg_daily"))
 
+    def test_tool_quota_teams(self) -> None:
+        # assemble_team 工具 → teams 配额：免费 1 个，第 2 次被拦
+        bot = _bot()
+        bot.members.get_tier = lambda u: "free"  # type: ignore
+        bot.quotas.limit = lambda m, t: 1 if m == "teams" else -1  # type: ignore
+        self.assertIsNone(bot._tool_quota_check("@u:h", "assemble_team"))   # 1
+        over = bot._tool_quota_check("@u:h", "assemble_team")               # 超额
+        self.assertIsNotNone(over)
+        self.assertIn("专班数", over)
+        # 不在配额表里的工具不计量
+        self.assertIsNone(bot._tool_quota_check("@u:h", "send_message_to_room"))
+
+    def test_usage_mine(self) -> None:
+        bot = _bot()
+        bot.members.get_tier = lambda u: "free"  # type: ignore
+        bot.quotas.limit = lambda m, t: {"ai_msg_daily": 30, "kb_docs": 5, "teams": 1, "workflow_runs": 0}.get(m, -1)  # type: ignore
+        bot.client.whoami = lambda t: "@u:h" if t == "good" else None  # type: ignore
+        self.assertEqual(bot.handle_usage_mine("")[0], 401)
+        code, p = bot.handle_usage_mine("good")
+        self.assertEqual(code, 200)
+        keys = {u["key"]: u for u in p["usage"]}
+        self.assertEqual(keys["ai_msg_daily"]["limit"], 30)
+        self.assertEqual(keys["kb_docs"]["used"], 0)
+        self.assertEqual(keys["teams"]["limit"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

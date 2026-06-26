@@ -1315,7 +1315,24 @@ const QUOTAS_EVENT_TYPE = 'cosmac.quotas'
 export const QUOTA_CATALOG: { key: string; label: string; unit: string; group: string; defaults: Record<string, number> }[] = [
   { key: 'ai_msg_daily', label: 'AI 对话（每天）', unit: '条/天', group: 'AI', defaults: { free: 30, paid: -1, creator: -1 } },
   { key: 'kb_docs', label: '知识库文档数', unit: '篇', group: '知识库', defaults: { free: 5, paid: 200, creator: -1 } },
+  { key: 'teams', label: '专班数（一键建专班）', unit: '个', group: '任务编排', defaults: { free: 1, paid: 20, creator: -1 } },
+  { key: 'workflow_runs', label: '工作流运行（每月）', unit: '次/月', group: '自动化', defaults: { free: 0, paid: 200, creator: -1 } },
 ]
+
+/** 我的用量（前端「我的额度」展示）：各计量项的 已用/上限。失败/未登录返回 []。 */
+export interface UsageItem { key: string; label: string; unit: string; group: string; used: number; limit: number }
+export async function getMyUsage(): Promise<UsageItem[]> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token) return []
+  try {
+    const r = await fetch(`${payBase()}/cosmac/usage/mine`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!r.ok) return []
+    const j = await r.json().catch(() => ({}))
+    return Array.isArray(j?.usage) ? j.usage : []
+  } catch {
+    return []
+  }
+}
 /** 配额 map：计量项 → 等级 → 上限（-1=不限）。 */
 export type QuotaLimits = Record<string, Record<string, number>>
 
