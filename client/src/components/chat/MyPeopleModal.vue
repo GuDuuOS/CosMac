@@ -10,9 +10,11 @@
       </div>
 
       <div class="mp-body">
-        <!-- 给某联系人填能力（user_id 固定取自联系人，不可改） -->
+        <!-- 编辑能力：给已有联系人(user_id 固定) 或 手动添加新人(user_id 可编辑) -->
         <div v-if="editing" class="mp-edit">
-          <div class="mp-edit-who">{{ form.name || form.user_id }} <span class="mp-uid">{{ form.user_id }}</span></div>
+          <input v-if="adding" v-model.trim="form.user_id" class="mp-input"
+            placeholder="用户名或 @用户名（如 wenan / @wenan:cosmac.cc）" />
+          <div v-else class="mp-edit-who">{{ form.name || form.user_id }} <span class="mp-uid">{{ form.user_id }}</span></div>
           <div class="mp-row">
             <input v-model.trim="form.name" class="mp-input" placeholder="显示名（可空）" />
             <input v-model.trim="form.role" class="mp-input" placeholder="角色 / 岗位" />
@@ -28,6 +30,10 @@
         </div>
 
         <template v-else>
+          <div class="mp-toolbar">
+            <span class="mp-hint">{{ rows.length }} 位联系人</span>
+            <button class="mp-btn" @click="startAdd">＋ 添加协作人</button>
+          </div>
           <div v-if="loading" class="mp-empty">加载联系人…</div>
           <ul v-else-if="rows.length" class="mp-list">
             <li v-for="r in rows" :key="r.id" class="mp-item">
@@ -57,7 +63,7 @@
 
 <script setup lang="ts">
 import { useMyPeople } from '@/composables/useMyPeople'
-const { visible, rows, loading, busy, editing, form, close, startEdit, save, remove } = useMyPeople()
+const { visible, rows, loading, busy, editing, adding, form, close, startEdit, startAdd, save, remove } = useMyPeople()
 </script>
 
 <style scoped>
@@ -79,6 +85,8 @@ const { visible, rows, loading, busy, editing, form, close, startEdit, save, rem
 .mp-input:focus, .mp-textarea:focus { outline: none; border-color: var(--accent); }
 .mp-chk { font-size: var(--fs-75); color: var(--text-2); display: flex; align-items: center; gap: 6px; }
 .mp-bar { display: flex; justify-content: flex-end; gap: 8px; }
+.mp-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.mp-hint { font-size: var(--fs-75); color: var(--text-3); }
 .mp-btn { padding: 7px 16px; border: none; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; font-size: var(--fs-75); font-weight: var(--fw-bold); }
 .mp-btn.ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
 .mp-btn:disabled { opacity: 0.5; cursor: not-allowed; }

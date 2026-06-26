@@ -1,5 +1,5 @@
 import { ref, reactive, computed } from 'vue'
-import { myPeopleList, myPeopleAdd, myPeopleDelete, listMyContacts, type MyPerson } from '@/matrix/client'
+import { myPeopleList, myPeopleAdd, myPeopleDelete, listMyContacts, normalizeUserId, type MyPerson } from '@/matrix/client'
 import { useToast } from '@/composables/useToast'
 
 /**
@@ -16,6 +16,7 @@ const contacts = ref<{ id: string; name: string }[]>([])  // 我的联系人
 const loading = ref(false)
 const busy = ref(false)
 const editing = ref(false)
+const adding = ref(false)   // true=手动添加新人(user_id 可编辑)；false=给已有联系人设能力(user_id 固定)
 const form = reactive<MyPerson>({ user_id: '', name: '', role: '', expertise: '', note: '', enabled: true })
 
 export function useMyPeople() {
@@ -66,15 +67,26 @@ export function useMyPeople() {
       note: ex?.note || '',
       enabled: ex ? ex.enabled : true,
     })
+    adding.value = false
+    editing.value = true
+  }
+
+  // 手动添加一个还不是联系人的新人（user_id 可编辑）
+  function startAdd() {
+    Object.assign(form, { user_id: '', name: '', role: '', expertise: '', note: '', enabled: true })
+    adding.value = true
     editing.value = true
   }
 
   async function save() {
-    if (busy.value || !form.user_id) return
+    if (busy.value) return
+    // 新增模式：容错规范化 user_id（@bob / bob 都补成 @bob:本服务器）；已有联系人则 user_id 固定
+    const pid = adding.value ? normalizeUserId(form.user_id) : form.user_id
+    if (!pid || !pid.includes(':')) { warn('请填写用户名（如 bob 或 @bob:cosmac.cc）'); return }
     busy.value = true
     try {
       await myPeopleAdd({
-        person_id: form.user_id, name: form.name.trim(), role: form.role.trim(),
+        person_id: pid, name: form.name.trim(), role: form.role.trim(),
         expertise: form.expertise.trim(), note: form.note.trim(), enabled: form.enabled,
       })
       editing.value = false
@@ -94,5 +106,5 @@ export function useMyPeople() {
     finally { busy.value = false }
   }
 
-  return { visible, rows, loading, busy, editing, form, open, close, load, startEdit, save, remove }
+  return { visible, rows, loading, busy, editing, adding, form, open, close, load, startEdit, startAdd, save, remove }
 }
