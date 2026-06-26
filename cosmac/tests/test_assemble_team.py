@@ -85,6 +85,63 @@ class TestAssembleTeam(unittest.TestCase):
         self.assertEqual(self.client.created, [])  # 没建房
 
 
+class TestTaskReviewTools(unittest.TestCase):
+    """档4 派单+审核回填：list_room_tasks / update_task（含跨频道越权防护）。"""
+
+    def setUp(self) -> None:
+        init_engine("sqlite://", create_all=True)
+        self.tb = Toolbox(FakeClient())
+        # 在 !team:h 频道下建两条任务
+        from cosmac.db.task_repo import create_tasks
+        with session_scope() as s:
+            rows = create_tasks(s, goal="大促", items=[
+                {"title": "写文案", "executor_kind": "human", "executor_ref": "@a:h"},
+                {"title": "出图", "executor_kind": "agent", "executor_ref": "designer"},
+            ], room_id="!team:h", sender="@owner:h")
+            self.tid = rows[0].id
+
+    def _exec(self, name, args, room="!team:h"):
+        return self.tb.execute(
+            ToolCall(id="x", name=name, arguments=args),
+            ToolContext(room, "@owner:h"),
+        )
+
+    def test_list_room_tasks(self) -> None:
+        out = self._exec("list_room_tasks", {})
+        self.assertIn("写文案", out)
+        self.assertIn("出图", out)
+        self.assertIn(f"#{self.tid}", out)
+
+    def test_update_task_approve(self) -> None:
+        # 审核通过 → done + 回填结果
+        out = self._exec("update_task", {"task_id": self.tid, "status": "done", "result": "已交付链接X"})
+        self.assertIn("done", out)
+        from cosmac.db.task_repo import get_task
+        with session_scope() as s:
+            t = get_task(s, self.tid)
+        self.assertEqual(t.status, "done")
+        self.assertEqual(t.result, "已交付链接X")
+        self.assertEqual(t.progress, 100)  # done 自动补满
+
+    def test_update_task_reject(self) -> None:
+        # 打回 → doing + 批注
+        self._exec("update_task", {"task_id": self.tid, "status": "doing", "result": "打回：标题不够吸睛"})
+        from cosmac.db.task_repo import get_task
+        with session_scope() as s:
+            t = get_task(s, self.tid)
+        self.assertEqual(t.status, "doing")
+        self.assertIn("打回", t.result)
+
+    def test_update_task_cross_channel_blocked(self) -> None:
+        # 从别的频道改本任务 → 拒绝（越权防护：只能改本频道的任务）
+        out = self._exec("update_task", {"task_id": self.tid, "status": "done"}, room="!other:h")
+        self.assertIn("没找到", out)
+        from cosmac.db.task_repo import get_task
+        with session_scope() as s:
+            t = get_task(s, self.tid)
+        self.assertEqual(t.status, "todo")  # 未被改动
+
+
 class TestTaskRuleInjection(unittest.TestCase):
     """本专班任务RULE 注入：项目主AI 被频道 taskRule 约束。"""
 

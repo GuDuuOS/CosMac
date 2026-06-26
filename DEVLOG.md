@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-26 — 模块3.5 档4·派单+审核回填（编排闭环收尾，纯后端）
+- **做了什么**:给项目主AI 两个工具来跑"跟踪 + 审核回填"，**编排核心闭环到此完整**(拆解→匹配→建专班→跟踪+审核回填)。
+- **`list_room_tasks`**:列当前频道的任务(含编号id/状态/执行者/结果)，项目主AI 跟踪进度或审核前先看清有哪些任务、到哪一步。
+- **`update_task`**:更新当前频道某任务的 status/result/progress，用于推进与**审核回填**——执行者交付→done+result填交付;审核通过→done;审核打回→doing+result写打回原因。**越权防护**:只能改 room_id==当前频道 的任务(项目主AI 碰不到别的专班看板)。
+- 两个工具 _ALWAYS_ON、无单独门控(走 ai_chat 入口闸);复用现有 task_repo.get_task/update_task(done 自动补进度100)。
+- **审核终审权**:这版是 AI 用 update_task 直接判;人终审仍可在看板手动拖卡覆盖(memory 记的"AI初审+人终审"默认靠看板兜底,需要更强的"待人确认"态再加状态值)。
+- **未做(档4b,可选)**:executor=workflow 的自动回填(run_workflow 跑完回调直接写对应 task，需让 run_workflow 带 task_id 链接)。
+- **测试**:test_assemble_team.py 加 TestTaskReviewTools(列任务/审核通过done补满/打回doing+批注/**跨频道越权被拒**);工具集断言 10→12。273 通过、ruff 全绿;10 失败仍是 manual 支付缺 env、无关。
+- **部署**:**纯后端**——无需发 dist,只 `restart guduu-bot`。
+- **模块3.5 进度**:档1能力名册✅ 档2类型化执行者✅ 档3一键建专班✅ 档4审核回填✅(核心闭环完整);仅可选 档3b(worker @名路由)/档4b(workflow自动回填) 待定。
+
 ## 2026-06-26 — 模块3.5 档3·一键建专班 assemble_team（纯后端）
 - **做了什么**:把"建频道+拉人+绑AI+装任务RULE/技能+派单"串成主AI 的**一个工具调用**——拆完任务后真的把团队拉起来。这是编排"动起来"的关键一刀。
 - **assemble_team 工具**:① create_room(项目名,邀请发起人+成员) → ② 写 channel_config:persona(给了 lead_agent 用其 agentSlug,否则用内置"项目主AI 编排人设")+ agentSlugs(协作 Agent)+ taskRule + skill_slugs → ③ create_tasks 把子任务派进新专班(作用域=新房间) → ④ 发开班消息。门控走 create_room、_ALWAYS_ON 默认常开。成员/Agent/技能都来自 list_capabilities。

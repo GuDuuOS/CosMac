@@ -98,7 +98,7 @@ class Toolbox:
     # 双保险，不靠工具开关来拦；放这里免得旧 AI 配置白名单没有它而被当禁用。
     _ALWAYS_ON: Set[str] = {
         "create_tasks", "search_knowledge", "web_search", "list_capabilities",
-        "assemble_team",
+        "assemble_team", "list_room_tasks", "update_task",
     }
 
     def _is_enabled(self, name: str) -> bool:
@@ -438,6 +438,50 @@ class Toolbox:
             fn=self._tool_assemble_team,
         )
 
+        # 11) 列出本频道任务（模块3.5 档4）：项目主AI 跟踪进度/审核前先看清有哪些任务。
+        self._register(
+            name="list_room_tasks",
+            description=(
+                "列出**当前频道**的任务（含编号 id、状态、执行者、结果/批注）。"
+                "跟踪进度、要审核或更新某条任务前，先调它看清有哪些任务、各自到哪一步。"
+            ),
+            parameters={"type": "object", "properties": {}},
+            fn=self._tool_list_room_tasks,
+        )
+
+        # 12) 更新本频道任务（模块3.5 档4）：推进状态 + 回填结果 + 审核（通过/打回）。
+        self._register(
+            name="update_task",
+            description=(
+                "更新**当前频道**里某条任务的状态/结果，用于推进与**审核回填**：\n"
+                "  • 执行者交付 → status=done 且 result 填交付内容/结论/链接\n"
+                "  • 审核通过 → status=done\n"
+                "  • 审核打回 → status=doing 且 result 写明打回原因与修改要求\n"
+                "  • 开始处理 → status=doing\n"
+                "只能改本频道的任务（按 task_id，先用 list_room_tasks 拿编号）。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "integer", "description": "任务编号（见 list_room_tasks）。"},
+                    "status": {
+                        "type": "string", "enum": ["todo", "doing", "done"],
+                        "description": "新状态（可选）。",
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "交付内容 / 审核批注 / 打回原因（可选）。",
+                    },
+                    "progress": {
+                        "type": "integer",
+                        "description": "进度 0-100（可选）。",
+                    },
+                },
+                "required": ["task_id"],
+            },
+            fn=self._tool_update_task,
+        )
+
     # —— 各工具的具体执行（转发到 MatrixClient）——
 
     def _tool_create_room(self, args: Dict[str, Any], ctx: ToolContext) -> str:
@@ -698,6 +742,64 @@ class Toolbox:
             snippet = (h.get("snippet") or "")[:300]
             lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
         return "\n".join(lines)
+
+    def _tool_list_room_tasks(self, args: Dict[str, Any], ctx: ToolContext) -> str:
+        """列出本频道任务（档4）：给项目主AI 跟踪/审核用。绝不抛异常。"""
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.task_repo import list_tasks
+
+            with session_scope() as s:
+                rows = list_tasks(s, room_ids=[ctx.room_id])
+                if not rows:
+                    return "本频道还没有任务。"
+                lines = []
+                for t in rows:
+                    seg = f"#{t.id} [{t.status}] {t.title}"
+                    if t.executor_kind != "none" and t.executor_ref:
+                        seg += f"（{t.executor_kind}:{t.executor_ref}）"
+                    elif t.assignee:
+                        seg += f"（{t.assignee}）"
+                    if t.result:
+                        seg += f" — 结果/批注：{t.result[:200]}"
+                    lines.append(seg)
+            return "本频道任务：\n" + "\n".join(lines)
+        except Exception:
+            logger.exception("列频道任务失败")
+            return "读取任务失败（数据库不可用？）。"
+
+    def _tool_update_task(self, args: Dict[str, Any], ctx: ToolContext) -> str:
+        """更新本频道某任务（档4：推进/审核回填）。越权防护：只能改 room_id==当前频道 的任务。"""
+        try:
+            tid = int(args.get("task_id"))
+        except (TypeError, ValueError):
+            return "请给出要更新的任务编号 task_id（先用 list_room_tasks 拿编号）。"
+        status = (args.get("status") or "").strip() or None
+        result = args.get("result")
+        progress = args.get("progress")
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.task_repo import get_task, update_task
+
+            with session_scope() as s:
+                t = get_task(s, tid)
+                # 越权防护：只能改"本频道"的任务，碰不到别的项目/专班的看板
+                if t is None or (t.room_id or "") != ctx.room_id:
+                    return f"没找到属于本频道的任务 #{tid}。"
+                title = t.title
+                ok = update_task(
+                    s, tid,
+                    status=status,
+                    result=result if isinstance(result, str) else None,
+                    progress=progress if isinstance(progress, int) else None,
+                )
+            if not ok:
+                return f"任务 #{tid} 没有可更新的内容。"
+            tail = f" → {status}" if status else ""
+            return f"已更新任务 #{tid}「{title}」{tail}。"
+        except Exception:
+            logger.exception("更新任务失败")
+            return "更新任务失败（数据库不可用？）。"
 
     def _tool_assemble_team(self, args: Dict[str, Any], ctx: ToolContext) -> str:
         """一键建专班（模块3.5 档3）：建频道→拉人→绑AI→写任务RULE/技能→派单。
