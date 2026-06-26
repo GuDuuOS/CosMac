@@ -205,6 +205,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="chSearch" class="adm-search" placeholder="🔍 搜索频道名 / ID…" /><span class="adm-filter-n">{{ chFiltered.length }} / {{ rooms.length }}</span></div>
         <div v-if="roomsLoading" class="adm-center"><div class="adm-spin" /> 加载频道列表…</div>
 
         <table v-else class="adm-table">
@@ -217,7 +218,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in rooms" :key="r.id">
+            <tr v-if="!chFiltered.length" class="adm-empty-tr"><td colspan="99" class="adm-empty-row">没有匹配的频道。</td></tr>
+            <tr v-for="r in chFiltered" :key="r.id">
               <td>
                 <div class="adm-user">
                   <span class="adm-ava">{{ (r.name || '#').charAt(0).toUpperCase() }}</span>
@@ -325,6 +327,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="skSearch" class="adm-search" placeholder="🔍 搜索技能名 / slug / 说明…" /><span class="adm-filter-n">{{ skFiltered.length }} / {{ skills.length }}</span></div>
         <div v-if="skLoading" class="adm-center"><div class="adm-spin" /> 加载技能…</div>
 
         <div v-else class="adm-form">
@@ -365,7 +368,7 @@
               <tr><th>标识</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="s in skills" :key="s.slug">
+              <tr v-for="s in skFiltered" :key="s.slug">
                 <td><code>{{ s.slug }}</code></td>
                 <td>{{ s.name || '—' }}</td>
                 <td class="adm-skill-desc">{{ s.description || '—' }}</td>
@@ -400,6 +403,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="agSearch" class="adm-search" placeholder="🔍 搜索智能体名 / slug / 说明…" /><span class="adm-filter-n">{{ agFiltered.length }} / {{ agents.length }}</span></div>
         <div v-if="agLoading" class="adm-center"><div class="adm-spin" /> 加载智能体…</div>
 
         <div v-else class="adm-form">
@@ -456,7 +460,7 @@
               <tr><th>标识</th><th>名称</th><th>模型</th><th>技能</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="a in agents" :key="a.slug">
+              <tr v-for="a in agFiltered" :key="a.slug">
                 <td><code>{{ a.slug }}</code></td>
                 <td>{{ a.name || '—' }}</td>
                 <td>{{ a.model || '默认' }}</td>
@@ -489,6 +493,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="peopleSearch" class="adm-search" placeholder="🔍 搜索用户名 / ID / 角色 / 擅长…" /><span class="adm-filter-n">{{ peopleFiltered.length }} / {{ peopleRows.length }}</span></div>
         <div v-if="plLoading" class="adm-center"><div class="adm-spin" /> 加载用户与能力…</div>
 
         <div v-else class="adm-form">
@@ -528,7 +533,7 @@
               <tr><th>用户</th><th>角色</th><th>擅长</th><th>能力</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="r in peopleRows" :key="r.id">
+              <tr v-for="r in peopleFiltered" :key="r.id">
                 <td><code>{{ r.id }}</code><template v-if="r.name"> · {{ r.name }}</template></td>
                 <td>{{ r.role || '—' }}</td>
                 <td class="adm-skill-desc">{{ r.expertise || '—' }}</td>
@@ -566,6 +571,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="tpSearch" class="adm-search" placeholder="🔍 搜索模板名 / key / 描述…" /><span class="adm-filter-n">{{ tpFiltered.length }} / {{ templates.length }}</span></div>
         <div v-if="tpLoading" class="adm-center"><div class="adm-spin" /> 加载模板…</div>
 
         <div v-else class="adm-form">
@@ -661,7 +667,7 @@
               <tr><th>标识</th><th>展示名</th><th>会员等级</th><th>模型</th><th>频道/技能</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="t in templates" :key="t.key">
+              <tr v-for="t in tpFiltered" :key="t.key">
                 <td><code>{{ t.key }}</code></td>
                 <td>{{ t.icon }} {{ t.label }}</td>
                 <td>{{ memberTierLabel(t.tier) }}</td>
@@ -728,6 +734,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="wfSearch" class="adm-search" placeholder="🔍 搜索工作流名 / slug / 平台…" /><span class="adm-filter-n">{{ wfFiltered.length }} / {{ workflows.length }}</span></div>
         <div v-if="wfLoading" class="adm-center"><div class="adm-spin" /> 加载连接器…</div>
 
         <div v-else class="adm-form">
@@ -813,7 +820,7 @@
               <tr><th>标识</th><th>名称</th><th>平台</th><th>URL</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="w in workflows" :key="w.slug">
+              <tr v-for="w in wfFiltered" :key="w.slug">
                 <td><code>{{ w.slug }}</code></td>
                 <td>{{ w.name || '—' }}</td>
                 <td>{{ w.platform }}</td>
@@ -902,6 +909,7 @@
           </div>
         </header>
 
+        <div class="adm-filters"><input v-model.trim="plSearch" class="adm-search" placeholder="🔍 搜索套餐名 / slug…" /><span class="adm-filter-n">{{ plFiltered.length }} / {{ plans.length }}</span></div>
         <div v-if="planLoading" class="adm-center"><div class="adm-spin" /> 加载套餐…</div>
 
         <!-- 读取失败不渲染可编辑区(避免空列表误存覆盖真实套餐) -->
@@ -959,7 +967,7 @@
               <tr><th>标识</th><th>名称</th><th>等级</th><th>时长</th><th>价格</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
-              <tr v-for="p in plans" :key="p.slug">
+              <tr v-for="p in plFiltered" :key="p.slug">
                 <td><code>{{ p.slug }}</code></td>
                 <td>{{ p.name || '—' }}</td>
                 <td>{{ p.tier === 'creator' ? '创作者' : '付费' }}</td>
@@ -1155,6 +1163,7 @@ import {
   type WorkflowDef,
 } from '@/matrix/client'
 import { useToast } from '@/composables/useToast'
+import { useListSearch } from '@/composables/useListSearch'
 
 // 作为覆盖层使用：关闭时通知父组件（LiveView）收起
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -1720,6 +1729,12 @@ const peopleRows = computed(() =>
     }
   }),
 )
+const peopleSearch = ref('')
+const peopleFiltered = computed(() => {
+  const q = peopleSearch.value.trim().toLowerCase()
+  if (!q) return peopleRows.value
+  return peopleRows.value.filter((r) => `${r.name} ${r.id} ${r.role} ${r.expertise}`.toLowerCase().includes(q))
+})
 
 function startEditPersonForUser(r: { id: string; name: string }) {
   const ex = peopleMap.value[r.id]
@@ -2101,6 +2116,14 @@ async function removePlan(p: PlanDef) {
 const workflows = ref<WorkflowDef[]>([])
 const wfLoading = ref(false)
 const wfSaving = ref(false)
+
+// —— 各列表页搜索（用户多了能定位；用户管理另有角色/会员/状态筛选）——
+const { query: chSearch, filtered: chFiltered } = useListSearch(rooms, (r) => `${r.name} ${r.id} ${r.alias || ''} ${r.creator || ''}`)
+const { query: skSearch, filtered: skFiltered } = useListSearch(skills, (s) => `${s.name} ${s.slug} ${s.description}`)
+const { query: agSearch, filtered: agFiltered } = useListSearch(agents, (a) => `${a.name} ${a.slug} ${a.description}`)
+const { query: tpSearch, filtered: tpFiltered } = useListSearch(templates, (t) => `${t.label} ${t.key} ${t.desc}`)
+const { query: wfSearch, filtered: wfFiltered } = useListSearch(workflows, (w) => `${w.name} ${w.slug} ${w.platform || ''}`)
+const { query: plSearch, filtered: plFiltered } = useListSearch(plans, (p) => `${p.name} ${p.slug} ${p.tier}`)
 const wfLoaded = ref(false)
 const wfEditing = ref(false)
 const wfForm = reactive<WorkflowDef & { _isEdit: boolean }>({
