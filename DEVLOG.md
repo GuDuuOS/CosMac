@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-26 — 收口·create_tasks/assemble_team 分工（防任务重复登记）
+- **背景**:完整流程模拟暴露——主AI 若先 create_tasks(任务落原对话)再 assemble_team 带 tasks(任务落专班)，会**重复登记两份**、一份成孤儿。
+- **修法(方案A,纯提示词)**:改两个工具的 description 把分工讲清——要拉团队/建专班的目标**直接用 assemble_team**(tasks 一并带上)，create_tasks 只用于"不开专班的轻量待办"，且两者互相点名"别对同一目标都调"。零代码风险、零回归。
+- **测试**:相关套件 36 通过、ruff 全绿。**纯后端**——无需发 dist,只 `restart guduu-bot`。
+
 ## 2026-06-26 — 验证编排链 + 交互增强·选择卡 ask_user_choice
 - **验证结论（已留档、测试脚本已删）**:
   - **逻辑层**:写了 e2e 脚本(假 client+真内存DB)模拟主AI 走完整链，6 阶段全对(名册→拆解+类型化指派→建专班+写channel_config→审核回填→任务RULE注入→多AI@名路由)。脚本验证完已删(run/ 本是 gitignored)。

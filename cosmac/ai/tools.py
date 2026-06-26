@@ -269,6 +269,9 @@ class Toolbox:
             name="create_tasks",
             description=(
                 "把一个目标拆解成若干可执行的子任务，登记到『任务看板』，并给每条**指派执行者**。"
+                "适用于『不开专班、就在当前对话/频道列一串待办』的轻量场景。\n"
+                "⚠️ 若这个目标要**拉团队/建专班**，请**直接用 assemble_team**（它会建频道+派单），"
+                "**不要**先 create_tasks 再 assemble_team——否则任务会重复登记两份。\n"
                 "当用户『下达目标/让你拆解任务/安排分工/拆成几步』时调用。"
                 "**强烈建议先调用 list_capabilities** 看清有哪些人/AI Agent/工作流可用，再据其能力指派：\n"
                 "每条子任务填 executor_kind + executor_ref：\n"
@@ -388,7 +391,9 @@ class Toolbox:
             description=(
                 "为一个项目**一键组建专班频道**：建频道 → 拉真人成员 → 绑定 AI（项目主AI + 协作Agent）"
                 "→ 设本专班的任务 RULE → 装技能 → 把子任务派进去。"
-                "当你已拆好任务、要真正把团队拉起来干活时调用。"
+                "要拉团队干活的目标就**直接用本工具**（先调 list_capabilities 看有谁可用），"
+                "**在 tasks 里一并把子任务带上**——它会把任务直接派进新专班。"
+                "⚠️ 对同一目标**不要再单独调 create_tasks**（否则任务重复成两份、一份还留在原对话里）。"
                 "成员/Agent/技能都应来自 list_capabilities；项目主AI 会被任务 RULE 约束、只围绕本项目分配与审核。"
             ),
             parameters={
