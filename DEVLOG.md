@@ -7,6 +7,12 @@
 
 ---
 
+## 2026-06-27 — 修 bot 显示名设置失败(500)
+- **现象**:每次 bot 启动日志 `设置显示名失败：500 M_UNKNOWN`;线上查 `@guduu:cosmac.cc` profile 返回 404「No row found」→ 显示名从没设上(客户端里 bot 显示成原始 id 而非「CosMac Star」)。非阻塞、老问题。Synapse 1.153.0。
+- **根因判断**:`MatrixClient._url` 给每个请求都追加 `?user_id=@guduu` 伪装参数(代发/建群需要),但**设自己 profile** 走伪装路径在新 Synapse(1.15x) 上会 500;设本人 profile 应直接用 as_token 本体身份、不带 user_id。
+- **改法(纯后端)**:`set_displayname` 改为拼裸 URL(不经 `_url`、不带 user_id),仅 Authorization 头鉴权。test_matrix_client.py 加回归(profile PUT 不含 user_id=)。全套 301 通过。
+- **待验证**:这是最可能的修法,部署后看启动日志是否变成 `已设置主 AI 显示名: CosMac Star`;若仍 500,需抓该时刻 Synapse 端堆栈再判。**只重启 bot,无需发 dist**。
+
 ## 2026-06-27 — 专班归档前端收尾：已归档频道灰显排后
 - 接上昨天后端写的 `cosmac.project.archived` 标记：client.ts 加 `isProjectArchived(roomId)`；LiveView 频道列表把已归档专班**灰显 + 🗄 角标 + 排到最后**（仍可点开查留档）。`channelRooms` 按归档状态排序（在用在前）。
 - 纯前端;build 零报错。新 hash index-C_bvJRDB.js。**只发 dist**。

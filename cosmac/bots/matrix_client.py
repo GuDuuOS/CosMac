@@ -145,8 +145,15 @@ class MatrixClient:
 
         用 appservice 身份调用 Synapse 的 profile API。失败只记日志、不阻断启动
         （比如品牌名改了、重启 bot 一次就会更新成新名字）。
+
+        关键：设置**自己**的 profile 时**不带 `?user_id=` 伪装参数**——直接以 as_token 的
+        本体身份（sender_localpart=@guduu）操作。带 user_id 走的是 appservice「代理某用户」
+        的 profile 代码路径，在较新 Synapse(1.15x) 上会 500（M_UNKNOWN）；不带则按「设置本人
+        profile」处理，正常生效。其它操作（建群/发消息/代发）才需要 user_id 伪装，故只此处特办。
         """
-        url = self._url(
+        # 不经 self._url()（那个会追加 user_id 伪装参数），直接拼裸 URL，仅靠 Authorization 头鉴权。
+        url = (
+            f"{self.homeserver_url}"
             f"/_matrix/client/v3/profile/{quote(self.bot_user_id)}/displayname"
         )
         try:
@@ -154,7 +161,10 @@ class MatrixClient:
             if resp.status_code == 200:
                 logger.info("已设置主 AI 显示名: %s", displayname)
             else:
-                logger.warning("设置显示名失败: %s %s", resp.status_code, resp.text)
+                logger.warning(
+                    "设置显示名失败: %s %s（如仍 500，请抓该时刻 Synapse 端日志看堆栈）",
+                    resp.status_code, resp.text,
+                )
         except requests.RequestException as exc:
             logger.warning("设置显示名异常: %s", exc)
 

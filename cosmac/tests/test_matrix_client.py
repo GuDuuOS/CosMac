@@ -95,5 +95,27 @@ class TestMatrixClientAuth(unittest.TestCase):
         )
 
 
+class TestSetDisplayname(unittest.TestCase):
+    """设置自己 profile 时不带 user_id 伪装参数（新 Synapse 上带它会 500）。"""
+
+    def setUp(self) -> None:
+        self.client = MatrixClient(
+            homeserver_url="http://hs:8008", as_token="t", bot_user_id="@guduu:hs",
+        )
+
+    def test_profile_put_omits_user_id_masquerade(self) -> None:
+        captured = {}
+
+        def fake_put(url, json=None, timeout=None):
+            captured["url"] = url
+            return _Resp(200, {})
+
+        with mock.patch.object(self.client._session, "put", side_effect=fake_put):
+            self.client.set_displayname("CosMac Star")
+        # 设自己 profile 走本体身份：URL 不能带 ?user_id=（伪装路径在 1.15x 上 500）
+        self.assertIn("/profile/", captured["url"])
+        self.assertNotIn("user_id=", captured["url"])
+
+
 if __name__ == "__main__":
     unittest.main()
