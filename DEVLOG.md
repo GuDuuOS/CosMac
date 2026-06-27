@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-06-27 — 专班归档前端收尾：已归档频道灰显排后
+- 接上昨天后端写的 `cosmac.project.archived` 标记：client.ts 加 `isProjectArchived(roomId)`；LiveView 频道列表把已归档专班**灰显 + 🗄 角标 + 排到最后**（仍可点开查留档）。`channelRooms` 按归档状态排序（在用在前）。
+- 纯前端;build 零报错。新 hash index-C_bvJRDB.js。**只发 dist**。
+- 顺带核查 P3「看板按模板渲染」:发现看板早已非演示——下排会员/工作流/订单/知识库是 getPlatformStats **真实**数据、社媒区按工作区 `cosmac.social_sources` 配置渲染;唯一占位是社媒卡的粉丝/播放/互动「待接入」,**卡在社媒采集器(需平台 key,同 Stripe 类阻塞)**,非写死 demo 可换。P3 实质已随真实化完成,待采集器再补真数。
+
 ## 2026-06-27 — 入驻模板 P2 引导接入：模板真生效（含默认工作流）
 - **背景**:核查发现 P2 大部分早已落地——引导向导(`useOnboarding`)选模板后已真建工作区+频道、把人设/RULE/模型/技能写进每个频道 `cosmac.channel_config.persona`、灌知识库；bot 的 `_group_context` 也已读 persona.prompt/model/skill_slugs（之前标 P2b 其实已实现）。**唯一没绑的字段是模板的「默认工作流 workflowSlugs」**。
 - **本次补齐**:

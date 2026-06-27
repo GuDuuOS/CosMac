@@ -447,6 +447,14 @@ export function getChannelConfig(roomId: string): Record<string, any> {
   return ev?.getContent?.() || {}
 }
 
+/** 该频道是否为「已归档专班」：bot 收尾时写 `cosmac.project.archived`{archived:true}。
+ *  前端据此把归档频道灰显/排到最后（项目已结、记忆已清，留档不打扰）。 */
+export function isProjectArchived(roomId: string): boolean {
+  const room = mx?.getRoom(roomId)
+  const ev = room?.currentState?.getStateEvents?.('cosmac.project.archived', '')
+  return !!ev?.getContent?.()?.archived
+}
+
 /** 写某频道配置：读旧内容 merge 进 patch 再整体写回（保留其它键，便于逐标签页增量接入）。 */
 export async function setChannelConfig(roomId: string, patch: Record<string, any>): Promise<void> {
   if (!mx) throw new Error('未登录')

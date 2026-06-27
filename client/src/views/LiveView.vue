@@ -52,6 +52,7 @@ import {
   setFavourite,
   normalizeUserId,
   isServerAdmin,
+  isProjectArchived,
   botId,
   type LiveRoom,
   type LiveMsg,
@@ -564,8 +565,14 @@ const filteredRooms = computed(() =>
 //    （以后若要精确归类，可改成读房间的 cosmac.* 状态事件标签。）
 const FAN_RE = /(后援会|歌迷会|粉丝|应援|社区|fans?\b|fan ?club)/i
 function isFanRoom(name: string): boolean { return FAN_RE.test(name) }
-// 普通频道（剔除粉丝社区房间）
-const channelRooms = computed(() => filteredRooms.value.filter((r) => !isFanRoom(r.name)))
+// 某频道是否「已归档专班」（bot 收尾写 cosmac.project.archived）：灰显 + 排到最后。
+function isArchived(id: string): boolean { return isProjectArchived(id) }
+// 普通频道（剔除粉丝社区房间）；已归档的排到最后（在用频道在前，留档不打扰）。
+const channelRooms = computed(() =>
+  filteredRooms.value
+    .filter((r) => !isFanRoom(r.name))
+    .sort((a, b) => Number(isArchived(a.id)) - Number(isArchived(b.id))),
+)
 // 粉丝社区频道
 const fanRooms = computed(() => filteredRooms.value.filter((r) => isFanRoom(r.name)))
 
@@ -1372,11 +1379,12 @@ onBeforeUnmount(() => {
                 v-for="r in channelRooms"
                 :key="r.id"
                 class="cs-item ch-row"
-                :class="{ active: r.id === currentRoom }"
+                :class="{ active: r.id === currentRoom, archived: isArchived(r.id) }"
                 @click="openRoom(r.id)"
               >
                 <span class="cs-chan-av" :style="{ background: colorOf(r.name) }">{{ iconChar(r.name) }}</span>
                 <span class="cs-label">{{ r.name }}</span>
+                <span v-if="isArchived(r.id)" class="cs-archived-tag" title="专班已归档收尾">🗄</span>
               </div>
               <p v-if="!channelRooms.length" class="cs-empty">还没有频道</p>
               <div class="cs-item cs-add-row" @click="openNewChannel">
@@ -2192,6 +2200,11 @@ onBeforeUnmount(() => {
 .cs-item.active .cs-chan-av { box-shadow: 0 0 0 1.5px rgba(255,255,255,.5); }
 .cs-item.active .cs-ic { color: var(--text); }
 .cs-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 已归档专班频道：灰显（仍可点开查看留档），右侧 🗄 角标 */
+.cs-item.archived { opacity: 0.5; }
+.cs-item.archived:hover { opacity: 0.72; }
+.cs-item.archived.active { opacity: 0.85; }
+.cs-archived-tag { flex-shrink: 0; font-size: 12px; opacity: 0.8; }
 /* 看板头数据源按钮（带数量角标）*/
 .bs-srcbtn { position: relative; }
 .bs-badge { position: absolute; top: -3px; right: -3px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent); color: #fff; font-size: 9px; line-height: 14px; text-align: center; font-weight: 700; }
