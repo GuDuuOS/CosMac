@@ -73,6 +73,28 @@ def bump_and_check(
     return (False, prior)
 
 
+def clear_summary(session: Session, scope: str, scope_id: str) -> int:
+    """删除该作用域的长期记忆行（专班归档收尾用）。
+
+    专班所有任务完成、成果已存进归档记录后，频道的滚动摘要就没必要再占着——
+    清掉它，「不浪费 Agent 记忆」。返回删掉的行数（0 或 1）。
+    """
+    sid = (scope_id or "").strip()
+    if not sid:
+        return 0
+    row = session.scalars(
+        select(ConversationMemory).where(
+            ConversationMemory.scope == scope,
+            ConversationMemory.scope_id == sid,
+        ).limit(1)
+    ).first()
+    if row is None:
+        return 0
+    session.delete(row)
+    session.flush()
+    return 1
+
+
 def save_summary(
     session: Session, scope: str, scope_id: str, summary: str
 ) -> None:

@@ -102,6 +102,7 @@ class Toolbox:
     _ALWAYS_ON: Set[str] = {
         "create_tasks", "search_knowledge", "web_search", "list_capabilities",
         "assemble_team", "list_room_tasks", "update_task", "ask_user_choice",
+        "archive_project",
     }
 
     def _is_enabled(self, name: str) -> bool:
@@ -533,6 +534,29 @@ class Toolbox:
             fn=self._tool_ask_user_choice,
         )
 
+        # 14) 归档收尾本专班（模块3.5 收尾环节）：所有任务节点完成、审核通过后调它。
+        self._register(
+            name="archive_project",
+            description=(
+                "**收尾归档当前专班频道**：当本频道所有任务节点都已完成并审核通过后，"
+                "把整盘项目（总目标 + 各任务快照 + 你写的收尾摘要）存成一条归档记录，"
+                "并**清掉本频道的 AI 长期记忆**（项目已结，不再占用记忆），最后在群里贴一条收尾通知、提示可关闭频道。\n"
+                "调用前务必：① 用 list_room_tasks 确认确实全部 done；② 先用 ask_user_choice 征得用户同意归档关闭，得到确认再调。\n"
+                "summary 用一两句话总结这个项目交付了什么、关键结论。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "项目收尾摘要：交付了什么、关键结论（必填，给归档记录用）。",
+                    },
+                },
+                "required": ["summary"],
+            },
+            fn=self._tool_archive_project,
+        )
+
     # —— 各工具的具体执行（转发到 MatrixClient）——
 
     def _tool_create_room(self, args: Dict[str, Any], ctx: ToolContext) -> str:
@@ -833,7 +857,10 @@ class Toolbox:
                 if not rows:
                     return "本频道还没有任务。"
                 lines = []
+                done = 0
                 for t in rows:
+                    if t.status == "done":
+                        done += 1
                     seg = f"#{t.id} [{t.status}] {t.title}"
                     if t.executor_kind != "none" and t.executor_ref:
                         seg += f"（{t.executor_kind}:{t.executor_ref}）"
@@ -842,7 +869,12 @@ class Toolbox:
                     if t.result:
                         seg += f" — 结果/批注：{t.result[:200]}"
                     lines.append(seg)
-            return "本频道任务：\n" + "\n".join(lines)
+                total = len(rows)
+            # 完成度抬头：让项目主AI 一眼看清节点进度；全部完成时提示走归档收尾
+            head = f"本频道任务（完成度 {done}/{total}）："
+            if done == total:
+                head += "\n✅ 所有节点已完成——可征得用户同意后用 archive_project 归档收尾、关闭频道。"
+            return head + "\n" + "\n".join(lines)
         except Exception:
             logger.exception("列频道任务失败")
             return "读取任务失败（数据库不可用？）。"
@@ -880,6 +912,85 @@ class Toolbox:
             logger.exception("更新任务失败")
             return "更新任务失败（数据库不可用？）。"
 
+    def _tool_archive_project(self, args: Dict[str, Any], ctx: ToolContext) -> str:
+        """归档收尾本专班（模块3.5 收尾）：存归档记录 → 清频道长期记忆 → 贴收尾通知。
+
+        把整盘项目落成一条 ProjectArchive（总目标+任务快照+收尾摘要），然后清掉本频道的
+        滚动长期记忆（项目已结，不再占记忆），再写一个『已归档』state 标记 + 在群里贴通知。
+        越权防护：只归档「本频道」的任务。绝不抛异常。
+        """
+        summary = (args.get("summary") or "").strip()
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.archive_repo import create_archive
+            from cosmac.db.memory_repo import clear_summary
+            from cosmac.db.models import SCOPE_ROOM
+            from cosmac.db.task_repo import list_tasks
+
+            with session_scope() as s:
+                rows = list_tasks(s, room_ids=[ctx.room_id])
+                if not rows:
+                    return "本频道没有任务，无需归档。"
+                # 任务快照 + 完成度统计
+                snapshot = []
+                goal = ""
+                done = 0
+                for t in rows:
+                    if not goal and t.goal:
+                        goal = t.goal
+                    if t.status == "done":
+                        done += 1
+                    snapshot.append({
+                        "id": t.id,
+                        "title": t.title,
+                        "status": t.status,
+                        "executor_kind": t.executor_kind,
+                        "executor_ref": t.executor_ref,
+                        "assignee": t.assignee or "",
+                        "result": (t.result or "")[:500],
+                    })
+                total = len(rows)
+                create_archive(
+                    s,
+                    room_id=ctx.room_id,
+                    goal=goal,
+                    summary=summary,
+                    tasks=snapshot,
+                    done_count=done,
+                    total_count=total,
+                    archived_by=ctx.sender,
+                )
+                # 项目已结：清掉本频道的滚动长期记忆，不浪费 Agent 记忆（成果已进归档）
+                cleared = clear_summary(s, SCOPE_ROOM, ctx.room_id)
+        except Exception:
+            logger.exception("归档专班失败")
+            return "归档失败（数据库不可用？），频道先别关，稍后再试。"
+
+        # 写一个『已归档』state 标记（best-effort：失败不影响归档已落库）
+        try:
+            self.client.set_state_event(
+                ctx.room_id, "cosmac.project.archived",
+                {"archived": True, "summary": summary[:500], "by": ctx.sender,
+                 "done": done, "total": total},
+            )
+        except Exception:
+            logger.warning("写归档 state 标记失败（已忽略）")
+
+        # 群里贴收尾通知
+        note = (
+            f"🗄 本专班已归档收尾（完成度 {done}/{total}）。\n"
+            f"收尾摘要：{summary or '（无）'}\n"
+            "项目成果已存档，可随时回查；本频道的长期记忆已清理。"
+            "如不再需要，可以关闭/退出本频道了。"
+        )
+        try:
+            self.client.send_text(ctx.room_id, note)
+        except Exception:
+            logger.warning("贴归档通知失败（已忽略）")
+
+        mem = "，已清理频道长期记忆" if cleared else ""
+        return f"已归档专班「{goal or ctx.room_id}」（{done}/{total} 完成）{mem}。已在群里贴出收尾通知并提示可关闭频道。"
+
     def _tool_assemble_team(self, args: Dict[str, Any], ctx: ToolContext) -> str:
         """一键建专班（模块3.5 档3）：建频道→拉人→绑AI→写任务RULE/技能→派单。
 
@@ -915,8 +1026,13 @@ class Toolbox:
         else:
             persona["prompt"] = (
                 f"你是本专班「{project}」的项目主AI（编排者）。职责仅限于：围绕本项目把子任务"
-                "分配给合适的成员/AI、跟踪进度、按下方任务约束审核交付（通过或打回并说明），"
-                "卡点时汇报。不要越出本项目范围去做无关的事。"
+                "分配给合适的成员/AI、跟踪进度、按下方任务约束审核交付。具体节奏：\n"
+                "① 每当某个成员/AI 完成一个任务节点，你要**逐个审核**：用 list_room_tasks 看清进度，"
+                "用 update_task 把审核通过的节点标 done、把不合格的打回（status=doing 并写明原因）。\n"
+                "② 始终盯住完成度（X/N）；卡点时汇报。\n"
+                "③ 当**所有节点都已完成并审核通过**时，先用 ask_user_choice 征询用户是否归档关闭本专班，"
+                "得到同意后调 archive_project 把项目存档、清理频道记忆、提示关闭频道。\n"
+                "不要越出本项目范围去做无关的事。"
             )
         if skills:
             persona["skill_slugs"] = skills

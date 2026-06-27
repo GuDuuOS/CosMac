@@ -351,6 +351,28 @@ class PersonProfile(Base, TimestampMixin):
         return f"<PersonProfile {self.owner}→{self.person_id}>"
 
 
+class ProjectArchive(Base, TimestampMixin):
+    """专班归档记录（模块3.5 收尾）：专班所有任务完成后，把成果存成一条记录。
+
+    存下来后就能**清掉该频道的 AI 长期记忆**（不浪费 Agent 记忆）、提示用户关闭频道——
+    项目复盘/审计仍可查这条归档。goal=总目标，summary=收尾摘要，tasks=任务快照(JSON)。
+    """
+
+    __tablename__ = "cosmac_project_archive"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    room_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    goal: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    tasks: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    done_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    archived_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+
+    def __repr__(self) -> str:
+        return f"<ProjectArchive {self.room_id} {self.done_count}/{self.total_count}>"
+
+
 class UsageCounter(Base, TimestampMixin):
     """用量计数（模块4 变现第二步）：按 用户 + 计量项 + 周期键 累计用量。
 

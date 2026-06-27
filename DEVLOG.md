@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-06-27 — 专班收尾闭环：节点审核 + 完成度 + 归档关闭 + 清记忆
+- **需求**:专班建好后，频道里的项目主AI 要逐个审核每个成员/AI 完成的任务节点，盯住整体完成度；全部完成后提醒是否归档关闭频道，并把项目存进记录、清掉频道的 AI 长期记忆（不浪费 Agent 记忆）。
+- **做法(纯后端)**:
+  - 新表 `cosmac_project_archive`（goal/summary/任务快照JSON/done·total/archived_by）+ `archive_repo`（create/list，带房间作用域越权防护）。
+  - `memory_repo.clear_summary()` 删频道滚动长期记忆，归档后调用。
+  - 新工具 `archive_project`（always-on）:汇总本频道任务→落归档记录→清频道记忆→写 `cosmac.project.archived` state 标记→群里贴收尾通知。
+  - `list_room_tasks` 加「完成度 X/N」抬头，全完成时提示走归档。
+  - 内置项目主AI 人设强化:① 逐个审核节点（update_task 通过/打回）② 盯完成度 ③ 全完成→ask_user_choice 征询→archive_project。
+- 新增 test_archive.py（repo/clear/工具全流程）;全套 297 测试通过、ruff 干净。**只重启 bot，无需发 dist**。
+
+
 ## 2026-06-26 — 人员能力对齐用户管理（停用灰显不可设 + 排序）
 - **反馈**:人员能力要和用户管理状态对齐；停用账号灰显且不能设置能力；两页默认「在用在前、停用在后」。
 - **改法(纯前端)**:peopleRows 带 `deactivated`(来自 listUsers) + 行 `.off` 灰显 + 「已停用」标 + 「设置/编辑能力」按钮对停用账号禁用(startEditPersonForUser 加防御 guard);peopleRows 与用户管理 filteredUsers 都加 `.sort(在用在前、停用在后)`。
