@@ -3,7 +3,7 @@
     <!-- 左：页面树 -->
     <aside class="doc-side">
       <div class="doc-side-head">
-        <span class="doc-side-title">📄 页面</span>
+        <span class="doc-side-title">📄 {{ spaceName ? spaceName + ' · 文档' : '文档' }}</span>
         <button v-if="canWrite" class="doc-mini" title="新建顶级页面" @click="createPage(null)">＋</button>
       </div>
       <div v-if="!flatTree.length" class="doc-empty-tree">
@@ -28,7 +28,7 @@
     <section class="doc-main">
       <div v-if="loading" class="doc-hint">加载中…</div>
       <div v-else-if="!currentId" class="doc-hint">
-        {{ flatTree.length ? '选择左侧一个页面查看' : '这是一个文档频道，' + (canWrite ? '新建第一个页面开始吧' : '内容还没准备好') }}
+        {{ flatTree.length ? '选择左侧一个页面查看' : '这是本工作区的文档空间，' + (canWrite ? '点左上 ＋ 新建第一个页面' : '内容还没准备好') }}
       </div>
       <template v-else>
         <header class="doc-head">
@@ -67,7 +67,7 @@ import {
 } from '@/matrix/client'
 import { renderMarkdown } from '@/utils/md'
 
-const props = defineProps<{ roomId: string }>()
+const props = defineProps<{ roomId: string; spaceName?: string }>()
 
 const pages = ref<DocPage[]>([])
 const canWrite = ref(false)
@@ -103,6 +103,7 @@ function rebuildTree() {
   flatTree.value = out
 }
 
+let retried = false
 async function loadTree(selectFirst = true) {
   loading.value = true
   try {
@@ -110,6 +111,14 @@ async function loadTree(selectFirst = true) {
     pages.value = res.pages
     canWrite.value = res.canWrite
     rebuildTree()
+    // bot 可能刚被邀请进 Space、还没 join 完，首次读会鉴权失败(canWrite=false 且空)。
+    // 兜底重试一次：等 bot 自动加入后再读。只重试一次，避免死循环。
+    if (!retried && !res.canWrite && !res.pages.length) {
+      retried = true
+      loading.value = false
+      await new Promise((r) => setTimeout(r, 1500))
+      return loadTree(selectFirst)
+    }
     // 当前选中页若已被删，或首次进入，挑第一页
     if (currentId.value && !pages.value.some((p) => p.id === currentId.value)) {
       currentId.value = null; current.value = null
@@ -175,9 +184,10 @@ async function save() {
   }
 }
 
-// 切换文档频道时重载（roomId 变）
+// 切换工作区时重载（roomId 变）
 watch(() => props.roomId, () => {
   currentId.value = null; current.value = null; editing.value = false; err.value = ''
+  retried = false
   if (props.roomId) loadTree()
 }, { immediate: true })
 </script>

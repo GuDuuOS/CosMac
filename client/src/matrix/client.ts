@@ -12,9 +12,6 @@ export interface LiveRoom {
   name: string
   /** 频道简介（Matrix m.room.topic），频道头展示用 */
   topic?: string
-  /** 频道类型：'doc'=文档教学频道(类云文档)；缺省/'chat'=普通聊天频道。
-   *  读自 cosmac.channel_config.kind，侧栏据此换图标 + 决定点进去走文档视图还是聊天流。 */
-  kind?: string
 }
 
 /** 给 UI 用的精简消息结构；card 为 cosmac.card 自定义富卡（可能没有） */
@@ -295,13 +292,7 @@ export function listRooms(): LiveRoom[] {
     .getRooms()
     // Space（工作区）本身不是频道，不进频道列表
     .filter((r) => !(r as any).isSpaceRoom?.())
-    .map((r) => ({
-      id: r.roomId, name: r.name || r.roomId, topic: roomTopic(r),
-      // 频道类型标记（文档频道 vs 聊天频道）从 channel_config.kind 读，缺省按聊天。
-      kind: String(
-        r.currentState?.getStateEvents?.(CHANNEL_CONFIG_EVENT, '')?.getContent?.()?.kind || '',
-      ) || undefined,
-    }))
+    .map((r) => ({ id: r.roomId, name: r.name || r.roomId, topic: roomTopic(r) }))
     // 中枢 AI 在右侧单独显示；无名 DM 的 name 会回退成对方 mxid（以 @ 开头），都不进频道列表
     .filter((r) => r.name !== '中枢 AI' && !r.name.startsWith('@'))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
@@ -387,6 +378,7 @@ export async function createSpace(
     name,
     preset: (opts.public ? 'public_chat' : 'private_chat') as any,
     creation_content: { type: 'm.space' } as any,
+    invite: [botId()], // 拉主 AI 进 Space：文档(按 Space 存)鉴权要 bot 能读 Space 成员状态
   })
   const sid = res.room_id
   // 简称 + 排序序号存进 cosmac.workspace 状态。order 取现有工作区最大值+1（排到末尾）。
@@ -2149,15 +2141,14 @@ export async function docMovePage(
   } catch { return false }
 }
 
-/** 在某工作区新建一个**文档频道**：建房 → 标记 kind='doc' → 挂进 Space。返回 room_id。
- *  仅平台管理员可建（入口在前端控制，建房本身任何成员能建、但类型频道是后台能力）。 */
-export async function createDocChannel(
-  spaceId: string, name: string, opts: { topic?: string } = {},
-): Promise<string> {
-  const roomId = await createChannelInSpace(spaceId, name, { public: false, topic: opts.topic })
-  // 标记为文档频道（写进 channel_config，侧栏据此识别、渲染文档视图）
-  await setChannelConfig(roomId, { kind: 'doc' })
-  return roomId
+/** 确保主 AI bot 在某工作区(Space)里（文档按 Space 存，鉴权要 bot 能读 Space 成员状态）。
+ *  bot 收到邀请会自动加入。已在/无权限都静默忽略。给老 Space 兜底（新 Space 建时已邀请）。 */
+export async function ensureBotInSpace(spaceId: string): Promise<void> {
+  if (!mx || !spaceId) return
+  const bot = botId()
+  const m = mx.getRoom(spaceId)?.getMember?.(bot)
+  if (m && (m.membership === 'join' || m.membership === 'invite')) return
+  try { await mx.invite(spaceId, bot) } catch { /* 已在/无权限忽略 */ }
 }
 
 export interface CheckoutResp {

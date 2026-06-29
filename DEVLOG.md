@@ -264,6 +264,14 @@
 - 关键决策:#2 不去阻止"重跑 LLM",只保证**群里不冒第二条**——按本仓既有 txn_id 去重思路,代价最小、与崩溃恢复一致。
 - 测试:新增 5 个回归(成员数缓存/重试/兜底 3 个 + 池满回滚/已外呼不删 2 个);相关 4 套件 69 通过、ruff 全绿。trading 9 个失败是**缺 `COSMAC_PAY_MANUAL_SECRET` 环境变量**的既有问题、与本次无关(已在干净树复现)。**纯后端、无需发 dist;部署=重启 bot**。
 
+## 2026-06-26 — 文档改版：从「频道类型」改成与看板同级的顶部视图
+- 负责人反馈:文档应和**数据看板/任务看板同级**(顶部视图),不是侧栏里的频道类型。改:
+  - **撤掉**频道类型那套(新建频道的 💬/📄 选择、侧栏 📄、isDocChannel、LiveRoom.kind、createDocChannel)。
+  - **新增** `docs` 顶部视图:侧栏置顶项「📄 文档」与数据看板/任务看板并列;主区 v-else-if="docs" 渲染 DocChannelView;独立地址 `/s/:space/docs`(接入 computePath/applyFromRoute/watch + router 占位)。
+  - **数据模型**:文档树按**工作区(Space)**存,即 DocChannelView 传 `roomId=activeSpace`。后端不变(本就按 room_id 存)。读=Space 成员、写=Space power≥50(创建者天然有)。
+  - **bot 必须在 Space**(鉴权要 bot 读 Space 成员状态):createSpace 建时邀请 bot;`ensureBotInSpace` 给老 Space 兜底,openDocs 时调;DocChannelView 首读若鉴权未就绪(bot 刚邀请还没 join)自动重试一次。
+- 验证:前端 build + preview 干净重启无 console 报错;后端 309 单测仍绿。前后端都变→发 dist + 重启 bot。
+
 ## 2026-06-26 — 文档教学频道(类云文档) · P1 前端(端到端可用)
 - 接上条后端地基,补齐前端,P1 端到端跑通:
   - `client.ts`:6 个文档 API(docTree/docGetPage/docCreatePage/docUpdatePage/docDeletePage/docMovePage) + `createDocChannel`(建房+标记 kind='doc'+挂工作区);LiveRoom 加 `kind`、listRooms 从 channel_config 读。

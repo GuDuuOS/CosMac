@@ -40,7 +40,7 @@ import {
   roomIdsInSpace,
   createSpace,
   createChannelInSpace,
-  createDocChannel,
+  ensureBotInSpace,
   linkRoomToSpace,
   updateSpace,
   updateRoom,
@@ -153,8 +153,14 @@ async function askFromBoard() {
 // 主区视图：board=数据看板 / tasks=任务看板 / 两者皆 false=频道（登录后默认数据看板）
 const board = ref(true)
 const tasks = ref(false)
-function openBoard() { board.value = true; tasks.value = false; currentRoom.value = '' }
-function openTasks() { tasks.value = true; board.value = false; currentRoom.value = ''; loadTasks() }
+const docs = ref(false)   // 文档视图(类云文档，按工作区一棵页面树)：与 board/tasks 同级
+function openBoard() { board.value = true; tasks.value = false; docs.value = false; currentRoom.value = '' }
+function openTasks() { tasks.value = true; board.value = false; docs.value = false; currentRoom.value = ''; loadTasks() }
+function openDocs() {
+  docs.value = true; board.value = false; tasks.value = false; currentRoom.value = ''
+  // 文档按 Space 存，鉴权要 bot 在 Space 里——打开时兜底确保（新 Space 建时已邀请）
+  if (activeSpace.value) ensureBotInSpace(activeSpace.value)
+}
 
 // 任务看板（AI 任务编排 P1）：主 AI 拆解的真实任务，三列 Kanban + 手动改状态。
 import { getTasks, updateTask, type TaskItem } from '@/matrix/client'
@@ -281,10 +287,6 @@ const currentName = computed(
 )
 const currentTopic = computed(
   () => rooms.value.find((r) => r.id === currentRoom.value)?.topic || '',
-)
-// 当前频道是不是「文档教学频道」（kind==='doc'）→ 主区渲染文档视图而非聊天流
-const isDocChannel = computed(
-  () => rooms.value.find((r) => r.id === currentRoom.value)?.kind === 'doc',
 )
 // 当前频道即「当前群」：切频道时让「频道管理」面板跟着切到对应群的配置（每个群一份、互不影响）
 // 传 currentRoom（真实 room id）→「人员」标签走真实 Matrix 成员
@@ -500,22 +502,17 @@ const newChOpen = ref(false)
 const newChName = ref('')
 const newChTopic = ref('')
 const newChPublic = ref(false)
-const newChIsDoc = ref(false)   // 是否建「文档教学频道」(仅平台管理员可选)
 const newChCreating = ref(false)
 function openNewChannel() {
   if (!activeSpace.value) { toast('请先选一个工作区', '频道需要归属到某个工作区'); return }
-  newChName.value = ''; newChTopic.value = ''; newChPublic.value = false
-  newChIsDoc.value = false; newChOpen.value = true
+  newChName.value = ''; newChTopic.value = ''; newChPublic.value = false; newChOpen.value = true
 }
 async function createChannel() {
   const n = newChName.value.trim()
   if (!n || newChCreating.value || !activeSpace.value) return
   newChCreating.value = true
   try {
-    // 文档频道(仅管理员可选)走 createDocChannel：建房 + 标记 kind='doc'；否则建普通聊天频道。
-    const cid = (newChIsDoc.value && isAdmin.value)
-      ? await createDocChannel(activeSpace.value, n, { topic: newChTopic.value.trim() })
-      : await createChannelInSpace(activeSpace.value, n, { public: newChPublic.value, topic: newChTopic.value.trim() })
+    const cid = await createChannelInSpace(activeSpace.value, n, { public: newChPublic.value, topic: newChTopic.value.trim() })
     toast('已创建频道', `# ${n} → ${activeSpaceName.value}`)
     newChOpen.value = false
     setTimeout(() => {
@@ -927,6 +924,7 @@ const channelMembers = ref<{ id: string; name: string; isBot: boolean }[]>([])
 function openRoom(id: string) {
   board.value = false
   tasks.value = false
+  docs.value = false
   currentRoom.value = id
   msgs.value = listMessages(id)
   channelMembers.value = listRoomMembers(id)
@@ -1116,6 +1114,7 @@ function computePath(): string {
   if (!s) return '/'
   if (currentRoom.value) return `/s/${encodeURIComponent(s)}/c/${encodeURIComponent(currentRoom.value)}`
   if (tasks.value) return `/s/${encodeURIComponent(s)}/tasks`
+  if (docs.value) return `/s/${encodeURIComponent(s)}/docs`
   return `/s/${encodeURIComponent(s)}/board`
 }
 
@@ -1128,8 +1127,8 @@ function applyFromRoute() {
     adminOpen.value = p.startsWith('/admin')
     profileVisible.value = p.startsWith('/me')
     if (adminOpen.value || profileVisible.value) return
-    // 匹配 /s/:space、/s/:space/board、/s/:space/tasks、/s/:space/c/:roomId
-    const m = p.match(/^\/s\/([^/]+)(?:\/(board|tasks)|\/c\/(.+))?$/)
+    // 匹配 /s/:space、/s/:space/board、/s/:space/tasks、/s/:space/docs、/s/:space/c/:roomId
+    const m = p.match(/^\/s\/([^/]+)(?:\/(board|tasks|docs)|\/c\/(.+))?$/)
     if (!m) return // 根路径或无法识别 → 保持现状
     const space = decodeURIComponent(m[1])
     if (space && spaces.value.some((s) => s.id === space)) {
@@ -1140,11 +1139,13 @@ function applyFromRoute() {
     if (roomId) {
       // 房间还没加载到 / 不存在 → 退回数据看板，避免空白
       if (rooms.value.some((r) => r.id === roomId)) openRoom(roomId)
-      else { board.value = true; tasks.value = false; currentRoom.value = '' }
+      else { board.value = true; tasks.value = false; docs.value = false; currentRoom.value = '' }
     } else if (m[2] === 'tasks') {
-      tasks.value = true; board.value = false; currentRoom.value = ''
+      tasks.value = true; board.value = false; docs.value = false; currentRoom.value = ''
+    } else if (m[2] === 'docs') {
+      openDocs()
     } else {
-      board.value = true; tasks.value = false; currentRoom.value = ''
+      board.value = true; tasks.value = false; docs.value = false; currentRoom.value = ''
     }
   } finally {
     applyingFromRoute = false
@@ -1152,7 +1153,7 @@ function applyFromRoute() {
 }
 
 // 状态 → 地址：用 push 让浏览器后退可用
-watch([activeSpace, board, tasks, currentRoom, adminOpen, profileVisible], () => {
+watch([activeSpace, board, tasks, docs, currentRoom, adminOpen, profileVisible], () => {
   if (!syncReady || applyingFromRoute) return
   const path = computePath()
   if (route.path !== path) router.push(path).catch(() => {})
@@ -1378,6 +1379,13 @@ onBeforeUnmount(() => {
             </span>
             <span class="cs-label">任务看板</span>
           </div>
+          <!-- 置顶：文档（类云文档，按工作区一棵页面树）-->
+          <div class="cs-item pinned-item" :class="{ active: docs }" @click="openDocs">
+            <span class="cs-ic">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h8" /></svg>
+            </span>
+            <span class="cs-label">文档</span>
+          </div>
 
           <!-- 频道 group（真实房间）-->
           <div class="cs-group">
@@ -1393,7 +1401,7 @@ onBeforeUnmount(() => {
                 :class="{ active: r.id === currentRoom, archived: isArchived(r.id) }"
                 @click="openRoom(r.id)"
               >
-                <span class="cs-chan-av" :style="{ background: r.kind === 'doc' ? '#4a7a8c' : colorOf(r.name) }">{{ r.kind === 'doc' ? '📄' : iconChar(r.name) }}</span>
+                <span class="cs-chan-av" :style="{ background: colorOf(r.name) }">{{ iconChar(r.name) }}</span>
                 <span class="cs-label">{{ r.name }}</span>
                 <span v-if="isArchived(r.id)" class="cs-archived-tag" title="专班已归档收尾">🗄</span>
               </div>
@@ -1596,10 +1604,13 @@ onBeforeUnmount(() => {
           </div>
         </template>
 
+        <!-- ===== 文档（类云文档，按工作区一棵页面树）===== -->
+        <template v-else-if="docs">
+          <DocChannelView v-if="activeSpace" :room-id="activeSpace" :space-name="activeSpaceName" />
+          <div v-else class="hint pad">请先选择一个工作区</div>
+        </template>
+
         <!-- ===== 频道 ===== -->
-        <template v-else>
-        <!-- 文档教学频道(类云文档)：主区=页面树+Markdown，而非聊天流 -->
-        <DocChannelView v-if="currentRoom && isDocChannel" :room-id="currentRoom" />
         <template v-else>
         <div v-if="currentRoom" class="ch-header">
           <button class="ch-fav" :class="{ active: fav }" :title="fav ? '取消收藏' : '收藏'" @click="toggleFav">
@@ -1743,7 +1754,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        </template>
         </template>
       </main>
 
@@ -1935,26 +1945,18 @@ onBeforeUnmount(() => {
       <div class="nw-modal">
         <div class="nw-title">新建频道</div>
         <div class="nw-sub">将建在「{{ activeSpaceName }}」工作区下，并自动拉主 AI 进群</div>
-        <!-- 频道类型：仅平台管理员能建「文档教学频道」(类云文档) -->
-        <template v-if="isAdmin">
-          <div class="nw-field-label">频道类型</div>
-          <div class="nw-vis">
-            <button class="nw-vis-btn" :class="{ on: !newChIsDoc }" @click="newChIsDoc = false">💬 聊天频道</button>
-            <button class="nw-vis-btn" :class="{ on: newChIsDoc }" @click="newChIsDoc = true">📄 文档频道</button>
-          </div>
-        </template>
         <div class="nw-field-label">频道名称</div>
-        <input v-model="newChName" class="nw-input" :placeholder="newChIsDoc ? '如：新手教程 / 产品手册' : '如：第二季筹备 / 海报评审'" @keyup.enter="createChannel" />
+        <input v-model="newChName" class="nw-input" placeholder="如：第二季筹备 / 海报评审" @keyup.enter="createChannel" />
         <div class="nw-field-label">简介（可选，显示在频道头）</div>
         <textarea v-model="newChTopic" class="nw-input nw-textarea" rows="2" placeholder="一句话说明这个频道是干嘛的" />
-        <div v-if="!newChIsDoc" class="nw-field-label">可见性</div>
-        <div v-if="!newChIsDoc" class="nw-vis">
+        <div class="nw-field-label">可见性</div>
+        <div class="nw-vis">
           <button class="nw-vis-btn" :class="{ on: !newChPublic }" @click="newChPublic = false">私密 · 邀请制</button>
           <button class="nw-vis-btn" :class="{ on: newChPublic }" @click="newChPublic = true">公开 · 可加入</button>
         </div>
         <div v-if="newChName.trim()" class="nw-preview">
           <div class="nw-prev-h">将创建</div>
-          <div class="nw-prev-ch">{{ newChIsDoc ? '📄' : '#' }} {{ newChName.trim() }}<span class="nw-prev-tip">{{ newChIsDoc ? '文档频道 · ' : '' }}含主 AI · 归属「{{ activeSpaceName }}」</span></div>
+          <div class="nw-prev-ch"># {{ newChName.trim() }}<span class="nw-prev-tip">含主 AI · 归属「{{ activeSpaceName }}」</span></div>
         </div>
         <div class="nw-foot">
           <button class="nw-btn" :disabled="newChCreating" @click="newChOpen = false">取消</button>
