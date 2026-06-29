@@ -40,6 +40,7 @@ import {
   roomIdsInSpace,
   createSpace,
   createChannelInSpace,
+  createDocChannel,
   linkRoomToSpace,
   updateSpace,
   updateRoom,
@@ -87,6 +88,7 @@ import { useBoardSources } from '@/composables/useBoardSources'
 import SocialSourceModal from '@/components/board/SocialSourceModal.vue'
 import { useSocialSources, platformLabel, platformIcon } from '@/composables/useSocialSources'
 import OnboardingWizard from '@/components/onboarding/OnboardingWizard.vue'
+import DocChannelView from '@/components/doc/DocChannelView.vue'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { useMarketplace } from '@/composables/useMarketplace'
 import { useCli } from '@/composables/useCli'
@@ -279,6 +281,10 @@ const currentName = computed(
 )
 const currentTopic = computed(
   () => rooms.value.find((r) => r.id === currentRoom.value)?.topic || '',
+)
+// 当前频道是不是「文档教学频道」（kind==='doc'）→ 主区渲染文档视图而非聊天流
+const isDocChannel = computed(
+  () => rooms.value.find((r) => r.id === currentRoom.value)?.kind === 'doc',
 )
 // 当前频道即「当前群」：切频道时让「频道管理」面板跟着切到对应群的配置（每个群一份、互不影响）
 // 传 currentRoom（真实 room id）→「人员」标签走真实 Matrix 成员
@@ -494,17 +500,22 @@ const newChOpen = ref(false)
 const newChName = ref('')
 const newChTopic = ref('')
 const newChPublic = ref(false)
+const newChIsDoc = ref(false)   // 是否建「文档教学频道」(仅平台管理员可选)
 const newChCreating = ref(false)
 function openNewChannel() {
   if (!activeSpace.value) { toast('请先选一个工作区', '频道需要归属到某个工作区'); return }
-  newChName.value = ''; newChTopic.value = ''; newChPublic.value = false; newChOpen.value = true
+  newChName.value = ''; newChTopic.value = ''; newChPublic.value = false
+  newChIsDoc.value = false; newChOpen.value = true
 }
 async function createChannel() {
   const n = newChName.value.trim()
   if (!n || newChCreating.value || !activeSpace.value) return
   newChCreating.value = true
   try {
-    const cid = await createChannelInSpace(activeSpace.value, n, { public: newChPublic.value, topic: newChTopic.value.trim() })
+    // 文档频道(仅管理员可选)走 createDocChannel：建房 + 标记 kind='doc'；否则建普通聊天频道。
+    const cid = (newChIsDoc.value && isAdmin.value)
+      ? await createDocChannel(activeSpace.value, n, { topic: newChTopic.value.trim() })
+      : await createChannelInSpace(activeSpace.value, n, { public: newChPublic.value, topic: newChTopic.value.trim() })
     toast('已创建频道', `# ${n} → ${activeSpaceName.value}`)
     newChOpen.value = false
     setTimeout(() => {
@@ -1382,7 +1393,7 @@ onBeforeUnmount(() => {
                 :class="{ active: r.id === currentRoom, archived: isArchived(r.id) }"
                 @click="openRoom(r.id)"
               >
-                <span class="cs-chan-av" :style="{ background: colorOf(r.name) }">{{ iconChar(r.name) }}</span>
+                <span class="cs-chan-av" :style="{ background: r.kind === 'doc' ? '#4a7a8c' : colorOf(r.name) }">{{ r.kind === 'doc' ? '📄' : iconChar(r.name) }}</span>
                 <span class="cs-label">{{ r.name }}</span>
                 <span v-if="isArchived(r.id)" class="cs-archived-tag" title="专班已归档收尾">🗄</span>
               </div>
@@ -1587,6 +1598,9 @@ onBeforeUnmount(() => {
 
         <!-- ===== 频道 ===== -->
         <template v-else>
+        <!-- 文档教学频道(类云文档)：主区=页面树+Markdown，而非聊天流 -->
+        <DocChannelView v-if="currentRoom && isDocChannel" :room-id="currentRoom" />
+        <template v-else>
         <div v-if="currentRoom" class="ch-header">
           <button class="ch-fav" :class="{ active: fav }" :title="fav ? '取消收藏' : '收藏'" @click="toggleFav">
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="fav ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
@@ -1729,6 +1743,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+        </template>
         </template>
       </main>
 
@@ -1920,18 +1935,26 @@ onBeforeUnmount(() => {
       <div class="nw-modal">
         <div class="nw-title">新建频道</div>
         <div class="nw-sub">将建在「{{ activeSpaceName }}」工作区下，并自动拉主 AI 进群</div>
+        <!-- 频道类型：仅平台管理员能建「文档教学频道」(类云文档) -->
+        <template v-if="isAdmin">
+          <div class="nw-field-label">频道类型</div>
+          <div class="nw-vis">
+            <button class="nw-vis-btn" :class="{ on: !newChIsDoc }" @click="newChIsDoc = false">💬 聊天频道</button>
+            <button class="nw-vis-btn" :class="{ on: newChIsDoc }" @click="newChIsDoc = true">📄 文档频道</button>
+          </div>
+        </template>
         <div class="nw-field-label">频道名称</div>
-        <input v-model="newChName" class="nw-input" placeholder="如：第二季筹备 / 海报评审" @keyup.enter="createChannel" />
+        <input v-model="newChName" class="nw-input" :placeholder="newChIsDoc ? '如：新手教程 / 产品手册' : '如：第二季筹备 / 海报评审'" @keyup.enter="createChannel" />
         <div class="nw-field-label">简介（可选，显示在频道头）</div>
         <textarea v-model="newChTopic" class="nw-input nw-textarea" rows="2" placeholder="一句话说明这个频道是干嘛的" />
-        <div class="nw-field-label">可见性</div>
-        <div class="nw-vis">
+        <div v-if="!newChIsDoc" class="nw-field-label">可见性</div>
+        <div v-if="!newChIsDoc" class="nw-vis">
           <button class="nw-vis-btn" :class="{ on: !newChPublic }" @click="newChPublic = false">私密 · 邀请制</button>
           <button class="nw-vis-btn" :class="{ on: newChPublic }" @click="newChPublic = true">公开 · 可加入</button>
         </div>
         <div v-if="newChName.trim()" class="nw-preview">
           <div class="nw-prev-h">将创建</div>
-          <div class="nw-prev-ch"># {{ newChName.trim() }}<span class="nw-prev-tip">含主 AI · 归属「{{ activeSpaceName }}」</span></div>
+          <div class="nw-prev-ch">{{ newChIsDoc ? '📄' : '#' }} {{ newChName.trim() }}<span class="nw-prev-tip">{{ newChIsDoc ? '文档频道 · ' : '' }}含主 AI · 归属「{{ activeSpaceName }}」</span></div>
         </div>
         <div class="nw-foot">
           <button class="nw-btn" :disabled="newChCreating" @click="newChOpen = false">取消</button>

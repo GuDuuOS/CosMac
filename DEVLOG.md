@@ -264,6 +264,16 @@
 - 关键决策:#2 不去阻止"重跑 LLM",只保证**群里不冒第二条**——按本仓既有 txn_id 去重思路,代价最小、与崩溃恢复一致。
 - 测试:新增 5 个回归(成员数缓存/重试/兜底 3 个 + 池满回滚/已外呼不删 2 个);相关 4 套件 69 通过、ruff 全绿。trading 9 个失败是**缺 `COSMAC_PAY_MANUAL_SECRET` 环境变量**的既有问题、与本次无关(已在干净树复现)。**纯后端、无需发 dist;部署=重启 bot**。
 
+## 2026-06-26 — 文档教学频道(类云文档) · P1 前端(端到端可用)
+- 接上条后端地基,补齐前端,P1 端到端跑通:
+  - `client.ts`:6 个文档 API(docTree/docGetPage/docCreatePage/docUpdatePage/docDeletePage/docMovePage) + `createDocChannel`(建房+标记 kind='doc'+挂工作区);LiveRoom 加 `kind`、listRooms 从 channel_config 读。
+  - 共享 `utils/md.ts`:安全 Markdown 渲染(沿用聊天版加固:先转义含引号、抠存代码块、URL 限 http(s)、剥 \x00),比聊天版多支持标题/列表/引用/图片——教学文档要用。
+  - `components/doc/DocChannelView.vue`:左侧多层嵌套页面树(扁平化带深度,非递归组件) + 右侧 Markdown 阅读/编辑(编辑态左写右实时预览);power≥50 者可新建子页/删(含子树)/编辑,成员只读。
+  - LiveView 集成:`isDocChannel`(按当前房 kind)→ 主区渲染 DocChannelView 而非聊天流;新建频道弹窗加「频道类型」选择(💬聊天/📄文档,仅平台管理员可见);侧栏文档频道显 📄。
+  - 路由:文档频道复用 `/s/:space/c/:roomId`(也是 Matrix 房间,openRoom→kind 驱动渲染,深链/刷新/后退既有逻辑覆盖),不单开路由降风险。
+- 决策:P2 才接 AI 答疑(保存即入 KB + 中枢 AI 文档感知 RAG);本地图片上传 P3。
+- 验证:前端 build(`index-Bh3lTzPT.js`)通过 + preview 登录页正常渲染无 console 报错;后端 309 单测全绿(上条)。**前后端都变 → 发 dist + 重启 bot**。
+
 ## 2026-06-26 — 文档教学频道(类云文档) · P1 后端地基
 - 新模块:独立「文档频道」类型,主区=多层嵌套页面树(类 Notion)+Markdown 页面。负责人拍板:仅平台管理员可建、有权限者(房间 power≥50)编辑·非实时、成员只读、内容 Markdown+图片(P1 用链接)、AI 答疑走中枢 AI(文档感知 RAG, P2)。
 - 后端地基(本次):

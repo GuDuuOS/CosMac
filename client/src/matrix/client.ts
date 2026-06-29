@@ -12,6 +12,9 @@ export interface LiveRoom {
   name: string
   /** 频道简介（Matrix m.room.topic），频道头展示用 */
   topic?: string
+  /** 频道类型：'doc'=文档教学频道(类云文档)；缺省/'chat'=普通聊天频道。
+   *  读自 cosmac.channel_config.kind，侧栏据此换图标 + 决定点进去走文档视图还是聊天流。 */
+  kind?: string
 }
 
 /** 给 UI 用的精简消息结构；card 为 cosmac.card 自定义富卡（可能没有） */
@@ -292,7 +295,13 @@ export function listRooms(): LiveRoom[] {
     .getRooms()
     // Space（工作区）本身不是频道，不进频道列表
     .filter((r) => !(r as any).isSpaceRoom?.())
-    .map((r) => ({ id: r.roomId, name: r.name || r.roomId, topic: roomTopic(r) }))
+    .map((r) => ({
+      id: r.roomId, name: r.name || r.roomId, topic: roomTopic(r),
+      // 频道类型标记（文档频道 vs 聊天频道）从 channel_config.kind 读，缺省按聊天。
+      kind: String(
+        r.currentState?.getStateEvents?.(CHANNEL_CONFIG_EVENT, '')?.getContent?.()?.kind || '',
+      ) || undefined,
+    }))
     // 中枢 AI 在右侧单独显示；无名 DM 的 name 会回退成对方 mxid（以 @ 开头），都不进频道列表
     .filter((r) => r.name !== '中枢 AI' && !r.name.startsWith('@'))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
@@ -2044,6 +2053,111 @@ export async function updateTask(
     })
     return r.ok
   } catch { return false }
+}
+
+/* ===== 文档教学频道（类云文档）=====
+ * 频道类型标记走 cosmac.channel_config.kind='doc'（侧栏据此识别）；页面正文存 cosmac DB，
+ * 走 bot 的 /cosmac/doc/* 端点（带本人 token，写权限服务端按房间 power≥50 强制）。
+ */
+
+/** 文档频道里的一个页面（树节点）。content 仅在读单页时返回。 */
+export interface DocPage {
+  id: number
+  parent_id: number | null
+  title: string
+  sort: number
+  updated_by: string
+  content_md?: string
+}
+
+function authHeaders(json = false): Record<string, string> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  const h: Record<string, string> = { Authorization: `Bearer ${token}` }
+  if (json) h['Content-Type'] = 'application/json'
+  return h
+}
+
+/** 读某文档频道的页面树（不含正文）+ 当前用户能否编辑。 */
+export async function docTree(
+  roomId: string,
+): Promise<{ pages: DocPage[]; canWrite: boolean }> {
+  try {
+    const r = await fetch(
+      `${payBase()}/cosmac/doc/tree?room_id=${encodeURIComponent(roomId)}`,
+      { headers: authHeaders() },
+    )
+    if (!r.ok) return { pages: [], canWrite: false }
+    const j = await r.json()
+    return { pages: Array.isArray(j?.pages) ? j.pages : [], canWrite: !!j?.can_write }
+  } catch { return { pages: [], canWrite: false } }
+}
+
+/** 读单页（含 Markdown 正文）。失败返回 null。 */
+export async function docGetPage(id: number): Promise<DocPage | null> {
+  try {
+    const r = await fetch(`${payBase()}/cosmac/doc/page?id=${id}`, { headers: authHeaders() })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+
+/** 新建页面。需该频道 power≥50。返回新页面（含正文）或抛错。 */
+export async function docCreatePage(
+  roomId: string, opts: { title?: string; parent_id?: number | null; content_md?: string } = {},
+): Promise<DocPage> {
+  const r = await fetch(`${payBase()}/cosmac/doc/page`, {
+    method: 'POST', headers: authHeaders(true),
+    body: JSON.stringify({ room_id: roomId, ...opts }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || '新建失败')
+  return j
+}
+
+/** 改页面标题/正文。需 power≥50。 */
+export async function docUpdatePage(
+  id: number, patch: { title?: string; content_md?: string },
+): Promise<DocPage> {
+  const r = await fetch(`${payBase()}/cosmac/doc/page/update`, {
+    method: 'POST', headers: authHeaders(true),
+    body: JSON.stringify({ id, ...patch }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || '保存失败')
+  return j
+}
+
+/** 删页面（连同子树）。需 power≥50。 */
+export async function docDeletePage(id: number): Promise<boolean> {
+  try {
+    const r = await fetch(`${payBase()}/cosmac/doc/page/delete`, {
+      method: 'POST', headers: authHeaders(true), body: JSON.stringify({ id }),
+    })
+    return r.ok
+  } catch { return false }
+}
+
+/** 移动页面到新父级/改排序。需 power≥50。 */
+export async function docMovePage(
+  id: number, opts: { parent_id?: number | null; sort?: number },
+): Promise<boolean> {
+  try {
+    const r = await fetch(`${payBase()}/cosmac/doc/page/move`, {
+      method: 'POST', headers: authHeaders(true), body: JSON.stringify({ id, ...opts }),
+    })
+    return r.ok
+  } catch { return false }
+}
+
+/** 在某工作区新建一个**文档频道**：建房 → 标记 kind='doc' → 挂进 Space。返回 room_id。
+ *  仅平台管理员可建（入口在前端控制，建房本身任何成员能建、但类型频道是后台能力）。 */
+export async function createDocChannel(
+  spaceId: string, name: string, opts: { topic?: string } = {},
+): Promise<string> {
+  const roomId = await createChannelInSpace(spaceId, name, { public: false, topic: opts.topic })
+  // 标记为文档频道（写进 channel_config，侧栏据此识别、渲染文档视图）
+  await setChannelConfig(roomId, { kind: 'doc' })
+  return roomId
 }
 
 export interface CheckoutResp {
