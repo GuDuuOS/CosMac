@@ -45,6 +45,18 @@
           </div>
         </header>
         <div v-if="err" class="doc-err">{{ err }}</div>
+        <!-- 编辑态：封面上传 -->
+        <div v-if="editing" class="doc-cover-row">
+          <img v-if="editCover" class="doc-cover-thumb" :src="coverUrl(editCover)" alt="封面" />
+          <div v-else class="doc-cover-ph">无封面</div>
+          <div class="doc-cover-ops">
+            <label class="doc-btn ghost sm">
+              {{ coverUploading ? '上传中…' : (editCover ? '更换封面' : '上传封面') }}
+              <input type="file" accept="image/*" hidden :disabled="coverUploading" @change="onPickCover" />
+            </label>
+            <button v-if="editCover" class="doc-btn ghost sm" :disabled="coverUploading" @click="editCover = ''">移除</button>
+          </div>
+        </div>
         <!-- 编辑态：左写 Markdown 右实时预览 -->
         <div v-if="editing" class="doc-editor">
           <textarea v-model="editBody" class="doc-textarea" placeholder="用 Markdown 写教程…&#10;# 标题  - 列表  **加粗**  `代码`  ![图](http url)"></textarea>
@@ -52,8 +64,11 @@
           <div class="doc-preview md" v-html="renderMarkdown(editBody)"></div>
         </div>
         <!-- 阅读态 -->
-        <!-- eslint-disable-next-line vue/no-v-html -->
-        <article v-else class="doc-body md" v-html="renderMarkdown(current?.content_md || '')"></article>
+        <template v-else>
+          <img v-if="current?.cover" class="doc-cover-banner" :src="coverUrl(current.cover)" alt="封面" />
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <article class="doc-body md" v-html="renderMarkdown(current?.content_md || '')"></article>
+        </template>
       </template>
     </section>
   </div>
@@ -63,9 +78,12 @@
 import { onMounted, ref } from 'vue'
 import {
   docTree, docGetPage, docCreatePage, docUpdatePage, docDeletePage,
+  docCoverUrl, uploadMedia,
   type DocPage,
 } from '@/matrix/client'
 import { renderMarkdown } from '@/utils/md'
+
+const coverUrl = docCoverUrl
 
 const pages = ref<DocPage[]>([])
 const canWrite = ref(false)
@@ -78,6 +96,8 @@ const editing = ref(false)
 const saving = ref(false)
 const editTitle = ref('')
 const editBody = ref('')
+const editCover = ref('')        // 封面(mxc:// 或 url)
+const coverUploading = ref(false)
 
 // 扁平化成「带层级深度」的有序列表（按 parent + sort 组织），避免递归组件。
 interface FlatNode extends DocPage { depth: number }
@@ -151,9 +171,24 @@ function startEdit() {
   if (!current.value) return
   editTitle.value = current.value.title
   editBody.value = current.value.content_md || ''
+  editCover.value = current.value.cover || ''
   editing.value = true
 }
 function cancelEdit() { editing.value = false; err.value = '' }
+
+async function onPickCover(e: Event) {
+  const file = (e.target as HTMLInputElement)?.files?.[0]
+  if (!file) return
+  coverUploading.value = true; err.value = ''
+  try {
+    editCover.value = await uploadMedia(file)  // 上传到 Matrix 媒体库，存 mxc://
+  } catch (ex: any) {
+    err.value = ex?.message || '封面上传失败'
+  } finally {
+    coverUploading.value = false
+    ;(e.target as HTMLInputElement).value = ''  // 允许重复选同一文件
+  }
+}
 
 async function save() {
   if (!currentId.value) return
@@ -162,10 +197,11 @@ async function save() {
     const updated = await docUpdatePage(currentId.value, {
       title: editTitle.value.trim() || '未命名页面',
       content_md: editBody.value,
+      cover: editCover.value,
     })
     current.value = updated
     editing.value = false
-    await loadTree(false)  // 标题可能变，刷新树
+    await loadTree(false)  // 标题/封面可能变，刷新树
   } catch (e: any) {
     err.value = e?.message || '保存失败'
   } finally {
@@ -227,6 +263,17 @@ onMounted(loadTree)
 .doc-btn.ghost { background: #fff; color: #6b665e; border-color: #d8d2c8; }
 .doc-btn:disabled { opacity: .6; cursor: default; }
 .doc-err { margin: 0 32px; color: #993c1d; font-size: 13px; }
+
+/* 封面：编辑态的上传行 + 阅读态横幅 */
+.doc-cover-row { display: flex; align-items: center; gap: 12px; padding: 4px 32px 8px; }
+.doc-cover-thumb { width: 120px; height: 68px; object-fit: cover; border-radius: 8px; border: 1px solid #eae6df; }
+.doc-cover-ph {
+  width: 120px; height: 68px; border-radius: 8px; border: 1px dashed #d8d2c8;
+  display: flex; align-items: center; justify-content: center; color: #ada699; font-size: 12px;
+}
+.doc-cover-ops { display: flex; gap: 8px; }
+.doc-btn.sm { padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.doc-cover-banner { display: block; max-width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; margin: 0 0 14px; }
 
 .doc-editor { flex: 1; display: flex; min-height: 0; gap: 1px; background: #eae6df; margin-top: 8px; }
 .doc-textarea {

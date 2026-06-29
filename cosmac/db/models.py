@@ -436,6 +436,8 @@ class DocPage(Base, TimestampMixin):
     # 父页面 id；None/0 = 顶层页面。靠它+sort 组成多层嵌套树。
     parent_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 封面图（类公众号文章封面）：存 mxc://(上传到 Matrix 媒体库)或 http(s) URL；空=无封面。
+    cover: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 正文（Markdown）。可较长，故用 Text。
     content_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # 同层排序（小在前）；移动/拖拽时重排。

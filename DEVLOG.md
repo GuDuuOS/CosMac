@@ -264,6 +264,14 @@
 - 关键决策:#2 不去阻止"重跑 LLM",只保证**群里不冒第二条**——按本仓既有 txn_id 去重思路,代价最小、与崩溃恢复一致。
 - 测试:新增 5 个回归(成员数缓存/重试/兜底 3 个 + 池满回滚/已外呼不删 2 个);相关 4 套件 69 通过、ruff 全绿。trading 9 个失败是**缺 `COSMAC_PAY_MANUAL_SECRET` 环境变量**的既有问题、与本次无关(已在干净树复现)。**纯后端、无需发 dist;部署=重启 bot**。
 
+## 2026-06-26 — 图文教程：文章封面图
+- 后台编辑可给每篇图文加**封面**(类公众号):上传图片→存 Matrix 媒体库(mxc://)。
+  - DB:`cosmac_doc_page` 加 `cover` 列(engine `_heal_business_schema` 给旧库补列);doc_repo create/update 接 cover、page_to_dict 回 cover。
+  - 后端 handler 透传 cover;前端 docCreatePage/docUpdatePage 接 cover + `docCoverUrl`(mxc→媒体代理 http,http(s) 原样)。
+  - 编辑器(DocChannelView):封面上传行(上传/更换/移除,uploadMedia 存 mxc);阅读态顶部横幅。
+  - 前台 DocReader:卡片右侧封面缩略图 + 详情顶部横幅。
+- 验证:ruff 全绿 + 后端 310 单测 + 前端 build + preview 无 console 报错。前后端都变→发 dist + 重启 bot。
+
 ## 2026-06-26 — 图文教程改：全平台一份 + 付费会员可见
 - 负责人定:图文教程**不分工作区**(全平台一份)、且**付费会员才能看**。改:
   - **全局存储**:所有页面存固定作用域 `_GLOBAL_DOC_ROOM`(不再按 Space)。读端点去掉 room_id 入参。

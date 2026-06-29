@@ -2057,11 +2057,18 @@ export interface DocPage {
   id: number
   parent_id: number | null
   title: string
+  cover?: string        // 封面图(mxc:// 或 http(s) URL)；空=无封面
   sort: number
   updated_by: string
   excerpt?: string      // 列表卡片摘要(类公众号)
   updated_ts?: number   // 最后更新 unix 秒
   content_md?: string
+}
+
+/** 把封面值解析成可显示的 http 地址（mxc:// 走媒体代理；http(s) 原样）。 */
+export function docCoverUrl(cover?: string, size = 600): string {
+  if (!cover) return ''
+  return cover.startsWith('mxc://') ? mxcToHttp(cover, size) : cover
 }
 
 function authHeaders(json = false): Record<string, string> {
@@ -2096,7 +2103,7 @@ export async function docGetPage(id: number): Promise<DocPage | null> {
 
 /** 新建页面（写进全局图文）。需平台管理员。返回新页面（含正文）或抛错。 */
 export async function docCreatePage(
-  opts: { title?: string; parent_id?: number | null; content_md?: string } = {},
+  opts: { title?: string; parent_id?: number | null; content_md?: string; cover?: string } = {},
 ): Promise<DocPage> {
   const r = await fetch(`${payBase()}/cosmac/doc/page`, {
     method: 'POST', headers: authHeaders(true),
@@ -2109,7 +2116,7 @@ export async function docCreatePage(
 
 /** 改页面标题/正文。需 power≥50。 */
 export async function docUpdatePage(
-  id: number, patch: { title?: string; content_md?: string },
+  id: number, patch: { title?: string; content_md?: string; cover?: string },
 ): Promise<DocPage> {
   const r = await fetch(`${payBase()}/cosmac/doc/page/update`, {
     method: 'POST', headers: authHeaders(true),

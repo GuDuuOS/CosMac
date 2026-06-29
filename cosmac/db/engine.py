@@ -23,7 +23,14 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from cosmac.db.models import Base, KnowledgeChunk, SeenTxn, Task, WorkflowRun
+from cosmac.db.models import (
+    Base,
+    DocPage,
+    KnowledgeChunk,
+    SeenTxn,
+    Task,
+    WorkflowRun,
+)
 
 logger = logging.getLogger("cosmac.db.engine")
 
@@ -159,6 +166,16 @@ def _heal_business_schema(engine: Engine) -> None:
                     conn.execute(text(
                         "ALTER TABLE cosmac_task "
                         "ADD COLUMN executor_ref VARCHAR(255) NOT NULL DEFAULT ''"
+                    ))
+        # 图文页表补列：旧库的 cosmac_doc_page 还没 cover（封面图），补上否则带封面写入报
+        # UndefinedColumn。
+        if insp.has_table(DocPage.__tablename__):
+            have = {c["name"] for c in insp.get_columns(DocPage.__tablename__)}
+            if "cover" not in have:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE cosmac_doc_page "
+                        "ADD COLUMN cover TEXT NOT NULL DEFAULT ''"
                     ))
     except Exception:
         logger.warning("补齐业务表列失败（不致命，相关新功能可能降级）", exc_info=True)

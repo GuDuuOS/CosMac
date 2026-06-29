@@ -6,6 +6,7 @@
         <button class="dr-back" @click="current = null">← 返回列表</button>
         <h1 class="dr-title">{{ current.title || '未命名' }}</h1>
         <div class="dr-meta">{{ fmtTime(current.updated_ts) }}<span v-if="current.updated_by"> · {{ shortId(current.updated_by) }}</span></div>
+        <img v-if="current.cover" class="dr-cover-banner" :src="coverUrl(current.cover)" alt="封面" />
         <!-- eslint-disable-next-line vue/no-v-html -->
         <article class="dr-body md" v-html="renderMarkdown(current.content_md || '')"></article>
       </div>
@@ -27,9 +28,12 @@
       </div>
       <div v-else class="dr-list">
         <button v-for="a in articles" :key="a.id" class="dr-card" @click="open(a.id)">
-          <div class="dr-card-title">{{ a.title || '未命名' }}</div>
-          <div v-if="a.excerpt" class="dr-card-ex">{{ a.excerpt }}</div>
-          <div class="dr-card-meta">{{ fmtTime(a.updated_ts) }}</div>
+          <div class="dr-card-body">
+            <div class="dr-card-title">{{ a.title || '未命名' }}</div>
+            <div v-if="a.excerpt" class="dr-card-ex">{{ a.excerpt }}</div>
+            <div class="dr-card-meta">{{ fmtTime(a.updated_ts) }}</div>
+          </div>
+          <img v-if="a.cover" class="dr-card-cover" :src="coverUrl(a.cover, 200)" alt="" />
         </button>
       </div>
     </template>
@@ -38,8 +42,10 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { docTree, docGetPage, type DocPage } from '@/matrix/client'
+import { docTree, docGetPage, docCoverUrl, type DocPage } from '@/matrix/client'
 import { renderMarkdown } from '@/utils/md'
+
+const coverUrl = docCoverUrl
 
 const articles = ref<DocPage[]>([])
 const current = ref<DocPage | null>(null)
@@ -89,13 +95,17 @@ onMounted(load)
 
 .dr-list { padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
 .dr-card {
+  display: flex; align-items: stretch; gap: 14px;
   text-align: left; border: 1px solid #eae6df; background: #fff; border-radius: 12px;
   padding: 16px 18px; cursor: pointer; transition: box-shadow .15s, border-color .15s;
 }
 .dr-card:hover { border-color: #d8c4ba; box-shadow: 0 2px 12px rgba(201,100,66,.08); }
+.dr-card-body { flex: 1; min-width: 0; }
+.dr-card-cover { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
 .dr-card-title { font-size: 16px; font-weight: 600; color: #2c2a26; }
 .dr-card-ex { font-size: 13px; color: #8a8378; margin-top: 6px; line-height: 1.6; }
 .dr-card-meta { font-size: 12px; color: #ada699; margin-top: 8px; }
+.dr-cover-banner { display: block; width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; margin: 4px 0 16px; }
 
 .dr-detail { padding: 20px 32px 48px; max-width: 760px; }
 .dr-back {

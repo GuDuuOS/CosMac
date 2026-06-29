@@ -71,6 +71,7 @@ def create_page(
     title: str,
     parent_id: Optional[int] = None,
     content_md: str = "",
+    cover: str = "",
     updated_by: str = "",
 ) -> Optional[DocPage]:
     """新建一页。返回创建的 DocPage；超量/非法父级返回 None。
@@ -90,6 +91,7 @@ def create_page(
         room_id=room_id,
         parent_id=pid,
         title=str(title or "").strip()[:_MAX_TITLE] or "未命名页面",
+        cover=str(cover or "").strip()[:_MAX_TITLE],
         content_md=str(content_md or "")[:_MAX_CONTENT],
         sort=_next_sort(session, room_id, pid),
         updated_by=updated_by or "",
@@ -105,9 +107,10 @@ def update_page(
     *,
     title: Optional[str] = None,
     content_md: Optional[str] = None,
+    cover: Optional[str] = None,
     updated_by: str = "",
 ) -> Optional[DocPage]:
-    """改页面标题/正文。返回更新后的页面；不存在返回 None。"""
+    """改页面标题/正文/封面。返回更新后的页面；不存在返回 None。"""
     page = get_page(session, page_id)
     if page is None:
         return None
@@ -115,6 +118,8 @@ def update_page(
         page.title = str(title).strip()[:_MAX_TITLE] or "未命名页面"
     if content_md is not None:
         page.content_md = str(content_md)[:_MAX_CONTENT]
+    if cover is not None:
+        page.cover = str(cover).strip()[:_MAX_TITLE]
     if updated_by:
         page.updated_by = updated_by
     page.updated_at = _utcnow()
@@ -203,6 +208,7 @@ def page_to_dict(page: DocPage, *, with_content: bool = False) -> Dict[str, Any]
         "id": page.id,
         "parent_id": page.parent_id,
         "title": page.title,
+        "cover": page.cover or "",
         "sort": page.sort,
         "updated_by": page.updated_by,
         "excerpt": _excerpt(page.content_md),

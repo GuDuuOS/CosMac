@@ -1931,6 +1931,7 @@ class CosmacBot:
                     title=str(body.get("title") or ""),
                     parent_id=body.get("parent_id"),
                     content_md=str(body.get("content_md") or ""),
+                    cover=str(body.get("cover") or ""),
                     updated_by=user_id,
                 )
                 if page is None:
@@ -2019,6 +2020,7 @@ class CosmacBot:
                     s, page_id,
                     title=body.get("title"),
                     content_md=body.get("content_md"),
+                    cover=body.get("cover"),
                     updated_by=user_id,
                 )
                 if page is None:
