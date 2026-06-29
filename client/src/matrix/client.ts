@@ -2059,6 +2059,8 @@ export interface DocPage {
   title: string
   sort: number
   updated_by: string
+  excerpt?: string      // 列表卡片摘要(类公众号)
+  updated_ts?: number   // 最后更新 unix 秒
   content_md?: string
 }
 

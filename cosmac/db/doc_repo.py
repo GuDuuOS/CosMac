@@ -194,17 +194,35 @@ def _is_descendant(
 
 
 def page_to_dict(page: DocPage, *, with_content: bool = False) -> Dict[str, Any]:
-    """页面转给前端的字典。树/列表不带正文(省流量)，读单页才带。"""
+    """页面转给前端的字典。树/列表不带正文(省流量)，读单页才带。
+
+    列表/卡片(类公众号)展示用：附 ``excerpt``(正文前若干字、去 markdown 符号的摘要) 和
+    ``updated_ts``(最后更新 unix 秒)，前台只读视图据此渲染文章卡。
+    """
     d: Dict[str, Any] = {
         "id": page.id,
         "parent_id": page.parent_id,
         "title": page.title,
         "sort": page.sort,
         "updated_by": page.updated_by,
+        "excerpt": _excerpt(page.content_md),
+        "updated_ts": int(page.updated_at.timestamp()) if page.updated_at else 0,
     }
     if with_content:
         d["content_md"] = page.content_md
     return d
+
+
+def _excerpt(md: str, limit: int = 80) -> str:
+    """从 Markdown 正文里抽一段纯文本摘要(给列表卡片显示)：去掉常见标记符、压空白、截断。"""
+    import re
+    s = md or ""
+    s = re.sub(r"```[\s\S]*?```", " ", s)          # 去代码块
+    s = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", s)     # 去图片
+    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)  # 链接只留文字
+    s = re.sub(r"[#>*`~\-]+", " ", s)               # 去标题/强调/列表等符号
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:limit]
 
 
 def _norm_parent(parent_id: Optional[int]) -> Optional[int]:

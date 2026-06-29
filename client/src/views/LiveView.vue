@@ -88,7 +88,7 @@ import { useBoardSources } from '@/composables/useBoardSources'
 import SocialSourceModal from '@/components/board/SocialSourceModal.vue'
 import { useSocialSources, platformLabel, platformIcon } from '@/composables/useSocialSources'
 import OnboardingWizard from '@/components/onboarding/OnboardingWizard.vue'
-import DocChannelView from '@/components/doc/DocChannelView.vue'
+import DocReader from '@/components/doc/DocReader.vue'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { useMarketplace } from '@/composables/useMarketplace'
 import { useCli } from '@/composables/useCli'
@@ -1381,12 +1381,12 @@ onBeforeUnmount(() => {
             </span>
             <span class="cs-label">任务看板</span>
           </div>
-          <!-- 置顶：文档（类云文档，按工作区一棵页面树）-->
+          <!-- 置顶：图文教程（前台只读·类公众号；编辑在管理后台）-->
           <div class="cs-item pinned-item" :class="{ active: docs }" @click="openDocs">
             <span class="cs-ic">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h8" /></svg>
             </span>
-            <span class="cs-label">文档</span>
+            <span class="cs-label">图文教程</span>
           </div>
 
           <!-- 频道 group（真实房间）-->
@@ -1606,9 +1606,9 @@ onBeforeUnmount(() => {
           </div>
         </template>
 
-        <!-- ===== 文档（类云文档，按工作区一棵页面树）===== -->
+        <!-- ===== 图文教程（前台只读·类公众号：文章列表→点开看详情；编辑在管理后台）===== -->
         <template v-else-if="docs">
-          <DocChannelView v-if="activeSpace" :room-id="activeSpace" :space-name="activeSpaceName" />
+          <DocReader v-if="activeSpace" :room-id="activeSpace" :space-name="activeSpaceName" />
           <div v-else class="hint pad">请先选择一个工作区</div>
         </template>
 
