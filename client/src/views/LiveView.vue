@@ -960,7 +960,9 @@ async function aiSend() {
   const t = aiDraft.value.trim()
   if (!t || !aiRoom.value) return
   aiDraft.value = ''
-  await sendText(aiRoom.value, t)
+  // 捎上当前工作区：中枢 AI 是全局 DM，带上它才能基于「当前工作区的文档」做 RAG 答疑。
+  const extra = activeSpace.value ? { 'cosmac.doc_space': activeSpace.value } : undefined
+  await sendText(aiRoom.value, t, extra)
   setTimeout(refresh, 400)
 }
 

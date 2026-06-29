@@ -345,8 +345,13 @@ class CosmacBot:
                 gctx = self._apply_worker_routing(text or user_text, gctx)
                 # 按 (本群, 发起人) 算出本轮 system addendum：人设 + 技能 + 知识库检索片段(RAG)。
                 # 任何失败（DB 没装/没数据/出错）都返回空串、绝不阻断回复（见 _skill_addendum）。
+                # P2 文档答疑：前端在中枢 AI(全局 DM)提问时捎上「当前工作区」(cosmac.doc_space)，
+                # 据此把该工作区的文档(按 Space 存)纳入 RAG，让 AI 基于教程内容作答。
+                doc_space = content.get("cosmac.doc_space")
+                extra_scopes = [doc_space] if isinstance(doc_space, str) and doc_space else None
                 extra_system = self._skill_addendum(
-                    room_id, sender, query=text or user_text, gctx=gctx
+                    room_id, sender, query=text or user_text, gctx=gctx,
+                    extra_scopes=extra_scopes,
                 )
                 # 短期记忆：把本房间最近的对话(不含当前这条)喂给模型，主 AI 才"记得"上文。
                 history = self._recent_history(room_id, sender, user_text)
@@ -511,6 +516,7 @@ class CosmacBot:
         sender: str,
         query: str = "",
         gctx: Optional[Dict[str, Any]] = None,
+        extra_scopes: Optional[List[str]] = None,
     ) -> str:
         """拼出本轮注入主 AI 的 system addendum = 人设 + 技能 + 知识库检索片段(RAG)。
 
@@ -549,7 +555,7 @@ class CosmacBot:
                 deduped.append(it)
             skills_text = render_skills(deduped)
             mem_text = self._memory_context(room_id, sender)
-            kb_text = self._kb_context(room_id, sender, query)
+            kb_text = self._kb_context(room_id, sender, query, extra_scopes)
             wf_text = self._preset_workflows_text(gctx.get("workflow_slugs") or [])
             # 平台规则 → 任务RULE → 人设 → 长期记忆 → 技能 → 知识库 → 预置工作流，拼成本轮 addendum
             return "\n\n".join(
@@ -585,6 +591,7 @@ class CosmacBot:
     def _kb_retrieve(
         self, room_id: str, sender: str, query: str,
         room_k: int = 3, user_k: int = 2,
+        extra_scopes: Optional[List[str]] = None,
     ) -> List[Tuple[str, str, float]]:
         """检索本群+个人知识库，返回 [(标题, 片段, 相关度), ...] 降序。无命中/出错返回 []。
 
@@ -592,22 +599,32 @@ class CosmacBot:
         都走它，避免两份检索逻辑漂移。**不在此做门控**——调用方各自负责(自动注入走 knowledge
         闸；工具走 execute 的 gate_check)。cosmac.db 懒导入 + 全程兜异常，绝不抛出。
         必须在 session 内就把 title/text 取成普通值——session 关了再读惰性的 ch.doc 会报错。
+
+        ``extra_scopes``：额外要搜的 room 作用域（P2 文档答疑：中枢 AI 带上的「当前工作区」
+        Space id），让全局 DM 也能基于某工作区的文档(按 Space 存)作答。
         """
         q = (query or "").strip()
         if not q:
             return []
+        # 要搜的 room 作用域：本房间 + 额外传入的(去重、去空)
+        room_scopes: List[str] = [room_id] if room_id else []
+        for x in (extra_scopes or []):
+            if x and x not in room_scopes:
+                room_scopes.append(x)
         try:
             from cosmac.ai.embeddings import get_embedder
             from cosmac.db import session_scope
             from cosmac.db.kb import search
             from cosmac.db.models import SCOPE_ROOM, SCOPE_USER
 
-            # 查询向量只算一次（embed_one 可能要打网络），群库/个人库共用，省一半请求
+            # 查询向量只算一次（embed_one 可能要打网络），各库共用，省请求
             emb = get_embedder()
             qvec = emb.embed_one(q)
             with session_scope() as s:
-                hits = search(s, query=q, scope=SCOPE_ROOM, scope_id=room_id, k=room_k,
-                              min_score=0.05, embedder=emb, qvec=qvec)
+                hits: List[Tuple[Any, float]] = []
+                for rid in room_scopes:
+                    hits += search(s, query=q, scope=SCOPE_ROOM, scope_id=rid, k=room_k,
+                                   min_score=0.05, embedder=emb, qvec=qvec)
                 hits += search(s, query=q, scope=SCOPE_USER, scope_id=sender, k=user_k,
                                min_score=0.05, embedder=emb, qvec=qvec)
                 hits.sort(key=lambda t: t[1], reverse=True)
@@ -639,18 +656,22 @@ class CosmacBot:
             return ""
         return "【长期记忆（你与本群/该用户之前对话沉淀的要点，供连贯作答参考）】：\n" + summary
 
-    def _kb_context(self, room_id: str, sender: str, query: str) -> str:
+    def _kb_context(
+        self, room_id: str, sender: str, query: str,
+        extra_scopes: Optional[List[str]] = None,
+    ) -> str:
         """RAG 自动注入：按 query 检索知识库 top-K 片段，渲染成「参考资料」块塞进 system。
 
         每轮都跑、给一条 baseline；模型若想深挖再自行调 search_knowledge 工具。
         min_score 过滤太不相关的（哈希兜底嵌入下尤其重要，避免硬塞无关内容）。
+        ``extra_scopes``：额外搜的 room 作用域（文档答疑传当前工作区 Space id）。
         """
         if not (query or "").strip():
             return ""
         # 知识库门控：低于门槛的用户在普通对话里也不享受 RAG 注入（与知识命令同一道闸）
         if not self._gate_allows(sender, "knowledge"):
             return ""
-        hits = self._kb_retrieve(room_id, sender, query)
+        hits = self._kb_retrieve(room_id, sender, query, extra_scopes=extra_scopes)
         if not hits:
             return ""
         lines = ["参考以下「知识库」资料作答（与问题相关，未必完整）："]
@@ -1917,39 +1938,75 @@ class CosmacBot:
         except Exception:
             logger.exception("新建文档页失败 room=%s", room_id)
             return 500, {"error": "新建失败"}
+        self._doc_sync_kb(room_id, data["id"], data["title"], data.get("content_md") or "")
         return 200, data
 
     def _doc_write_op(
         self, access_token: str, page_id_raw: Any
-    ) -> Tuple[Optional[str], Optional[Any], Optional[Tuple[int, Dict[str, Any]]]]:
+    ) -> Tuple[Optional[str], Optional[int], str, Optional[Tuple[int, Dict[str, Any]]]]:
         """改/删/移动的公共前置：验明身份 + 取页面 + 校验写权限。
 
-        成功返回 (user_id, page, None)；失败返回 (None, None, (状态码, body)) 让调用方直接回。
+        成功返回 (user_id, page_id, room_id, None)；失败返回 (None, None, "", (状态码, body))。
         """
         user_id = self.client.whoami(access_token)
         if not user_id:
-            return None, None, (401, {"error": "登录已失效，请重新登录"})
+            return None, None, "", (401, {"error": "登录已失效，请重新登录"})
         try:
             page_id = int(page_id_raw)
         except (TypeError, ValueError):
-            return None, None, (400, {"error": "无效页面 id"})
+            return None, None, "", (400, {"error": "无效页面 id"})
         from cosmac.db import session_scope
         from cosmac.db.doc_repo import get_page
 
         with session_scope() as s:
             page = get_page(s, page_id)
             if page is None:
-                return None, None, (404, {"error": "页面不存在"})
+                return None, None, "", (404, {"error": "页面不存在"})
             room_id = page.room_id
         if not self._doc_can_write(user_id, room_id):
-            return None, None, (403, {"error": "无权编辑此频道"})
-        return user_id, page_id, None
+            return None, None, "", (403, {"error": "无权编辑此频道"})
+        return user_id, page_id, room_id, None
+
+    # —— 文档页 ↔ 知识库 同步（P2 AI 答疑：把教学文档喂进 KB，按工作区 room 作用域）——
+
+    def _doc_sync_kb(self, room_id: str, page_id: int, title: str, content: str) -> None:
+        """把一个文档页同步进知识库：先按 source 清旧、再重灌（best-effort，失败不影响保存）。"""
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.kb import delete_by_source, ingest_document
+            from cosmac.db.models import SCOPE_ROOM
+
+            src = f"docpage:{page_id}"
+            with session_scope() as s:
+                delete_by_source(s, scope=SCOPE_ROOM, scope_id=room_id, source=src)
+                if (content or "").strip():
+                    ingest_document(
+                        s, scope=SCOPE_ROOM, scope_id=room_id,
+                        title=title or "未命名页面", source=src, text=content,
+                    )
+        except Exception:
+            logger.debug("文档页同步知识库失败（忽略） page=%s", page_id, exc_info=True)
+
+    def _doc_remove_kb(self, room_id: str, page_ids: List[int]) -> None:
+        """删页面后，从知识库移除对应文档（best-effort）。"""
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.kb import delete_by_source
+            from cosmac.db.models import SCOPE_ROOM
+
+            with session_scope() as s:
+                for pid in page_ids:
+                    delete_by_source(
+                        s, scope=SCOPE_ROOM, scope_id=room_id, source=f"docpage:{pid}"
+                    )
+        except Exception:
+            logger.debug("文档页从知识库移除失败（忽略）", exc_info=True)
 
     def handle_doc_update(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
         """改页面标题/正文。需该频道 power≥50。"""
-        user_id, page_id, err = self._doc_write_op(access_token, body.get("id"))
+        user_id, page_id, room_id, err = self._doc_write_op(access_token, body.get("id"))
         if err:
             return err
         try:
@@ -1969,13 +2026,14 @@ class CosmacBot:
         except Exception:
             logger.exception("更新文档页失败 id=%s", page_id)
             return 500, {"error": "更新失败"}
+        self._doc_sync_kb(room_id, data["id"], data["title"], data.get("content_md") or "")
         return 200, data
 
     def handle_doc_delete(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
         """删页面（连同其子树）。需该频道 power≥50。"""
-        _user_id, page_id, err = self._doc_write_op(access_token, body.get("id"))
+        _user_id, page_id, room_id, err = self._doc_write_op(access_token, body.get("id"))
         if err:
             return err
         try:
@@ -1987,13 +2045,14 @@ class CosmacBot:
         except Exception:
             logger.exception("删除文档页失败 id=%s", page_id)
             return 500, {"error": "删除失败"}
+        self._doc_remove_kb(room_id, deleted)  # 同步从知识库移除被删页面
         return 200, {"ok": True, "deleted": deleted}
 
     def handle_doc_move(
         self, access_token: str, body: Dict[str, Any]
     ) -> Tuple[int, Dict[str, Any]]:
         """移动页面到新父级/改排序（拖拽）。需该频道 power≥50。"""
-        _user_id, page_id, err = self._doc_write_op(access_token, body.get("id"))
+        _user_id, page_id, _room_id, err = self._doc_write_op(access_token, body.get("id"))
         if err:
             return err
         try:

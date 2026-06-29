@@ -123,6 +123,23 @@ class TestKnowledgeBase(unittest.TestCase):
             # 分块也应随之删除
             self.assertEqual(search(s, query="内容", scope=SCOPE_ROOM, scope_id=ROOM_A, embedder=EMB), [])
 
+    def test_delete_by_source(self) -> None:
+        # 文档页↔知识库同步：按 source 精确清理某一页，不误删同作用域其它来源的文档。
+        from cosmac.db.kb import delete_by_source
+        with session_scope() as s:
+            ingest_document(s, scope=SCOPE_ROOM, scope_id=ROOM_A, title="页1",
+                            source="docpage:1", text="教程第一页内容。", embedder=EMB)
+            ingest_document(s, scope=SCOPE_ROOM, scope_id=ROOM_A, title="页2",
+                            source="docpage:2", text="教程第二页内容。", embedder=EMB)
+            ingest_document(s, scope=SCOPE_ROOM, scope_id=ROOM_A, title="别的",
+                            source="other", text="无关文档。", embedder=EMB)
+        with session_scope() as s:
+            n = delete_by_source(s, scope=SCOPE_ROOM, scope_id=ROOM_A, source="docpage:1")
+            self.assertEqual(n, 1)
+        with session_scope() as s:
+            titles = sorted(d.title for d in list_docs(s, scope=SCOPE_ROOM, scope_id=ROOM_A))
+            self.assertEqual(titles, ["别的", "页2"])  # 只删了 docpage:1
+
 
 if __name__ == "__main__":
     unittest.main()

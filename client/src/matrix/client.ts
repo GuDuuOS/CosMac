@@ -2313,9 +2313,19 @@ export async function sendReply(roomId: string, body: string, replyToEventId: st
 }
 
 /** 往频道发一条纯文本消息（真发到 Synapse）。 */
-export async function sendText(roomId: string, body: string): Promise<void> {
+export async function sendText(
+  roomId: string, body: string, extra?: Record<string, any>,
+): Promise<void> {
   if (!mx) return
-  await mx.sendTextMessage(roomId, body)
+  if (extra && Object.keys(extra).length) {
+    // 带自定义字段时走 sendEvent 自己拼 content（sendTextMessage 不支持附加字段）。
+    // 用于给中枢 AI 捎上「当前工作区」(cosmac.doc_space)，让它基于该工作区文档答疑。
+    await (mx as any).sendEvent(roomId, 'm.room.message', {
+      msgtype: 'm.text', body, ...extra,
+    })
+  } else {
+    await mx.sendTextMessage(roomId, body)
+  }
 }
 
 /** 主 AI 的 localpart（用户名部分，固定）；完整 id 的域名按当前登录服务器动态拼。 */

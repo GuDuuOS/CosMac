@@ -146,3 +146,26 @@ def delete_doc(session: Session, doc_id: int) -> bool:
     session.delete(doc)
     session.flush()
     return True
+
+
+def delete_by_source(
+    session: Session, *, scope: str, scope_id: str, source: str
+) -> int:
+    """按 source 删该作用域下的文档（连带分块）。返回删了几篇。
+
+    给「文档页 ↔ 知识库」同步用：每个文档页入库时 source=``docpage:<id>``，页面更新/删除时
+    先按这个 source 清掉旧的再重灌，避免知识库里残留过期内容。
+    """
+    docs = list(
+        session.scalars(
+            select(KnowledgeDoc).where(
+                KnowledgeDoc.scope == scope,
+                KnowledgeDoc.scope_id == scope_id,
+                KnowledgeDoc.source == source,
+            )
+        ).all()
+    )
+    for d in docs:
+        session.delete(d)
+    session.flush()
+    return len(docs)

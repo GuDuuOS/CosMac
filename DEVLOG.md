@@ -264,6 +264,14 @@
 - 关键决策:#2 不去阻止"重跑 LLM",只保证**群里不冒第二条**——按本仓既有 txn_id 去重思路,代价最小、与崩溃恢复一致。
 - 测试:新增 5 个回归(成员数缓存/重试/兜底 3 个 + 池满回滚/已外呼不删 2 个);相关 4 套件 69 通过、ruff 全绿。trading 9 个失败是**缺 `COSMAC_PAY_MANUAL_SECRET` 环境变量**的既有问题、与本次无关(已在干净树复现)。**纯后端、无需发 dist;部署=重启 bot**。
 
+## 2026-06-26 — 文档 P2：中枢 AI 基于工作区文档答疑(RAG)
+- 让主 AI 能基于教学文档答疑(负责人定:走中枢 AI,不在文档里另开聊天框):
+  - **入库**:文档页保存/删除时同步进知识库(按工作区 Space room 作用域),source=`docpage:<id>`;更新先按 source 清旧再重灌(kb 新增 `delete_by_source`)。
+  - **文档感知 RAG**:中枢 AI 是全局 DM、本身不在工作区,前端提问时捎上「当前工作区」(`cosmac.doc_space` 自定义字段,sendText 加 extra→sendEvent);bot 读它,把该 Space 的文档纳入本轮 RAG(`_kb_retrieve` 加 extra_scopes,经 _kb_context/_skill_addendum 透传)。
+  - 受 knowledge 门控(同其它 RAG);best-effort,入库失败不影响保存。
+- 验证:新增 `delete_by_source` 单测 + 全量 311 测试通过、ruff 全绿;前端 build + preview 无 console 报错。前后端都变→发 dist + 重启 bot。
+- 注:文档「频道(channel)」内自动 RAG(读 m.space.parent)未做,本期靠中枢 AI 显式带工作区即够用。
+
 ## 2026-06-26 — 文档改版：从「频道类型」改成与看板同级的顶部视图
 - 负责人反馈:文档应和**数据看板/任务看板同级**(顶部视图),不是侧栏里的频道类型。改:
   - **撤掉**频道类型那套(新建频道的 💬/📄 选择、侧栏 📄、isDocChannel、LiveRoom.kind、createDocChannel)。
