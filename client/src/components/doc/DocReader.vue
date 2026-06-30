@@ -122,7 +122,7 @@ onMounted(load)
   text-align: left; border: 1px solid #eae6df; background: #fff; border-radius: 12px;
   padding: 16px 18px; cursor: pointer; transition: box-shadow .15s, border-color .15s;
 }
-.dr-card:hover { border-color: #d8c4ba; box-shadow: 0 2px 12px rgba(201,100,66,.08); }
+.dr-card:hover { border-color: var(--border); box-shadow: 0 2px 12px rgba(0,0,0,.06); }
 .dr-card-body { flex: 1; min-width: 0; }
 .dr-card-cover { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
 .dr-card-title { font-size: 16px; font-weight: 600; color: #2c2a26; }
@@ -133,7 +133,7 @@ onMounted(load)
 .dr-detail { padding: 20px 32px 48px; max-width: 760px; }
 .dr-detail-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .dr-back {
-  border: none; background: transparent; color: #c96442; cursor: pointer;
+  border: none; background: transparent; color: var(--accent); cursor: pointer;
   font-size: 13px; padding: 4px 0;
 }
 .dr-viewtoggle { display: inline-flex; border: 1px solid #e0dacd; border-radius: 8px; overflow: hidden; }
@@ -169,6 +169,6 @@ onMounted(load)
 .md :deep(.md-pre) { background: #2c2a26; color: #f1efe9; border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
 .md :deep(.md-code) { background: #f1efe9; border-radius: 4px; padding: 1px 5px; font-size: 13px; }
 .md :deep(.md-img) { max-width: 100%; border-radius: 8px; margin: 10px 0; }
-.md :deep(a) { color: #c96442; }
+.md :deep(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .md :deep(.mention) { color: #4a7a8c; font-weight: 600; }
 </style>

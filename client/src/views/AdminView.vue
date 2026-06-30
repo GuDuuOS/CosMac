@@ -2651,8 +2651,8 @@ onMounted(check)
   background: var(--accent-soft);
 }
 .adm-tier.creator {
-  color: #b45309; border-color: #f59e0b;
-  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  color: #8a5a18; border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
 }
 .adm-tier.admin {
   color: #7c3aed; border-color: #7c3aed;

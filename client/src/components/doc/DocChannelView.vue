@@ -19,6 +19,9 @@
             <span v-if="!n.published" class="doc-draft-tag">草稿</span>{{ n.title || '未命名页面' }}
           </span>
           <span v-if="canWrite" class="doc-node-ops">
+            <button class="doc-mini" title="置顶(移到最前)" @click.stop="pinTop(n)">📌</button>
+            <button class="doc-mini" title="上移" @click.stop="moveUp(n)">↑</button>
+            <button class="doc-mini" title="下移" @click.stop="moveDown(n)">↓</button>
             <button class="doc-mini" title="新建子页" @click.stop="createPage(n.id)">＋</button>
             <button class="doc-mini danger" title="删除(含子页)" @click.stop="removePage(n)">×</button>
           </span>
@@ -84,7 +87,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import {
-  docTree, docGetPage, docCreatePage, docUpdatePage, docDeletePage,
+  docTree, docGetPage, docCreatePage, docUpdatePage, docDeletePage, docMovePage,
   docCoverUrl, uploadMedia, docDraft,
   type DocPage,
 } from '@/matrix/client'
@@ -165,6 +168,37 @@ async function createPage(parentId: number | null) {
   } catch (e: any) {
     err.value = e?.message || '新建失败'
   }
+}
+
+// 同一父级下的兄弟（按 sort,id 升序）——排序/置顶在兄弟范围内进行
+function siblingsOf(n: FlatNode): FlatNode[] {
+  const pid = n.parent_id ?? null
+  return flatTree.value
+    .filter((p) => (p.parent_id ?? null) === pid)
+    .sort((a, b) => a.sort - b.sort || a.id - b.id)
+}
+
+// 与相邻兄弟交换 sort 实现上/下移；置顶=把 sort 设到比所有兄弟都小。写权限走后端 move 端点强制。
+async function swapWith(a: FlatNode, b: FlatNode) {
+  // 两个兄弟的 sort 互换（保持各自 parent 不变）
+  await docMovePage(a.id, { parent_id: a.parent_id, sort: b.sort })
+  await docMovePage(b.id, { parent_id: b.parent_id, sort: a.sort })
+  await loadTree(false)
+}
+async function moveUp(n: FlatNode) {
+  const sibs = siblingsOf(n); const i = sibs.findIndex((s) => s.id === n.id)
+  if (i > 0) await swapWith(n, sibs[i - 1])
+}
+async function moveDown(n: FlatNode) {
+  const sibs = siblingsOf(n); const i = sibs.findIndex((s) => s.id === n.id)
+  if (i >= 0 && i < sibs.length - 1) await swapWith(n, sibs[i + 1])
+}
+async function pinTop(n: FlatNode) {
+  const sibs = siblingsOf(n)
+  if (sibs[0]?.id === n.id) return  // 已在最前
+  const minSort = Math.min(...sibs.map((s) => s.sort))
+  await docMovePage(n.id, { parent_id: n.parent_id, sort: minSort - 1 })
+  await loadTree(false)
 }
 
 async function removePage(n: FlatNode) {
@@ -287,7 +321,7 @@ onMounted(loadTree)
 }
 .doc-head-ops { display: flex; gap: 8px; flex-shrink: 0; }
 .doc-btn {
-  border: 1px solid #c96442; background: #c96442; color: #fff; border-radius: 8px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: var(--r-pill);
   padding: 6px 14px; font-size: 13px; cursor: pointer;
 }
 .doc-btn.ghost { background: #fff; color: #6b665e; border-color: #d8d2c8; }
@@ -341,6 +375,6 @@ onMounted(loadTree)
   background: #f1efe9; border-radius: 4px; padding: 1px 5px; font-size: 13px;
 }
 .md :deep(.md-img) { max-width: 100%; border-radius: 8px; margin: 8px 0; }
-.md :deep(a) { color: #c96442; }
+.md :deep(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .md :deep(.mention) { color: #4a7a8c; font-weight: 600; }
 </style>

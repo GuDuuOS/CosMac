@@ -189,7 +189,7 @@ onMounted(load)
 .mm-plan-name { font-size: 14px; font-weight: 600; color: var(--text-1, #222); flex: 1; }
 .mm-plan-price { font-size: 18px; font-weight: 800; color: var(--accent, #c96442); }
 .mm-plan-period { font-size: 12px; color: var(--text-3, #999); }
-.mm-buy { width: 100%; border: none; background: linear-gradient(90deg, var(--accent, #c96442), var(--warn, #e0883a)); color: #fff; font-weight: 700; font-size: 15px; padding: 11px; border-radius: 10px; cursor: pointer; }
+.mm-buy { width: 100%; border: none; background: var(--accent); color: #fff; font-weight: 700; font-size: 15px; padding: 11px; border-radius: var(--r-pill); cursor: pointer; }
 .mm-buy:disabled { opacity: .6; cursor: default; }
 .mm-link { border: none; background: none; color: var(--text-3, #999); cursor: pointer; font-size: 13px; margin-top: 8px; width: 100%; }
 .mm-note { font-size: 11.5px; color: var(--text-3, #999); margin-top: 10px; line-height: 1.5; text-align: center; }
