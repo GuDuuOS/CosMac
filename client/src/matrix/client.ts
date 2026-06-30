@@ -1343,6 +1343,60 @@ export async function getMyUsage(): Promise<UsageItem[]> {
     return []
   }
 }
+/** 用户给主 AI 的个人偏好画像（About me / Outputs）。 */
+export interface MyAiProfile {
+  about: string   // 我是谁（背景/职业/在做什么）
+  style: string   // 希望 AI 怎么回答（语气/长度/语言/格式）
+  extra: string   // 自由补充
+  enabled: boolean // 总开关：关掉则主 AI 不注入
+}
+
+/** 读本人的 AI 偏好画像（bot 端点，前端够不到 cosmac DB）。失败/未设过 → 空白默认。 */
+export async function getMyProfile(): Promise<MyAiProfile> {
+  const empty: MyAiProfile = { about: '', style: '', extra: '', enabled: true }
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token) return empty
+  try {
+    const r = await fetch(`${payBase()}/cosmac/profile/me`, { headers: { Authorization: `Bearer ${token}` } })
+    if (!r.ok) return empty
+    const j = await r.json().catch(() => ({}))
+    const p = j?.profile || {}
+    return {
+      about: String(p.about || ''),
+      style: String(p.style || ''),
+      extra: String(p.extra || ''),
+      enabled: p.enabled !== false,
+    }
+  } catch {
+    return empty
+  }
+}
+
+/** 保存本人的 AI 偏好画像。成功返回保存后的值；失败抛出带文案的错误。 */
+export async function saveMyProfile(p: MyAiProfile): Promise<MyAiProfile> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token) throw new Error('未登录')
+  const r = await fetch(`${payBase()}/cosmac/profile/me`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      about: String(p.about || '').slice(0, 2000),
+      style: String(p.style || '').slice(0, 2000),
+      extra: String(p.extra || '').slice(0, 2000),
+      enabled: p.enabled !== false,
+    }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j?.error || '保存失败')
+  const sp = j?.profile || {}
+  return {
+    about: String(sp.about || ''),
+    style: String(sp.style || ''),
+    extra: String(sp.extra || ''),
+    enabled: sp.enabled !== false,
+  }
+}
+
 /** 配额 map：计量项 → 等级 → 上限（-1=不限）。 */
 export type QuotaLimits = Record<string, Record<string, number>>
 

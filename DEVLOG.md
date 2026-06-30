@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-06-30 — 用户「AI 偏好画像」(About me / Outputs)：每个用户自己设置，主 AI 注入
+- **背景/需求**:负责人提出要不要给主 AI 做 About_me/Outputs/Templates。核对存量——AI **人设**(控制室/群级 Agent)、模板(onboarding_templates/skills/workflows)都已有；真缺口是**人端**画像：主 AI 对话时并不知道「现在面对的是谁、TA 希望怎样的回答」。定调：只补这一块，且**每个用户自管**。
+- **关键架构决策**:画像**不进** per-user account data。原因——bot 注入时要读**别人的**画像，而 Matrix per-user account data 是用户私有、appservice 读不到他人的。故走「浏览器够不到 DB → 经 bot HTTP 端点写、bot 直接读 DB」这套（与个人协作人名册 `cosmac_person` 同套路）。
+- **后端**:新表 `cosmac_user_profile`(user_id 唯一 + about/style/extra/enabled)+ `user_profile_repo`(CRUD+渲染，各字段 2000 字硬截断)。bot 端点 `GET/POST /cosmac/profile/me`(本人 token，个人设置不走门控)。注入点 `_skill_addendum`：顺序「平台规则→任务RULE→人设→**用户偏好**→记忆→技能→KB→工作流」，画像**优先级最低**且渲染文案显式声明「仅影响表达、不得违反上述约束」——防 Outputs 字段写「忽略前面规则」式提示注入。跟人走、不分群（与群级 Agent 跟群走正交）。
+- **前端**:个人设置弹窗加「AI 偏好」tab(关于我/期望回答方式/补充/总开关)，经 `getMyProfile/saveMyProfile` 真存取。原 mock 的「我的权限/可调用数据」tab 不动（仍是 demo，超出本次范围）。
+- **校验**:新增 `test_user_profile`(6 例：repo/截断/渲染/端点鉴权/注入隔离/停用) + 相关回归共 35 例全过；ruff 干净；client `vue-tsc` build 零报错。**端到端（真登录→存→主 AI 真用上）需线上 bot 跑新端点+DB，本地 preview 够不到，靠部署后验证。**
+
 ## 2026-06-30 — 撤回客户端换肤，恢复原版 UI
 - **背景**:此前一版「GuDuu OS 暖中性换肤」(putty+炭色+lime+Manrope)被另一会话 `git add -A` 连同「图文教程·文章排序/置顶」一起打包进提交 `9d7e8db` 并部署上线。负责人决定撤回换肤、回到原版橙色 UI。
 - **做法**:纯换肤文件整体回退到换肤前(`tokens.css`/`reset.css`/`index.html`/`LiveView.vue`/`AdminView.vue`/`CliConsole`/`ProfileHome`/`MembershipModal`/`OnboardingWizard`/`DocReader`)；`DocChannelView.vue` 是混合文件，**只回退 2 行配色、文章排序/置顶功能原样保留**。

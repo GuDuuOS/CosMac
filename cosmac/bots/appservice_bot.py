@@ -551,16 +551,37 @@ class CosmacBot:
                 seen.add(slug)
                 deduped.append(it)
             skills_text = render_skills(deduped)
+            # 用户个人偏好（About me / Outputs）：跟人走（发起人），放在人设之后、优先级最低。
+            user_pref_text = self._user_profile_text(sender)
             mem_text = self._memory_context(room_id, sender)
             kb_text = self._kb_context(room_id, sender, query, extra_scopes)
             wf_text = self._preset_workflows_text(gctx.get("workflow_slugs") or [])
-            # 平台规则 → 任务RULE → 人设 → 长期记忆 → 技能 → 知识库 → 预置工作流，拼成本轮 addendum
+            # 平台规则 → 任务RULE → 人设 → 用户偏好 → 长期记忆 → 技能 → 知识库 → 预置工作流
             return "\n\n".join(
-                p for p in (rules_text, task_rule_text, persona, mem_text, skills_text, kb_text, wf_text) if p
+                p for p in (
+                    rules_text, task_rule_text, persona, user_pref_text,
+                    mem_text, skills_text, kb_text, wf_text,
+                ) if p
             )
         except Exception as e:
             # 兜住**最终组装**：脏数据绝不能让这条消息收不到回复（docstring 的承诺）
             logger.debug("组装 addendum 失败（忽略，按无附加继续）：%s", e)
+            return ""
+
+    def _user_profile_text(self, sender: str) -> str:
+        """读发起人的「个人偏好画像」(About me / Outputs)，渲染成注入块。
+
+        跟人走（不分群）：主 AI 据此知道"现在面对的是谁、TA 希望怎样的回答"。
+        失败/没设过/已停用都返回空串——绝不能因为它出问题就让主 AI 不回话。
+        """
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.user_profile_repo import get_profile, render_profile_text
+
+            with session_scope() as s:
+                return render_profile_text(get_profile(s, sender))
+        except Exception:
+            logger.debug("读取用户个人偏好失败（忽略，按无附加继续）", exc_info=True)
             return ""
 
     def _global_rules_text(self) -> str:
@@ -2387,6 +2408,54 @@ class CosmacBot:
             logger.exception("删除个人协作人失败")
             return 500, {"error": "删除失败"}
 
+    # —— 用户个人偏好画像（About me / Outputs：每个用户自己设置，主 AI 注入）——
+
+    def handle_profile_mine(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
+        """读本人的个人偏好画像（前端「AI 偏好」回显）。需登录。没设过返回空白默认。"""
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.user_profile_repo import get_profile, to_dict
+
+            with session_scope() as s:
+                return 200, {"profile": to_dict(get_profile(s, user_id))}
+        except Exception:
+            logger.debug("读取个人偏好失败", exc_info=True)
+            # 读失败也回一份空白默认，不把弹窗卡死（best-effort，与个人额度同口径）
+            from cosmac.db.user_profile_repo import to_dict
+
+            return 200, {"profile": to_dict(None)}
+
+    def handle_profile_save(
+        self, access_token: str, body: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """保存本人的个人偏好画像。需登录。这是个人设置（非增值功能），不走门控。"""
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        b = body or {}
+        try:
+            from cosmac.db import session_scope
+            from cosmac.db.user_profile_repo import to_dict, upsert_profile
+
+            with session_scope() as s:
+                p = upsert_profile(
+                    s,
+                    user_id=user_id,
+                    about=str(b.get("about") or ""),
+                    style=str(b.get("style") or ""),
+                    extra=str(b.get("extra") or ""),
+                    enabled=b.get("enabled", True) is not False,
+                )
+                return 200, {"ok": True, "profile": to_dict(p)}
+        except ValueError as e:
+            return 400, {"error": str(e)}
+        except Exception:
+            logger.exception("保存个人偏好失败")
+            return 500, {"error": "保存失败（数据库不可用？）"}
+
     # —— 我的额度（变现第二步：给用户看每个计量项的 已用/上限）——
 
     def handle_usage_mine(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
@@ -2900,6 +2969,7 @@ class _Handler(BaseHTTPRequestHandler):
                 or p.startswith("/cosmac/onboard/")
                 or p.startswith("/cosmac/kb/")
                 or p.startswith("/cosmac/people/")
+                or p.startswith("/cosmac/profile/")
                 or p.startswith("/cosmac/usage/")):  # 都走浏览器，需预检
             origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
             self.send_response(204)
@@ -3029,6 +3099,11 @@ class _Handler(BaseHTTPRequestHandler):
             code, payload = self.bot.handle_usage_mine(token)
             self._send_json(code, payload, cors=True)
             return
+        # 我的 AI 偏好画像（About me / Outputs）：前端「AI 偏好」回显
+        if self.path.split("?", 1)[0] == "/cosmac/profile/me":
+            code, payload = self.bot.handle_profile_mine(self._bearer())
+            self._send_json(code, payload, cors=True)
+            return
         # Synapse 查询"这个用户/别名是否归你管"，回 200 表示存在
         if "/users/" in self.path or "/rooms/" in self.path:
             if not self._check_auth():
@@ -3087,6 +3162,16 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "请求无效"}, cors=True)
                 return
             code, payload = self.bot.handle_task_update(token, body)
+            self._send_json(code, payload, cors=True)
+            return
+
+        # 我的 AI 偏好画像：保存 About me / Outputs（带本人 token）
+        if path == "/cosmac/profile/me":
+            body = self._read_json_body(_MAX_CALLBACK_BODY)
+            if body is None:
+                self._send_json(400, {"error": "请求无效"}, cors=True)
+                return
+            code, payload = self.bot.handle_profile_save(self._bearer(), body)
             self._send_json(code, payload, cors=True)
             return
 

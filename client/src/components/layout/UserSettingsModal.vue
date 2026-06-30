@@ -43,6 +43,53 @@
           </div>
         </template>
 
+        <!-- AI 偏好（About me / Outputs）：每个用户自己设置，主 AI 对话时注入 -->
+        <template v-else-if="settingsTab === 'ai'">
+          <div class="cam-help cam-help-top">
+            告诉主 AI「你是谁、希望它怎么回答」。只影响你自己的对话，随时可改或关闭。
+          </div>
+          <div class="cam-field">
+            <label class="cam-field-label">关于我</label>
+            <textarea
+              v-model="aiProfile.about" class="cam-input cam-textarea" rows="3"
+              maxlength="2000"
+              placeholder="例：我是一名做美食短视频的创作者，主攻小红书和抖音。"
+            />
+          </div>
+          <div class="cam-field">
+            <label class="cam-field-label">希望 AI 怎么回答</label>
+            <textarea
+              v-model="aiProfile.style" class="cam-input cam-textarea" rows="3"
+              maxlength="2000"
+              placeholder="例：回答简短直接、用中文、多给可执行的步骤，少废话。"
+            />
+          </div>
+          <div class="cam-field">
+            <label class="cam-field-label">补充（可选）</label>
+            <textarea
+              v-model="aiProfile.extra" class="cam-input cam-textarea" rows="2"
+              maxlength="2000"
+              placeholder="其它想让 AI 记住的偏好。"
+            />
+          </div>
+          <div class="cam-row">
+            <div class="cam-row-main">
+              <div class="cam-row-label">启用个人偏好</div>
+              <div class="cam-row-desc">关掉后 AI 不再参考以上内容（不会删除）</div>
+            </div>
+            <button class="cam-switch" :class="{ on: aiProfile.enabled }" @click="aiProfile.enabled = !aiProfile.enabled">
+              <span class="cam-switch-dot" />
+            </button>
+          </div>
+          <div class="ai-actions">
+            <span v-if="aiSavedTip" class="ai-saved">已保存 ✓</span>
+            <span v-if="aiErr" class="ai-err">{{ aiErr }}</span>
+            <button class="ai-save" :disabled="aiLoading || aiSaving" @click="onSaveAi">
+              {{ aiSaving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </template>
+
         <!-- 我的权限 -->
         <template v-else-if="settingsTab === 'perms'">
           <div class="cam-help cam-help-top">控制你在系统中可执行的操作与授权范围。</div>
@@ -76,13 +123,27 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useUserProfile, type UserSettingsTab } from '@/composables/useUserProfile'
 
-const { user, handle, status, permissions, shareableData, settingsVisible, settingsTab, closeSettings } = useUserProfile()
+const {
+  user, handle, status, permissions, shareableData, settingsVisible, settingsTab, closeSettings,
+  aiProfile, aiLoading, aiSaving, aiSavedTip, saveAiProfile,
+} = useUserProfile()
+
+const aiErr = ref('')
+async function onSaveAi() {
+  aiErr.value = ''
+  try {
+    await saveAiProfile()
+  } catch (e: any) {
+    aiErr.value = e?.message || '保存失败'
+  }
+}
 
 const tabs: { key: UserSettingsTab; label: string }[] = [
   { key: 'profile', label: '资料' },
+  { key: 'ai', label: 'AI 偏好' },
   { key: 'perms', label: '我的权限' },
   { key: 'share', label: '可调用数据' }
 ]
@@ -106,4 +167,29 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   margin-left: 6px;
 }
 .cam-row .cam-switch { margin-left: auto; }
+.cam-textarea {
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.ai-actions .ai-save {
+  margin-left: auto;
+  padding: 7px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ai-actions .ai-save:disabled { opacity: .55; cursor: default; }
+.ai-saved { font-size: 12px; color: var(--accent); }
+.ai-err { font-size: 12px; color: #e5484d; }
 </style>

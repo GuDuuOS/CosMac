@@ -450,3 +450,38 @@ class DocPage(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<DocPage #{self.id} room={self.room_id} {self.title[:20]!r}>"
+
+
+class UserProfile(Base, TimestampMixin):
+    """用户给主 AI 的「个人偏好画像」（About me / Outputs）—— 每个用户自己设置。
+
+    解决的问题：主 AI 的「人设」是 AI 端的设定（控制室/群级 Agent），而这张表是**人端**的
+    设定——「我是谁、我希望 AI 怎么回答我」。主 AI 在每次对话拼 system prompt 时，把当前
+    发起人的这份画像注入进去（放在平台规则/人设/任务RULE **之后**，优先级最低、只影响表达
+    方式，不得违反上述任何硬约束，见 appservice_bot._user_profile_text）。
+
+    为什么进 cosmac DB 而不是 per-user account data：bot 需要**读到别人的**画像才能注入，而
+    Matrix per-user account data 是用户私有、appservice 读不到他人的；故走「浏览器够不到 DB →
+    经 bot HTTP 端点(/cosmac/profile/me) 写、bot 直接读 DB」这套（与个人协作人名册同套路）。
+    跟人走（全局生效、在哪个群都带），与群级 Agent（跟群走）正交互补。
+    user_id 唯一——一个账号一条画像。
+    """
+
+    __tablename__ = "cosmac_user_profile"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 账号（@user:domain），唯一——一个用户一条
+    user_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )
+    # About me：我是谁（背景/职业/正在做的事），给 AI 当对话上下文
+    about: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Outputs：希望 AI 怎么回答（语气/长度/语言/格式偏好）
+    style: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 自由补充
+    extra: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 总开关：关掉就不注入（保留内容、临时停用），默认开
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    def __repr__(self) -> str:
+        return f"<UserProfile {self.user_id}>"
