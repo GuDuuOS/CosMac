@@ -7,6 +7,12 @@
 
 ---
 
+## 2026-06-30 — 撤回客户端换肤，恢复原版 UI
+- **背景**:此前一版「GuDuu OS 暖中性换肤」(putty+炭色+lime+Manrope)被另一会话 `git add -A` 连同「图文教程·文章排序/置顶」一起打包进提交 `9d7e8db` 并部署上线。负责人决定撤回换肤、回到原版橙色 UI。
+- **做法**:纯换肤文件整体回退到换肤前(`tokens.css`/`reset.css`/`index.html`/`LiveView.vue`/`AdminView.vue`/`CliConsole`/`ProfileHome`/`MembershipModal`/`OnboardingWizard`/`DocReader`)；`DocChannelView.vue` 是混合文件，**只回退 2 行配色、文章排序/置顶功能原样保留**。
+- **校验**:源码已无任何换肤残留(Manrope/putty/lime 全清)；`npm run build` 重建 dist 回原版、零报错。
+- 待 push + 重新部署 dist 到 `app.cosmac.cc` 后线上恢复原样。
+
 ## 2026-06-27 — 修 bot 显示名设置失败(500)
 - **现象**:每次 bot 启动日志 `设置显示名失败：500 M_UNKNOWN`;线上查 `@guduu:cosmac.cc` profile 返回 404「No row found」→ 显示名从没设上(客户端里 bot 显示成原始 id 而非「CosMac Star」)。非阻塞、老问题。Synapse 1.153.0。
 - **根因判断**:`MatrixClient._url` 给每个请求都追加 `?user_id=@guduu` 伪装参数(代发/建群需要),但**设自己 profile** 走伪装路径在新 Synapse(1.15x) 上会 500;设本人 profile 应直接用 as_token 本体身份、不带 user_id。

@@ -148,11 +148,10 @@ const listMode = ref<'now' | 'removed'>('now')
 const socialLinks = ['Lark', '网站', 'Discord', 'Twitter', 'Facebook', 'Telegram']
 
 const listings = [
-  // 设计规则：缩略图用实心身份色（不渐变），圆角方
-  { title: '爆款标题 Agent', sub: 'AI Agent · 已上架', cat: 'Agent', price: '¥99', bg: '#e0a14e' },
-  { title: '短视频脚本模板', sub: 'Prompt · 已上架', cat: 'Prompt', price: '免费', bg: '#5b8def' },
-  { title: '数据复盘 Agent', sub: 'AI Agent · 已上架', cat: 'Agent', price: '¥69', bg: '#5bbf9a' },
-  { title: '评论区回复 Agent', sub: 'AI Agent · 已上架', cat: 'Agent', price: '免费', bg: '#c97b9e' }
+  { title: '爆款标题 Agent', sub: 'AI Agent · 已上架', cat: 'Agent', price: '¥99', bg: 'linear-gradient(135deg,#f59e0b,#ea580c)' },
+  { title: '短视频脚本模板', sub: 'Prompt · 已上架', cat: 'Prompt', price: '免费', bg: 'linear-gradient(135deg,#4a7a8c,#2f5a6b)' },
+  { title: '数据复盘 Agent', sub: 'AI Agent · 已上架', cat: 'Agent', price: '¥69', bg: 'linear-gradient(135deg,#6b8e4e,#3f5a2e)' },
+  { title: '评论区回复 Agent', sub: 'AI Agent · 已上架', cat: 'Agent', price: '免费', bg: 'linear-gradient(135deg,#8a6a8a,#5a4060)' }
 ]
 const purchases = [
   { title: '素材库问答检索', sub: 'Skill · /kb', cat: 'Skill', bg: 'linear-gradient(135deg,#4a7a8c,#33606f)' },

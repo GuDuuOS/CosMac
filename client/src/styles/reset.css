@@ -7,8 +7,7 @@
 html, body {
   height: 100%;
   color: var(--text);
-  /* 设计规则：整页坐在暖 putty 画布上，绝不用纯白整页 */
-  background: var(--bg-soft);
+  background: var(--bg);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -37,13 +36,12 @@ a {
 }
 
 body.is-scrolling ::-webkit-scrollbar-thumb {
-  /* 设计规则：拖动滚动条 thumb 用暖 putty 灰 #cdc9bd */
-  background-color: #cdc9bd;
+  background-color: rgba(0, 0, 0, 0.22);
 }
 body.is-scrolling ::-webkit-scrollbar-thumb:hover {
-  background-color: #b9b4a6;
+  background-color: rgba(0, 0, 0, 0.36);
 }
 
 /* Firefox / 现代标准 */
 * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
-body.is-scrolling * { scrollbar-color: #cdc9bd transparent; }
+body.is-scrolling * { scrollbar-color: rgba(0, 0, 0, 0.22) transparent; }

@@ -143,7 +143,7 @@ watch(messages, () => { nextTick(() => { if (scroll.value) scroll.value.scrollTo
 .onb-msg { display: flex; gap: 8px; align-items: flex-start; max-width: 90%; }
 .onb-msg.ai { align-self: flex-start; }
 .onb-msg.user { align-self: flex-end; flex-direction: row-reverse; }
-.onb-ava { width: 26px; height: 26px; flex-shrink: 0; border-radius: var(--r-thumb); background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.onb-ava { width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--warn, #e0883a)); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .onb-bubble { padding: 9px 13px; border-radius: 13px; font-size: 14px; line-height: 1.6; }
 .onb-msg.ai .onb-bubble { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-top-left-radius: 4px; }
 .onb-msg.user .onb-bubble { background: var(--accent); color: #fff; border-top-right-radius: 4px; }

@@ -1,91 +1,43 @@
 :root {
-  /* ============================================================
-     GuDuu OS — UI Design Rules（暖中性极简：putty + charcoal + 一抹 lime）
-     ------------------------------------------------------------
-     基调：所有界面坐落在「暖 putty」画布上，绝不用纯白整页。
-     卡片/输入是纯白浮层 + 柔和阴影；激活态 = 实心深炭填充 + 白字；
-     lime 仅作点睛（激活小圆点、高亮），绝不大面积铺。
-     —— token 名沿用旧名（避免大改），只换映射值并新增设计令牌。
-     ============================================================ */
+  /* === Mattermost 风配色 ===
+     主区域 / ChannelHeader / 右栏 → 纯白"内容层"
+     外框灰（TopBar / 两侧 rail / 频道侧栏）→ 统一一档可见的灰，把白色内容托出来
+  */
+  /* === CosMac Star 暖色调（米白 + 橙 + 暖墨）=== */
+  --bg:          #ffffff;   /* 主区域、消息流、composer：纯白内容层 */
+  --bg-soft:     #f4efe8;   /* 两侧 rail + TopBar：暖米灰外框 */
+  --bg-side:     #faf7f2;   /* channel sidebar：暖米白 */
+  --bg-panel:    #fffdf8;   /* 卡片 / 输入框 / 右栏：暖白 */
+  --bg-code:     #f2eee8;
+  --bg-hover:    #f0ebe3;   /* 暖底 hover */
+  --bg-active:   #e7ddcd;   /* 暖底 active */
 
-  /* === 表面 / 背景 ===
-     画布(putty) 把白色卡片托起来；卡片/输入/右栏才是纯白。 */
-  --bg:          #ffffff;   /* 卡片 / 输入框 / 浮层：纯白内容层 */
-  --bg-soft:     #e3dfd5;   /* 画布底：暖 putty（整个 app 坐在这上面） */
-  --bg-side:     #ebe7dd;   /* 侧栏：比画布略亮的 putty */
-  --bg-panel:    #ffffff;   /* 卡片 / 右栏：纯白 */
-  --bg-code:     #ece8df;   /* 代码块：暖灰 */
-  --bg-hover:    #f3f1ec;   /* 列表行 hover：温润暖洗 */
-  --bg-active:   #dcd7cb;   /* 暖底 active */
+  --text:        #15120f;   /* 暖墨近黑 */
+  --text-2:      #4a443e;
+  --text-3:      #706963;
+  --text-dim:    #b3aaa0;
 
-  /* === 文字 ===
-     主文近黑暖；次级/标签 a09d95；muted 线/scrub 9a978f。 */
-  --text:        #2a2a26;   /* 主文：暖近黑 */
-  --text-2:      #56524b;   /* 正文次级 */
-  --text-3:      #a09d95;   /* 次级 / 标签 */
-  --text-dim:    #9a978f;   /* muted：弱线 / 占位 / scrub */
+  --border:      #e7e0d6;
+  --border-soft: #f0ebe3;
 
-  /* === 描边（hairline）=== */
-  --border:      #d8d3c8;   /* 1px 发丝边（inactive 态） */
-  --border-soft: #e6e1d6;
+  --accent:      #f59e0b;   /* 品牌橙 */
+  --accent-soft: #fff3e0;
+  --warn:        #d97706;
+  --danger:      #d94f5c;
+  --ok:          #16a34a;
+  --info:        #c2761f;
 
-  /* === 强调色 ===
-     设计规则：激活/选中 = 实心深炭填充(白字)，不是品牌色铺底。
-     故 --accent 映射到「深炭 action」色——所有 background:var(--accent)
-     的激活胶囊/主按钮 自动变成 深炭+白字（符合规则），且文字依旧可读。
-     真正的 lime 点睛色单独走 --lime，只在少数地方手动点。 */
-  --accent:      #2a2a25;   /* = action：激活/主按钮 实心深炭 */
-  --accent-soft: #efece4;   /* 浅暖底（被高亮项的软背景） */
+  /* 选中描边：改用品牌橙（去掉原来的蓝） */
+  --ws-active:      #f59e0b;
+  --ws-active-soft: #fff3e0;
 
-  --lime:        #d7ee4d;   /* 真·点睛色：激活小圆点 / 高亮，少量使用 */
-  --lime-soft:   #eef7c4;
-  --lime-ink:    #5c6b14;   /* lime 底上的深字 / lime 文字落到白底时的替身 */
+  --action:      #15120f;   /* 深色按钮 */
+  --action-hover:#000000;
 
-  /* === 深色 UI 炭色阶（顶栏带 / 激活胶囊 / Automation 坞）=== */
-  --charcoal:      #2a2a25;
-  --charcoal-2:    #454339;
-  --charcoal-top:  #969488;   /* 顶栏渐变上端 */
-  /* 唯一允许的渐变：炭色顶栏带 */
-  --grad-header:   linear-gradient(180deg, #969488 0%, #454339 100%);
-  --on-dark:       #ecebe4;   /* 深色面上的图标 / 次级字 */
-
-  /* === 语义状态色 ===
-     To Do 暖橙 / In Progress lime·olive / Done 绿。 */
-  --warn:        #e0a14e;   /* 提醒 / 暖琥珀 */
-  --danger:      #b94a4a;
-  --ok:          #9bbd5a;   /* 完成绿（勾选） */
-  --info:        #5b8def;
-
-  --st-todo:     #e8855b;   /* To Do：暖橙 */
-  --st-doing:    #d7ee4d;   /* In Progress：lime / olive */
-  --st-done:     #9bbd5a;   /* Done：绿 */
-
-  /* === 身份 / 分类头像色（饱和但柔和，上面压白字/白字形）=== */
-  --id-blue:   #5b8def;
-  --id-pink:   #c97b9e;
-  --id-green:  #5bbf9a;
-  --id-amber:  #e0a14e;
-
-  /* 选中描边：深炭（去掉旧橙/旧蓝） */
-  --ws-active:      #2a2a25;
-  --ws-active-soft: #efece4;
-
-  --action:      #2a2a25;   /* 深色按钮 */
-  --action-hover:#16150f;
-
-  /* === 圆角令牌（rounded-square 几何）===
-     胶囊全圆；卡片 18–22；头像/缩略图 11–16 圆角方（非圆）。 */
-  --r-pill:  21px;   /* 导航 / 筛选 / 按钮胶囊 */
-  --r-card:  20px;   /* 卡片 */
-  --r-thumb: 13px;   /* 头像 / 缩略图：圆角方 */
-
-  /* === 卡片阴影 === */
-  --shadow-card: 0 6px 16px rgba(0,0,0,0.05);
-  --shadow-pop:  0 14px 40px rgba(0,0,0,0.14);   /* 下拉 / 菜单 浮起 */
-
-  /* === 字体栈：Manrope only（weights 300–800，不引入第二个字族）=== */
-  --font-body:    "Manrope", -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-heading: "Manrope", -apple-system, "PingFang SC", system-ui, sans-serif;
+  /* === 字体栈：Mattermost Compass Design System === */
+  /* body：Open Sans  /  heading：Metropolis  /  mono：等宽 */
+  --font-body:    "Open Sans", -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-heading: "Metropolis", "Open Sans", -apple-system, "PingFang SC", system-ui, sans-serif;
   --font-mono:    "JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace;
 
   /* 保留旧别名（其他地方逐步替换） */
@@ -93,24 +45,24 @@
   --serif: var(--font-heading);
   --mono:  var(--font-mono);
 
-  /* === 字重（Manrope 300–800）=== */
+  /* === Compass Font Weights === */
+  /* light:300  regular:400  bold:600 （注意不是 700） */
   --fw-light:   300;
   --fw-regular: 400;
-  --fw-medium:  500;   /* inactive 文字 */
-  --fw-bold:    600;   /* active / 标题 */
-  --fw-x:       700;
+  --fw-bold:    600;
 
-  /* === 字号阶（沿用旧 token 名）=== */
-  --fs-50:  11px;  --lh-50:  16px;   /* 标签 / caption */
+  /* === Compass Typography Scale === */
+  /* 命名沿用 Compass 的 size token：数字越大越粗壮 */
+  --fs-50:  11px;  --lh-50:  16px;
   --fs-75:  12px;  --lh-75:  16px;
   --fs-100: 14px;  --lh-100: 20px;   /* body 默认 */
-  --fs-200: 16px;  --lh-200: 24px;
-  --fs-300: 18px;  --lh-300: 24px;
+  --fs-200: 16px;  --lh-200: 24px;   /* heading 200 */
+  --fs-300: 18px;  --lh-300: 24px;   /* heading 300 / text 300 (28) */
   --fs-400: 20px;  --lh-400: 28px;
   --fs-500: 22px;  --lh-500: 28px;
   --fs-600: 25px;  --lh-600: 30px;
   --fs-700: 28px;  --lh-700: 36px;
-  --fs-800: 32px;  --lh-800: 40px;   /* section title */
+  --fs-800: 32px;  --lh-800: 40px;
 
   /* === 布局尺寸 === */
   --topbar-h:       46px;
@@ -122,11 +74,10 @@
   --content-pad-x: 24px;
 }
 
-/* Body 全局：Manrope 14/20，主文暖近黑；大字给负字距求紧致现代感 */
+/* Body 全局：Open Sans 14/20 regular */
 html, body {
   font-family: var(--font-body);
   font-size: var(--fs-100);
   line-height: var(--lh-100);
   font-weight: var(--fw-regular);
-  letter-spacing: -0.1px;
 }

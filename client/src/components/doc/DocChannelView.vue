@@ -321,7 +321,7 @@ onMounted(loadTree)
 }
 .doc-head-ops { display: flex; gap: 8px; flex-shrink: 0; }
 .doc-btn {
-  border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: var(--r-pill);
+  border: 1px solid #c96442; background: #c96442; color: #fff; border-radius: 8px;
   padding: 6px 14px; font-size: 13px; cursor: pointer;
 }
 .doc-btn.ghost { background: #fff; color: #6b665e; border-color: #d8d2c8; }
@@ -375,6 +375,6 @@ onMounted(loadTree)
   background: #f1efe9; border-radius: 4px; padding: 1px 5px; font-size: 13px;
 }
 .md :deep(.md-img) { max-width: 100%; border-radius: 8px; margin: 8px 0; }
-.md :deep(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.md :deep(a) { color: #c96442; }
 .md :deep(.mention) { color: #4a7a8c; font-weight: 600; }
 </style>

@@ -118,40 +118,40 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: #2a2a25;
-  border-bottom: 1px solid #454339;
+  background: #232a33;
+  border-bottom: 1px solid #2f3742;
 }
 .cli-dot { width: 11px; height: 11px; border-radius: 50%; }
 .cli-dot.r { background: #ec6a5e; }
 .cli-dot.y { background: #f4be4f; }
 .cli-dot.g { background: #61c554; }
-.cli-title { margin-left: 8px; color: #ecebe4; font-weight: 700; font-family: var(--font-mono); font-size: 14px; }
+.cli-title { margin-left: 8px; color: #e7ecf2; font-weight: 700; font-family: var(--font-mono); font-size: 14px; }
 .cli-tabs { display: flex; gap: 4px; margin-left: 16px; }
 .cli-tab {
   border: none;
   background: transparent;
-  color: #a8a496;
+  color: #8a97a6;
   font-size: 13px;
   padding: 5px 12px;
   border-radius: 7px;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.cli-tab:hover { color: #ecebe4; }
-.cli-tab.active { background: #454339; color: #fff; }
+.cli-tab:hover { color: #e7ecf2; }
+.cli-tab.active { background: #2f3742; color: #fff; }
 .cli-close {
   margin-left: auto;
   width: 28px; height: 28px;
   border: none; background: transparent;
-  color: #a8a496; font-size: 20px; line-height: 1; cursor: pointer;
+  color: #8a97a6; font-size: 20px; line-height: 1; cursor: pointer;
   border-radius: 6px;
 }
-.cli-close:hover { background: #454339; color: #ecebe4; }
+.cli-close:hover { background: #2f3742; color: #e7ecf2; }
 
 /* ── 云端应用 ── */
 .cli-cloud { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 20px; }
-.cli-cloud-hint { color: #a8a496; font-size: 12px; line-height: 1.6; margin-bottom: 16px; }
-.cli-cloud-hint b { color: #cbc6ba; }
+.cli-cloud-hint { color: #8a97a6; font-size: 12px; line-height: 1.6; margin-bottom: 16px; }
+.cli-cloud-hint b { color: #c9d4e0; }
 .cli-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
@@ -162,8 +162,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: #2a2a25;
-  border: 1px solid #454339;
+  background: #232a33;
+  border: 1px solid #2f3742;
   border-radius: 12px;
   cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease;
@@ -178,7 +178,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   flex-shrink: 0;
 }
 .cli-app-info { flex: 1; min-width: 0; }
-.cli-app-nm { color: #ecebe4; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.cli-app-nm { color: #e7ecf2; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .cli-app-bridge { font-size: 10px; color: #61c554; border: 1px solid #2f5a36; border-radius: 6px; padding: 0 5px; font-weight: 400; }
 .cli-install {
   margin-top: 7px;
@@ -202,19 +202,19 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   width: 232px;
   flex-shrink: 0;
   background: #20262e;
-  border-left: 1px solid #454339;
+  border-left: 1px solid #2f3742;
   padding: 14px;
   overflow-y: auto;
 }
-.cli-side-title { color: #a8a496; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; font-family: var(--font-mono); }
+.cli-side-title { color: #8a97a6; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; font-family: var(--font-mono); }
 .cli-side-btn {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 9px;
   text-align: left;
-  border: 1px solid #454339;
-  background: #2a2a25;
+  border: 1px solid #2f3742;
+  background: #232a33;
   color: #d6dee7;
   font-size: 13px;
   padding: 9px 11px;
@@ -224,29 +224,29 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 .cli-side-btn:hover { background: #2b333d; border-color: #5aa9e6; color: #fff; }
-.cli-side-dot { width: 7px; height: 7px; border-radius: 50%; background: #6b665e; flex-shrink: 0; }
+.cli-side-dot { width: 7px; height: 7px; border-radius: 50%; background: #5d6976; flex-shrink: 0; }
 .cli-side-dot.on { background: #61c554; box-shadow: 0 0 0 3px rgba(97, 197, 84, 0.18); }
 .cli-side-hint { color: #6f7d8c; font-size: 11px; line-height: 1.6; margin-top: 12px; }
 .cli-log {
   flex: 1; min-height: 0; overflow-y: auto;
   font-family: var(--font-mono);
-  font-size: 13px; line-height: 1.7; color: #cbc6ba;
+  font-size: 13px; line-height: 1.7; color: #c9d4e0;
 }
 .cli-line { white-space: pre-wrap; word-break: break-word; }
-.cli-line.in { color: #ecebe4; }
+.cli-line.in { color: #e7ecf2; }
 .cli-line.ok { color: #61c554; }
-.cli-line.sys { color: #a8a496; }
+.cli-line.sys { color: #8a97a6; }
 .cli-line.err { color: #ec6a5e; }
 .cli-prompt { color: #5aa9e6; margin-right: 8px; font-weight: 700; }
 .cli-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; }
 .cli-chip {
-  font-family: var(--font-mono); font-size: 12px; color: #cbc6ba;
-  background: #2a2a25; border: 1px solid #454339; border-radius: 6px;
+  font-family: var(--font-mono); font-size: 12px; color: #c9d4e0;
+  background: #232a33; border: 1px solid #2f3742; border-radius: 6px;
   padding: 4px 9px; cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
-.cli-chip:hover { background: #454339; border-color: #5aa9e6; color: #fff; }
-.cli-input-row { display: flex; align-items: center; border-top: 1px solid #454339; padding-top: 10px; }
-.cli-input { flex: 1; border: none; background: transparent; outline: none; color: #ecebe4; font-family: var(--font-mono); font-size: 13px; }
-.cli-input::placeholder { color: #6b665e; }
+.cli-chip:hover { background: #2f3742; border-color: #5aa9e6; color: #fff; }
+.cli-input-row { display: flex; align-items: center; border-top: 1px solid #2f3742; padding-top: 10px; }
+.cli-input { flex: 1; border: none; background: transparent; outline: none; color: #e7ecf2; font-family: var(--font-mono); font-size: 13px; }
+.cli-input::placeholder { color: #5d6976; }
 </style>
