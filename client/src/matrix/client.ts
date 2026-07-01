@@ -49,16 +49,52 @@ export function getClient(): MatrixClient | null {
   return mx
 }
 
-function saveSession(baseUrl: string, res: any): void {
-  localStorage.setItem(
-    SESSION_KEY,
-    JSON.stringify({
-      baseUrl,
-      accessToken: res.access_token,
-      userId: res.user_id,
-      deviceId: res.device_id,
-    }),
-  )
+// ── 多账号缓存（"切换账号"用）──────────────────────────────
+// SESSION_KEY 存"当前活动会话"(restoreSession 读它)；ACCOUNTS_KEY 存"所有登录过的账号"，
+// 供免密切换。切账号 = 把目标账号写进 SESSION_KEY 再整页 reload（复用 restoreSession）。
+const ACCOUNTS_KEY = 'guduu.accounts.v1'
+interface StoredAccount { baseUrl: string; accessToken: string; userId: string; deviceId?: string; name?: string }
+
+function readAccounts(): StoredAccount[] {
+  try { const a = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '[]'); return Array.isArray(a) ? a : [] }
+  catch { return [] }
+}
+function writeAccounts(list: StoredAccount[]): void {
+  try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(list)) } catch { /* 存储不可用忽略 */ }
+}
+
+function saveSession(baseUrl: string, res: any, name?: string): void {
+  const sess = { baseUrl, accessToken: res.access_token, userId: res.user_id, deviceId: res.device_id }
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sess))
+  // 顺带存进多账号缓存（同 userId 覆盖），供以后免密切换
+  const list = readAccounts().filter((a) => a.userId !== sess.userId)
+  list.push({ ...sess, name: name || sess.userId })
+  writeAccounts(list)
+}
+
+/** 已缓存可切换的账号列表（不暴露 token；name 缺省用 userId）。 */
+export function listCachedAccounts(): { userId: string; name: string }[] {
+  return readAccounts().map((a) => ({ userId: a.userId, name: a.name || a.userId }))
+}
+
+/** 当前活动账号 userId（读 SESSION_KEY）。 */
+export function currentUserId(): string {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || '{}')?.userId || '' } catch { return '' }
+}
+
+/** 切换到某个已缓存账号：把它设为活动会话。返回是否找到（调用方随后整页 reload 让其生效）。 */
+export function switchToAccount(userId: string): boolean {
+  const a = readAccounts().find((x) => x.userId === userId)
+  if (!a) return false
+  localStorage.setItem(SESSION_KEY, JSON.stringify({
+    baseUrl: a.baseUrl, accessToken: a.accessToken, userId: a.userId, deviceId: a.deviceId,
+  }))
+  return true
+}
+
+/** 从缓存里移除某账号（仅本机缓存，不动服务端会话）。 */
+export function removeCachedAccount(userId: string): void {
+  writeAccounts(readAccounts().filter((a) => a.userId !== userId))
 }
 
 async function startFrom(opts: {
@@ -216,6 +252,8 @@ export async function logout(): Promise<void> {
   } catch {
     /* ignore */
   } finally {
+    // 退出登录 = 把当前这个账号从缓存里也移除（其它已缓存账号保留，仍可切换）。
+    removeCachedAccount(currentUserId())
     localStorage.removeItem(SESSION_KEY)
     try {
       cur?.stopClient()

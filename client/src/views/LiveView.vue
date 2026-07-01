@@ -18,6 +18,8 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   login,
   loginWithEmail,
+  listCachedAccounts,
+  switchToAccount,
   registerRequestCode,
   registerVerify,
   resetRequestCode,
@@ -284,6 +286,32 @@ const fanCommunityOpen = ref(true)
 const dmsOpen = ref(true)
 const appMenuOpen = ref(false)
 const userMenuOpen = ref(false)
+// ── 多账号：切换 / 添加（缓存免密切换）──
+const addingAccount = ref(false)
+const cachedAccounts = ref<{ userId: string; name: string }[]>([])
+function refreshCachedAccounts() {
+  cachedAccounts.value = listCachedAccounts().filter((a) => a.userId !== me.value)
+}
+function toggleUserMenu() {
+  userMenuOpen.value = !userMenuOpen.value
+  if (userMenuOpen.value) refreshCachedAccounts()
+}
+function switchAccount(uid: string) {
+  if (uid === me.value) return
+  if (switchToAccount(uid)) {
+    clearCustomAssetsStorage()   // 清本机用户专属缓存，避免带到另一个账号
+    window.location.reload()      // 整页 reload：restoreSession 会用新账号会话登入
+  }
+}
+function startAddAccount() {
+  userMenuOpen.value = false
+  addingAccount.value = true
+  loggedIn.value = false   // 露出登录页登另一个账号；当前账号已在缓存里、不会丢
+}
+function cancelAddAccount() {
+  addingAccount.value = false
+  loggedIn.value = true    // mx 仍是当前账号，直接返回
+}
 // 管理后台：isAdmin 决定菜单入口是否显示（仅服务器管理员可见）；adminOpen 控制覆盖层
 const isAdmin = ref(false)
 const adminOpen = ref(false)
@@ -857,6 +885,7 @@ function refreshTyping() {
 async function afterLogin(uid: string) {
   me.value = uid
   loggedIn.value = true
+  addingAccount.value = false   // 加账号流程结束（若是）
   board.value = true // 登录后第一屏 = 数据看板
   tasks.value = false
   if (stopUpdates) stopUpdates()   // 若是重新登录，先解绑上一次的
@@ -1338,6 +1367,8 @@ onBeforeUnmount(() => {
   <!-- ════════════════ 登录 / 注册页 ════════════════ -->
   <div v-if="!loggedIn" class="login">
     <div class="login-card">
+      <!-- 添加账号流程：给个"返回当前账号"，不必真登出 -->
+      <button v-if="addingAccount" class="add-acct-back" @click="cancelAddAccount">← 返回当前账号</button>
       <!-- 顶部：品牌 + tab/标题 -->
       <div class="auth-top">
         <div class="brand login-brand"><img :src="logoUrl" class="brand-logo" alt="" />CosMac<span>Star</span></div>
@@ -1438,7 +1469,7 @@ onBeforeUnmount(() => {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5 13.9 11.4 12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2z" /></svg>
         </button>
         <div class="um-wrap">
-          <button class="user-chip" :class="{ open: userMenuOpen }" @click.stop="userMenuOpen = !userMenuOpen">
+          <button class="user-chip" :class="{ open: userMenuOpen }" @click.stop="toggleUserMenu">
             <span class="avatar">{{ initials(me) }}</span>
             <span class="online-dot" />
           </button>
@@ -1461,6 +1492,14 @@ onBeforeUnmount(() => {
               <div class="um-sep" />
               <button class="um-item" @click="adminOpen = true; userMenuOpen = false"><span class="um-ic">⚙</span>管理后台</button>
             </template>
+            <!-- 切换账号（缓存的其它账号，免密切换）+ 添加账号 -->
+            <div class="um-sep" />
+            <div class="um-label">切换账号</div>
+            <button v-for="a in cachedAccounts" :key="a.userId" class="um-item um-acct" @click="switchAccount(a.userId)">
+              <span class="um-acct-ava">{{ initials(a.name) }}</span>
+              <span class="um-acct-name">{{ a.name }}</span>
+            </button>
+            <button class="um-item" @click="startAddAccount"><span class="um-ic">＋</span>添加账号</button>
             <div class="um-sep" />
             <button class="um-item danger" @click="doLogout"><span class="um-ic">⎋</span>退出登录</button>
           </div>
@@ -2382,6 +2421,12 @@ onBeforeUnmount(() => {
 .um-item:hover { background: var(--bg-soft); color: var(--text); }
 .um-ic { width: 18px; text-align: center; }
 .um-item.danger { color: var(--danger); }
+/* 切换账号 */
+.um-label { font-size: 11px; color: var(--text-3); padding: 4px 8px 2px; }
+.um-acct { gap: 8px; }
+.um-acct-ava { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.um-acct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-acct-back { align-self: flex-start; border: none; background: transparent; color: var(--accent); font-size: 13px; cursor: pointer; padding: 0 0 8px; }
 .um-item.danger:hover { background: #fdecec; }
 
 /* ──── 主体（flex，浮卡靠 margin + 缝隙露灰底）──── */

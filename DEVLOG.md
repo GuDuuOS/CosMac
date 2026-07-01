@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-07-01 — 多账号：切换账号(缓存免密切换)
+- 用户菜单加「切换账号」：列出所有登录过的账号，点一下免密切到那个账号；「添加账号」进登录页登另一个
+  (当前账号已缓存不丢，可「← 返回当前账号」取消)。
+- client.ts:SESSION_KEY 存活动会话、ACCOUNTS_KEY 存全部账号(saveSession 顺带 upsert)；listCachedAccounts/
+  currentUserId/switchToAccount/removeCachedAccount。切账号=写活动会话+整页 reload(复用 restoreSession)。
+- 退出登录只移除当前账号(其它缓存保留)。纯前端。build + preview 无 console 报错。只发 dist。
+
 ## 2026-07-01 — 社区服务器 P3：封禁 / 解封
 - 成员管理弹窗加「封禁」(kick 只是移出、还能再来；ban 移出且**不能再加入**直到解封) + 「已封禁」区(仅管理员可见)+「解封」。
 - client.ts:banFromSpace/unbanFromSpace(Space+其下频道 ban/unban)、listBannedMembers(membership=ban)。ban 权限同 kick(power≥50 且高于对方)。
