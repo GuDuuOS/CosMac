@@ -351,13 +351,16 @@ function roomTopic(room: any): string | undefined {
 
 export function listRooms(): LiveRoom[] {
   if (!mx) return []
+  const aiIds = aiSessionRoomIds() // 主 AI 的所有会话房都不进频道列表（它们在右侧 AI 面板里）
   return mx
     .getRooms()
     // Space（工作区）本身不是频道，不进频道列表
     .filter((r) => !(r as any).isSpaceRoom?.())
+    // 排除全部主 AI 会话房（多会话后可能有多个，统一按标记排除）
+    .filter((r) => !aiIds.has(r.roomId))
     .map((r) => ({ id: r.roomId, name: r.name || r.roomId, topic: roomTopic(r) }))
-    // 中枢 AI 在右侧单独显示；无名 DM 的 name 会回退成对方 mxid（以 @ 开头），都不进频道列表
-    .filter((r) => r.name !== '中枢 AI' && !r.name.startsWith('@'))
+    // 无名 DM 的 name 会回退成对方 mxid（以 @ 开头），不进频道列表
+    .filter((r) => !r.name.startsWith('@'))
     .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 }
 
@@ -2620,16 +2623,76 @@ export function findBotDm(): string | null {
 }
 
 /** 确保有一个"中枢 AI"私聊房间：先复用已存在的（按名字），没有才新建。 */
-export async function ensureBotDm(): Promise<string> {
+// —— 主 AI「多会话」：每个会话 = 一个与 bot 的独立私聊房间 ——
+// 为什么这样设计：bot 端的对话历史/上下文/记忆本就**按 room_id 隔离**，所以「一个房间
+// = 一段独立会话」是天然映射——新会话 AI 从零开始、互不串味，历史会话随时切回继续。
+const AI_SESSION_STATE = 'cosmac.ai_session' // 会话房标记 state event（稳定识别，不依赖房名）
+const AI_SESSION_NAME = '中枢 AI'
+
+/** 是否「主 AI 会话房」：认标记 state；兼容旧的仅靠房名叫「中枢 AI」的历史房。 */
+function isAiSessionRoom(r: any): boolean {
+  try {
+    if (r?.currentState?.getStateEvents?.(AI_SESSION_STATE, '')) return true
+  } catch { /* 读不到 state 就退回名字判断 */ }
+  return r?.name === AI_SESSION_NAME
+}
+
+/** 全部主 AI 会话房 id 集合——供频道/工作区列表**排除**它们（会话不该混进频道列表）。 */
+export function aiSessionRoomIds(): Set<string> {
+  if (!mx) return new Set()
+  return new Set(mx.getRooms().filter(isAiSessionRoom).map((r: any) => r.roomId))
+}
+
+/** 一个主 AI 会话的列表项：房间 id + 标题（首条消息摘要，无则「新会话」）+ 最近活跃时间。 */
+export interface AiSession { roomId: string; title: string; ts: number }
+
+/** 列出全部主 AI 会话，按最近活跃**倒序**（最新在上，同 Claude 的 Recents）。 */
+export function listAiSessions(): AiSession[] {
+  if (!mx) return []
+  const me = mx.getUserId() || ''
+  return mx.getRooms()
+    .filter(isAiSessionRoom)
+    .map((r: any) => {
+      const msgs = listMessages(r.roomId)
+      // 标题取「我」发的第一句话的前 24 字（最能代表这段会话聊了啥）；没说过话就叫「新会话」
+      const firstMine = msgs.find((m) => m.sender === me && !m.card && (m.body || '').trim())
+      const title = (firstMine?.body || '').trim().replace(/\s+/g, ' ').slice(0, 24) || '新会话'
+      const ts = r.getLastActiveTimestamp?.() || (msgs.length ? msgs[msgs.length - 1].ts : 0)
+      return { roomId: r.roomId, title, ts }
+    })
+    .sort((a, b) => b.ts - a.ts)
+}
+
+/** 新建一个主 AI 会话房（邀请 bot + 打会话标记），返回 room_id。 */
+export async function createAiSession(): Promise<string> {
   if (!mx) throw new Error('未登录')
-  // 同步已完成，getRooms 可靠：复用任意一个已存在的"中枢 AI"房间，避免重复创建
-  const existing = mx.getRooms().find((r) => r.name === '中枢 AI')
-  if (existing) return existing.roomId
   const res: any = await mx.createRoom({
-    name: '中枢 AI',
+    name: AI_SESSION_NAME,
     preset: 'trusted_private_chat' as any,
     invite: [botId()],
     is_direct: true,
+    // 打个标记 state：以后靠它稳定识别"这是主 AI 会话房"，与普通频道/专班区分开
+    initial_state: [{ type: AI_SESSION_STATE, state_key: '', content: { v: 1 } }],
   })
   return res.room_id
+}
+
+/** 删除（离开并遗忘）一个主 AI 会话房。 */
+export async function deleteAiSession(roomId: string): Promise<void> {
+  if (!mx) return
+  try {
+    await mx.leave(roomId)
+    ;(mx as any).forget?.(roomId)
+  } catch { /* 离开失败不阻塞 UI */ }
+}
+
+/**
+ * 确保有一个可用的主 AI 会话房，返回其 room_id。
+ * 复用**最近活跃**的那个会话；一个都没有才新建（首次进入）。
+ */
+export async function ensureBotDm(): Promise<string> {
+  if (!mx) throw new Error('未登录')
+  const sessions = listAiSessions()
+  if (sessions.length) return sessions[0].roomId
+  return await createAiSession()
 }

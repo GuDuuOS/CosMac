@@ -38,6 +38,10 @@ import {
   editMessage,
   sendText,
   ensureBotDm,
+  listAiSessions,
+  createAiSession,
+  deleteAiSession,
+  type AiSession,
   listSpaces,
   roomIdsInSpace,
   createSpace,
@@ -261,6 +265,39 @@ const botTyping = ref(false)
 const aiMsgs = ref<LiveMsg[]>([])
 const aiDraft = ref('')
 const aiOpen = ref(true)
+// ── 多会话（放大态左栏 Recents）：每个会话 = 一个与主 AI 的独立私聊房 ──
+const aiSessions = ref<AiSession[]>([])
+function refreshAiSessions() { aiSessions.value = listAiSessions() }
+// 新建会话：建房 → 切过去 → 清空当前对话区（AI 从零开始）
+async function newAiSession() {
+  try {
+    const rid = await createAiSession()
+    aiRoom.value = rid
+    aiMsgs.value = []
+    refreshAiSessions()
+    refresh()               // 让频道列表把新会话房排除掉
+    nextTick(scrollAiToBottom)
+  } catch { /* 建会话失败静默，保持当前会话 */ }
+}
+// 切换到某历史会话：设为当前 aiRoom，重载它的消息
+function switchAiSession(roomId: string) {
+  if (!roomId || roomId === aiRoom.value) return
+  aiRoom.value = roomId
+  aiMsgs.value = listMessages(roomId)
+  nextTick(scrollAiToBottom)
+}
+// 删除会话：离开房间；若删的是当前会话，切到下一个（没有则新建）
+async function removeAiSession(roomId: string) {
+  if (!confirm('删除这个会话？聊天记录将不再显示。')) return
+  await deleteAiSession(roomId)
+  refreshAiSessions()
+  if (roomId === aiRoom.value) {
+    const next = aiSessions.value[0]?.roomId
+    if (next) switchAiSession(next)
+    else await newAiSession()
+  }
+  refresh()
+}
 // 放大态：把中枢 AI 面板撑成 Cowork 式全屏弹窗（左导航 + 中对话 + 右进度/文件）
 const aiMax = ref(false)
 // 关闭面板时一并退出放大态，避免下次打开还停在放大
@@ -268,6 +305,7 @@ watch(aiOpen, (v) => { if (!v) aiMax.value = false })
 // 进入放大态时拉真实数据填右栏（任务进度 + 个人知识库文档）
 watch(aiMax, async (v) => {
   if (!v) return
+  refreshAiSessions()   // 放大时刷新左栏 Recents 会话列表
   if (!taskList.value.length) loadTasks()
   loadKb()
 })
@@ -836,6 +874,7 @@ function refresh() {
     reactions.value = listReactions(currentRoom.value)
   }
   if (aiRoom.value) aiMsgs.value = listMessages(aiRoom.value)
+  refreshAiSessions() // 会话列表（标题随首条消息、排序随最近活跃）跟着每次刷新更新
   // bot 建专班后发来的 team_created 信号卡：把新专班挂进当前工作区（bot 没权限、客户端来补）
   processTeamCards()
 
@@ -1988,9 +2027,27 @@ onBeforeUnmount(() => {
         <!-- 主体：默认单列；放大态三栏（左导航 + 中对话 + 右进度/文件）-->
         <div class="ai-main">
 
-          <!-- 左栏：完整还原 Cowork 左导航（仅放大态）-->
-          <!-- （原放大态左侧"Cowork 风"演示导航：模式切换/项目/产物/定时任务/派发/最近——
-               全是占位演示，未接后端，已整体移除。放大态仅保留中栏对话 + 右栏。）-->
+          <!-- 左栏（仅放大态）：Recents 历史会话列表 + 新建会话（参考 Claude；复用 Cowork 左栏样式）-->
+          <div v-if="aiMax" class="ai-cw-left">
+            <button class="ai-cw-newtask" @click="newAiSession">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+              新建会话
+            </button>
+            <div class="ai-cw-recents">
+              <div class="ai-cw-recents-h"><span>最近会话</span></div>
+              <ul class="ai-cw-list">
+                <li v-for="s in aiSessions" :key="s.roomId"
+                    class="ai-recent-li" :class="{ act: s.roomId === aiRoom }"
+                    @click="switchAiSession(s.roomId)">
+                  <span class="ai-recent-t">{{ s.title }}</span>
+                  <button class="ai-recent-del" title="删除会话" @click.stop="removeAiSession(s.roomId)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                  </button>
+                </li>
+                <li v-if="!aiSessions.length" class="ai-recents-empty">还没有会话，点上方「新建会话」。</li>
+              </ul>
+            </div>
+          </div>
 
           <!-- 中栏：对话 + 输入（dock / 放大 共用）-->
           <div class="ai-center">
@@ -2903,6 +2960,14 @@ onBeforeUnmount(() => {
 .ai-cw-list li { padding: 8px 10px; border-radius: 6px; font-size: var(--fs-100); color: var(--text-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ai-cw-list li:hover { background: var(--bg-hover); color: var(--text); }
 .ai-cw-list li.act { background: var(--bg-panel); color: var(--text); font-weight: var(--fw-bold); box-shadow: inset 3px 0 0 var(--accent); }
+/* 会话行：标题占满 + 悬停才露删除按钮（复用 .ai-cw-list li 的基础样式，这里改成 flex）*/
+.ai-cw-list li.ai-recent-li { display: flex; align-items: center; gap: 6px; }
+.ai-recent-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-recent-del { flex-shrink: 0; opacity: 0; border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 2px; border-radius: 4px; display: inline-flex; transition: opacity .12s ease, color .12s ease, background .12s ease; }
+.ai-cw-list li.ai-recent-li:hover .ai-recent-del { opacity: 1; }
+.ai-recent-del:hover { background: var(--bg-hover); color: var(--danger, #d9534f); }
+.ai-recents-empty { color: var(--text-3); font-size: var(--fs-75); padding: 8px 10px; cursor: default; }
+.ai-recents-empty:hover { background: transparent; color: var(--text-3); }
 .ai-cw-user { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 8px 10px; border-top: 1px solid var(--border-soft); border-radius: 8px; cursor: pointer; }
 .ai-cw-user:hover { background: var(--bg-hover); }
 .ai-cw-user-ava { width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-75); font-weight: var(--fw-bold); }

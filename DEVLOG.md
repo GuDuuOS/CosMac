@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-07-01 — 主AI放大态改造成「多会话」界面(参考 Claude)
+- 需求：主 AI 放大后要像 Claude——左侧 Recents 历史会话列表 + New session 新建会话；负责人拍板
+  「三栏·保留特色」：左 Recents / 中 当前对话 / 右 任务进度+知识库(保留现有增值栏)。
+- 架构关键：bot 端的对话历史/上下文/记忆本就**按 room_id 隔离**，所以「一个与 bot 的私聊房 = 一段
+  独立会话」是天然映射——新会话 AI 从零开始、互不串味，历史会话随时切回继续。**bot 无需改动**。
+- 前端 client.ts 新增多会话 API：会话房用 state event `cosmac.ai_session` 稳定标记(兼容旧的靠房名
+  「中枢 AI」的历史房)；`listAiSessions`(按最近活跃倒序、标题取首条我方消息摘要/否则「新会话」)、
+  `createAiSession`(建房+邀 bot+打标记)、`deleteAiSession`(leave+forget)、`aiSessionRoomIds`(供
+  频道列表排除)、`ensureBotDm` 改为复用最近活跃会话、否则新建。`listRooms` 排除所有会话房。
+- LiveView：放大态左栏(复用现成 Cowork `.ai-cw-*` 样式)渲染 Recents + 新建会话按钮；
+  `switchAiSession`/`newAiSession`/`removeAiSession`；refresh 与进入放大态时刷新会话列表。
+- 验证：`npm run build` 通过、preview 无报错；多会话交互需登录态,线上硬刷新验证。
+
 ## 2026-07-01 — 规范：全程中文沟通(写进 CLAUDE.md §6 第0条)
 - 负责人要求：跟他的一切沟通(对话/思考过程叙述/汇报/报错解读/部署说明)一律用中文，
   不要用英文/日文写"给他看的过程"。专有名词可保留英文原词、但句子必须中文。
