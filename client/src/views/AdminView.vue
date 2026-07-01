@@ -1388,9 +1388,15 @@ async function onLevelChange(u: AdminUser, level: string) {
     if (!confirm(`确认把 ${u.name} 设为管理员？`)) return
     busy.value = u.id
     try {
-      await setUserAdmin(u.id, true)
+      const synced = await setUserAdmin(u.id, true)
       u.admin = true
-      success('已更新', `${u.name} 现在是管理员`)
+      if (synced) {
+        // synced=true：服务器管理员标志 + 控制室"期望集"都已写好，权限与你完全一致
+        success('已设为管理员', `${u.name} 现已拥有与你一致的完整管理员权限。请让 TA 刷新页面（或退出重新登录）后生效。`)
+      } else {
+        // 服务器管理员标志已生效（不回滚），但控制室同步没成——写 AI 配置的资格可能未对齐
+        warn('已设为管理员（控制室同步未完成）', `${u.name} 已是服务器管理员，但"写 AI 配置/门控"的权限可能未对齐。请重试一次「设为管理员」，并让 TA 刷新页面。`)
+      }
     } catch (e: any) {
       warn('操作失败', e?.message || '权限修改失败')
     } finally { busy.value = null }

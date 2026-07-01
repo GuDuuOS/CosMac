@@ -66,6 +66,7 @@ import {
   setFavourite,
   normalizeUserId,
   isServerAdmin,
+  ensureControlRoomMembership,
   isProjectArchived,
   botId,
   type LiveRoom,
@@ -900,7 +901,12 @@ async function afterLogin(uid: string) {
   }
   // 探测当前账号是不是服务器管理员：是才显示「管理后台」入口（非管理员连按钮都看不到）。
   // CORS 已通，探测能正常返回；失败/非管理员一律按"不显示"处理。
-  isServerAdmin().then((ok) => { isAdmin.value = ok }).catch(() => { isAdmin.value = false })
+  isServerAdmin().then((ok) => {
+    isAdmin.value = ok
+    // 管理员：登录时接受控制室邀请并加入，才拿到"亲自写 AI 配置/门控"的资格
+    // （否则光被邀请发不了 state event，权限会比所有者差一点）。幂等、失败静默。
+    if (ok) ensureControlRoomMembership()
+  }).catch(() => { isAdmin.value = false })
   loadStats() // 数据看板真实指标（best-effort）
   refresh()
   // 若是从"社区服务器邀请链接"进来的，登录后执行加入

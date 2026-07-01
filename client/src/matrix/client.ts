@@ -1195,6 +1195,28 @@ async function resolveControlRoom(): Promise<string | null> {
   }
 }
 
+/**
+ * 服务器管理员登录后：确保自己已「加入」控制室（接受所有者发来的邀请）。
+ *
+ * 为什么必须做这步——否则新管理员的权限会「差一点」：
+ *   - 主 AI(bot) 判定平台管理员只看控制室 power≥50（所有者提权时就写好了），**不看是否 join**，
+ *     所以 bot 侧已认他为管理员；
+ *   - 但新管理员要**从后台亲自写** AI 配置 / 门控这类 state event 时，Matrix 要求发事件者
+ *     必须是该房间的 **join 成员**——光被 invite(邀请) 还发不了。所有者建房/对齐时已把新管理员
+ *     邀请进来并给了 power=50，这里由新管理员自己**接受邀请**即补齐，权限与所有者完全一致
+ *     （唯一有意的差别：所有者 100、普通管理员 50，仅影响能否互相降权/踢人，功能能力等价）。
+ * 幂等且宽容：已加入 / 尚未被邀请 / 无权限，一律安全忽略，下次登录再试。
+ */
+export async function ensureControlRoomMembership(): Promise<void> {
+  if (!mx) return
+  try {
+    const alias = `#${CONTROL_ROOM_LOCALPART}:${serverName()}`
+    await mx.joinRoom(alias) // 接受控制室邀请；已在房则等价 no-op
+  } catch {
+    /* 已在房 / 未被邀请 / 无权限：忽略 */
+  }
+}
+
 // —— 控制室权限模型 ——
 // 只保留**一个所有者**（建房者）= 100，独一份；普通服务器管理员 = ADMIN（50）：
 // 足够写 AI 配置 state event（state_default=50），又能被所有者降权/踢出。两个 100 的
