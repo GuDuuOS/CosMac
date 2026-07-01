@@ -779,6 +779,37 @@ export async function kickFromSpace(spaceId: string, userId: string, reason?: st
   await (mx as any).kick(spaceId, userId, reason)
 }
 
+/** 封禁某成员：ban 出 Space + 其下频道。被封禁者**不能再加入**（即使开放加入/有链接），直到解封。 */
+export async function banFromSpace(spaceId: string, userId: string, reason?: string): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  for (const cid of roomIdsInSpace(spaceId)) {
+    try { await (mx as any).ban(cid, userId, reason) } catch { /* 某频道 ban 不了跳过 */ }
+  }
+  await (mx as any).ban(spaceId, userId, reason)
+}
+
+/** 解封某成员（Space + 其下频道）。解封后其恢复"未加入"，可重新凭链接加入。 */
+export async function unbanFromSpace(spaceId: string, userId: string): Promise<void> {
+  if (!mx) throw new Error('未登录')
+  for (const cid of roomIdsInSpace(spaceId)) {
+    try { await (mx as any).unban(cid, userId) } catch { /* 跳过 */ }
+  }
+  await (mx as any).unban(spaceId, userId)
+}
+
+/** 列出某服务器(Space)被封禁的用户（membership=ban）。用于成员管理里的"已封禁"区。 */
+export function listBannedMembers(spaceId: string): { id: string; name: string; avatar: string }[] {
+  const room = mx?.getRoom(spaceId)
+  if (!room) return []
+  const banned = room.getMembersWithMembership?.('ban') || []
+  return banned.map((m: any) => {
+    const localpart = m.userId.replace(/^@/, '').split(':')[0]
+    const name = (!m.name || m.name === m.userId) ? localpart : m.name
+    const mxc = m.getMxcAvatarUrl?.() || ''
+    return { id: m.userId, name, avatar: mxc ? mxcToHttp(mxc, 64) : '' }
+  })
+}
+
 /**
  * 用 Synapse Admin API 新建一个账号（需当前登录者是服务器管理员，如 @admin）。
  * 返回完整用户 id。失败抛错（含状态码/原因）。

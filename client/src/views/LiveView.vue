@@ -49,6 +49,9 @@ import {
   myPowerIn,
   setMemberPower,
   kickFromSpace,
+  banFromSpace,
+  unbanFromSpace,
+  listBannedMembers,
   type ChannelMember,
   updateSpace,
   updateRoom,
@@ -375,12 +378,14 @@ async function copyWsJoinLink() {
 // ── 社区服务器：成员列表 + 角色管理 ──
 const memberMgrOpen = ref(false)
 const serverMembers = ref<ChannelMember[]>([])
+const bannedMembers = ref<{ id: string; name: string; avatar: string }[]>([])
 const myServerPower = ref(0)          // 我在这个服务器的 power（决定能做什么）
 const memberMgrBusy = ref('')          // 正在操作的 user id（禁用该行按钮）
 function reloadServerMembers() {
   if (!activeSpace.value) return
-  serverMembers.value = listChannelMembers(activeSpace.value).filter((m) => !m.pending || myServerPower.value >= 50)
   myServerPower.value = myPowerIn(activeSpace.value)
+  serverMembers.value = listChannelMembers(activeSpace.value).filter((m) => !m.pending || myServerPower.value >= 50)
+  bannedMembers.value = myServerPower.value >= 50 ? listBannedMembers(activeSpace.value) : []
 }
 function openServerMembers() {
   if (!activeSpace.value) return
@@ -408,7 +413,7 @@ async function setMemberRole(m: ChannelMember, power: number) {
 }
 async function removeServerMember(m: ChannelMember) {
   if (!activeSpace.value || memberMgrBusy.value) return
-  if (!confirm(`把「${m.name}」移出这个服务器（含其下频道）？`)) return
+  if (!confirm(`把「${m.name}」移出这个服务器（含其下频道）？他之后仍可再加入。`)) return
   memberMgrBusy.value = m.id
   try {
     await kickFromSpace(activeSpace.value, m.id)
@@ -416,6 +421,33 @@ async function removeServerMember(m: ChannelMember) {
     setTimeout(reloadServerMembers, 500)
   } catch (e: any) {
     toast('移出失败', e?.message || '可能权限不足')
+  } finally {
+    memberMgrBusy.value = ''
+  }
+}
+async function banServerMember(m: ChannelMember) {
+  if (!activeSpace.value || memberMgrBusy.value) return
+  if (!confirm(`封禁「${m.name}」？他将被移出、且**无法再加入**这个服务器，直到你解封。`)) return
+  memberMgrBusy.value = m.id
+  try {
+    await banFromSpace(activeSpace.value, m.id)
+    toast('已封禁', m.name)
+    setTimeout(reloadServerMembers, 500)
+  } catch (e: any) {
+    toast('封禁失败', e?.message || '可能权限不足')
+  } finally {
+    memberMgrBusy.value = ''
+  }
+}
+async function unbanServerMember(u: { id: string; name: string }) {
+  if (!activeSpace.value || memberMgrBusy.value) return
+  memberMgrBusy.value = u.id
+  try {
+    await unbanFromSpace(activeSpace.value, u.id)
+    toast('已解封', `${u.name} 现在可以重新加入`)
+    setTimeout(reloadServerMembers, 500)
+  } catch (e: any) {
+    toast('解封失败', e?.message || '可能权限不足')
   } finally {
     memberMgrBusy.value = ''
   }
@@ -2190,10 +2222,21 @@ onBeforeUnmount(() => {
             <div class="mmg-ops" v-if="canManage(m)">
               <button v-if="myServerPower >= 100 && m.power < 50" class="nw-btn sm" :disabled="memberMgrBusy === m.id" @click="setMemberRole(m, 50)">设为管理员</button>
               <button v-if="myServerPower >= 100 && m.power >= 50" class="nw-btn sm" :disabled="memberMgrBusy === m.id" @click="setMemberRole(m, 0)">取消管理员</button>
-              <button class="nw-btn sm danger-outline" :disabled="memberMgrBusy === m.id" @click="removeServerMember(m)">移出</button>
+              <button class="nw-btn sm" :disabled="memberMgrBusy === m.id" @click="removeServerMember(m)">移出</button>
+              <button class="nw-btn sm danger-outline" :disabled="memberMgrBusy === m.id" @click="banServerMember(m)">封禁</button>
             </div>
           </div>
           <p v-if="!serverMembers.length" class="mmg-empty">还没有成员</p>
+
+          <!-- 已封禁（仅管理员可见） -->
+          <template v-if="bannedMembers.length">
+            <div class="mmg-section">已封禁（{{ bannedMembers.length }}）· 无法加入，直到解封</div>
+            <div v-for="u in bannedMembers" :key="u.id" class="mmg-row">
+              <span class="mmg-ava banned"><img v-if="u.avatar" :src="u.avatar" alt="" /><template v-else>{{ initials(u.name) }}</template></span>
+              <div class="mmg-info"><div class="mmg-name">{{ u.name }}</div><div class="mmg-role">已封禁</div></div>
+              <div class="mmg-ops"><button class="nw-btn sm" :disabled="memberMgrBusy === u.id" @click="unbanServerMember(u)">解封</button></div>
+            </div>
+          </template>
         </div>
         <div class="nw-foot">
           <button class="nw-btn" @click="reloadServerMembers">刷新</button>
@@ -2919,6 +2962,8 @@ onBeforeUnmount(() => {
 .mmg-ops { display: flex; gap: 6px; flex-shrink: 0; }
 .nw-btn.sm { padding: 4px 10px; font-size: 12px; }
 .mmg-empty { text-align: center; color: var(--text-3); padding: 20px; font-size: 13px; }
+.mmg-section { font-size: 12px; color: var(--text-3); margin: 14px 0 4px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.mmg-ava.banned { background: #b94a4a; opacity: .75; }
 .nw-note { margin-top: 14px; background: var(--accent-soft); border: 1px solid #f4e0bd; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
 .nw-mem-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
 .nw-mem { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }

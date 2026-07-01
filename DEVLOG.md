@@ -7,6 +7,11 @@
 
 ---
 
+## 2026-07-01 — 社区服务器 P3：封禁 / 解封
+- 成员管理弹窗加「封禁」(kick 只是移出、还能再来；ban 移出且**不能再加入**直到解封) + 「已封禁」区(仅管理员可见)+「解封」。
+- client.ts:banFromSpace/unbanFromSpace(Space+其下频道 ban/unban)、listBannedMembers(membership=ban)。ban 权限同 kick(power≥50 且高于对方)。
+- 纯前端。build + preview 无 console 报错。只发 dist。
+
 ## 2026-07-01 — 社区服务器 P2：成员列表 + 角色管理
 - 工作区设置里加「👥 成员与角色管理」→ 成员弹窗：列出服务器(Space)全部成员+角色(群主/管理员/成员，
   由 Matrix power level 推)+头像+待接受标记。
