@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-07-01 — 登录注册抽成独立页面（方案A：治"不流畅"+ 给安全增强铺路）
+- 背景：负责人反馈登录注册"太不流畅"。查明根因：认证 UI 原来是塞在 **199KB 的巨石 LiveView.vue**
+  里一段 `v-if="!loggedIn"`——登录页必须先加载整个 app 才显示、已登录用户刷新还"闪一下登录框"、
+  登录/登出/切号是整页 reload、且没有独立地址。（之前抽风期误报的"AuthView.vue"其实不存在。）
+- 方案A（独立 AuthView + 路由架构）：
+  · 新建 `views/AuthView.vue`：独立登录/注册/找回页，视觉与原登录块**完全一致**（搬同一套 class/CSS），
+    自包含（内联提示替代 toast）。
+  · `matrix/client.ts` 加 `loginNoStart/loginWithEmailNoStart`（只认证+saveSession、不 startClient）。
+  · 根架构改回 `App.vue`(`<router-view>`)：`main.ts` 挂 App；`/login`→AuthView，其余→LiveView，
+    **两者懒加载**（登录页从"要载 286KB"变成独立 **~7KB chunk**，秒开）。router 加 `beforeEach`
+    认证守卫（未登录→`/login?redirect=`；已登录访 /login→`/`，`?add=1` 除外）。
+  · LiveView **最小 3 处改动**：删登录模板块→换 `.live-splash` 占位；`onMounted` 无会话→`router.push('/login')`；
+    「添加账号」→`router.push('/login?add=1')`。旧认证函数留作无害死代码（noUnusedLocals=false）。
+- 交接机制：AuthView 认证成功→saveSession→`router.push('/')`→LiveView 挂载 `restoreSession` **只同步一次**，
+  **连整页 reload 都不用**，比原设想更流畅。更新 memory `client-root-is-liveview`。
+- 验证：`npm run build` 通过（AuthView 6.94KB / LiveView 286KB 独立 chunk）；本地 preview 全绿——
+  根路径未登录自动跳 `/login?redirect=/`、登录页渲染与原一致零报错、登录/邮箱登录/注册/找回四模式字段
+  全对（含确认密码）、守卫拦截 `/admin`、`?add=1` 显示「返回当前账号」。
+- ⚠️ **未端到端测真实登录**（本地无测试账号）：认证成功→进主应用的交接是按现有会话模型构造的、逻辑自洽，
+  但没跑通真号。建议部署前在本地 preview 用真账号登一次确认。**改了 `client/`，需重建 dist + 部署。**
+
 ## 2026-07-01 — 修复注册/登录两处安全问题（IP 限频可绕过 + 一邮一号没兜住）
 - 问题一「IP 限频能被绕过」：`_Handler._client_ip()` 原来取 `X-Forwarded-For` **首段**——XFF 是
   普通请求头、客户端能随便塞，nginx 用 `$proxy_add_x_forwarded_for` 会把客户端伪造值保留在前、

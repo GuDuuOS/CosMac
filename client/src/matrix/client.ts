@@ -225,6 +225,42 @@ export async function loginWithEmail(
   })
 }
 
+/**
+ * 只「认证 + 存会话」，**不启动 Matrix 客户端**（不 startFrom、不首次同步）。
+ * 给独立登录页 AuthView 用:认证成功后直接路由进主应用,由 LiveView 挂载时 restoreSession
+ * 做**唯一一次**同步——避免"登录页同步一次、进主应用又同步一次"的双同步拖慢。
+ */
+export async function loginNoStart(
+  baseUrl: string,
+  user: string,
+  password: string,
+): Promise<void> {
+  const tmp = createClient({ baseUrl })
+  const res: any = await tmp.login('m.login.password', {
+    identifier: { type: 'm.id.user', user },
+    password,
+    initial_device_display_name: 'CosMac Web',
+  })
+  saveSession(baseUrl, res)
+}
+
+/** 邮箱+密码「只认证不启动」（走 cosmac 后端反查账号,同 loginNoStart 的语义）。 */
+export async function loginWithEmailNoStart(
+  baseUrl: string,
+  email: string,
+  password: string,
+): Promise<void> {
+  const base = baseUrl.replace(/\/$/, '')
+  const r = await fetch(`${base}/cosmac/login/email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok || !j?.access_token) throw new Error(j?.error || '登录失败')
+  saveSession(baseUrl, j)
+}
+
 // 允许的 homeserver host 白名单：localStorage 可被同源脚本/扩展篡改，若不校验 baseUrl，
 // 被改成攻击者主机后，恢复会话时会把 Authorization: Bearer <token> 发往该主机 → token 泄露。
 const ALLOWED_HS_HOSTS = ['hs.cosmac.cc', 'localhost', '127.0.0.1']

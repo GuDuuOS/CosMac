@@ -344,8 +344,8 @@ function switchAccount(uid: string) {
 }
 function startAddAccount() {
   userMenuOpen.value = false
-  addingAccount.value = true
-  loggedIn.value = false   // 露出登录页登另一个账号；当前账号已在缓存里、不会丢
+  // 跳独立登录页(添加账号模式);当前会话仍在 localStorage,可在登录页「返回当前账号」。
+  router.push('/login?add=1')
 }
 function cancelAddAccount() {
   addingAccount.value = false
@@ -1398,6 +1398,7 @@ onMounted(async () => {
   try {
     const uid = await restoreSession()
     if (uid) await afterLogin(uid)
+    else router.push('/login')   // 无有效会话 → 回独立登录页(守卫兜底)
   } finally {
     loading.value = false
   }
@@ -1410,70 +1411,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- ════════════════ 登录 / 注册页 ════════════════ -->
-  <div v-if="!loggedIn" class="login">
-    <div class="login-card">
-      <!-- 添加账号流程：给个"返回当前账号"，不必真登出 -->
-      <button v-if="addingAccount" class="add-acct-back" @click="cancelAddAccount">← 返回当前账号</button>
-      <!-- 顶部：品牌 + tab/标题 -->
-      <div class="auth-top">
-        <div class="brand login-brand"><img :src="logoUrl" class="brand-logo" alt="" />CosMac<span>Star</span></div>
-        <!-- 登录 / 注册 切换（找回密码时隐藏 tab，显示标题）-->
-        <div class="auth-tabs" v-if="authMode !== 'reset'">
-          <button class="auth-tab" :class="{ active: authMode === 'login' }" @click="switchAuthMode('login')">登录</button>
-          <button class="auth-tab" :class="{ active: authMode === 'register' }" @click="switchAuthMode('register')">注册</button>
-        </div>
-        <div v-else class="auth-reset-title">重置密码</div>
-      </div>
-
-      <!-- 中部：表单字段（三段式分布，让内容填满高框、不浮在中间）-->
-      <div class="auth-fields">
-        <!-- ===== 登录：账号 / 邮箱 二选一 ===== -->
-        <template v-if="authMode === 'login'">
-          <div class="auth-subtabs">
-            <button class="auth-subtab" :class="{ active: loginBy === 'account' }" @click="loginBy = 'account'">账号登录</button>
-            <button class="auth-subtab" :class="{ active: loginBy === 'email' }" @click="loginBy = 'email'">邮箱登录</button>
-          </div>
-          <input v-if="loginBy === 'account'" v-model="user" name="login-username" autocomplete="username" placeholder="用户名" @keyup.enter="doLogin" />
-          <input v-else v-model="email" type="email" name="login-email" autocomplete="email" placeholder="邮箱" @keyup.enter="doLogin" />
-          <input v-model="password" type="password" autocomplete="current-password" placeholder="密码" @keyup.enter="doLogin" />
-        </template>
-
-        <!-- ===== 注册 / 找回密码 ===== -->
-        <!-- autocomplete 语义化防浏览器自动填充串味：邮箱=email，验证码=one-time-code -->
-        <template v-else>
-          <div class="auth-code-row">
-            <input v-model="email" type="email" name="reg-email" autocomplete="email" placeholder="邮箱" />
-            <button class="auth-code-btn" :disabled="codeCooldown > 0 || sendingCode || !email.trim()" @click="sendCode">
-              {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? '发送中…' : '发送验证码') }}
-            </button>
-          </div>
-          <input v-model="emailCode" name="reg-otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
-                 placeholder="6 位验证码（填邮件里的数字）"
-                 @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
-          <!-- 用户名：仅注册需要（找回密码靠邮箱定位账号，不填用户名）-->
-          <input v-if="authMode === 'register'" v-model="user" name="reg-username" autocomplete="username" placeholder="用户名" />
-          <input v-model="password" type="password" autocomplete="new-password"
-                 :placeholder="authMode === 'reset' ? '新密码（至少 8 位）' : '密码（至少 8 位）'"
-                 @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
-          <input v-model="password2" type="password" autocomplete="new-password"
-                 :placeholder="authMode === 'reset' ? '确认新密码' : '确认密码'"
-                 @keyup.enter="authMode === 'reset' ? doResetPassword() : doRegister()" />
-        </template>
-      </div>
-
-      <!-- 底部：提交按钮 + 错误 + 切换链接 -->
-      <div class="auth-bottom">
-        <button v-if="authMode === 'login'" class="login-btn" :disabled="loading" @click="doLogin">{{ loading ? '登录中…' : '登录' }}</button>
-        <button v-else-if="authMode === 'register'" class="login-btn" :disabled="loading" @click="doRegister">{{ loading ? '注册中…' : '注册并进入' }}</button>
-        <button v-else class="login-btn" :disabled="loading" @click="doResetPassword">{{ loading ? '重置中…' : '重置密码' }}</button>
-        <p class="err" v-if="error">{{ authMode === 'login' ? '登录失败' : (authMode === 'reset' ? '重置失败' : '注册失败') }}：{{ error }}</p>
-        <p class="auth-switch" v-if="authMode === 'login'">还没有账号？<a @click="switchAuthMode('register')">注册一个</a> · <a @click="switchAuthMode('reset')">忘记密码？</a></p>
-        <p class="auth-switch" v-else-if="authMode === 'register'">已有账号？<a @click="switchAuthMode('login')">去登录</a></p>
-        <p class="auth-switch" v-else>想起来了？<a @click="switchAuthMode('login')">返回登录</a></p>
-      </div>
-    </div>
-  </div>
+  <!-- 认证已抽到独立 /login 页(AuthView)。这里只渲染已登录的主应用;
+       restoreSession 未完成时先占位,避免空白/闪登录框(无会话时 onMounted 会跳 /login)。 -->
+  <div v-if="!loggedIn" class="live-splash">载入中…</div>
 
   <!-- ════════════════ 驾驶舱 ════════════════ -->
   <div v-else ref="rootEl" class="shell">
@@ -2431,6 +2371,7 @@ onBeforeUnmount(() => {
 .auth-switch a { color: var(--accent); cursor: pointer; font-weight: 600; }
 .auth-switch a:hover { text-decoration: underline; }
 .err { color: var(--danger); font-size: 13px; }
+.live-splash { height: 100vh; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: 14px; background: linear-gradient(180deg, var(--bg-panel), var(--bg-soft)); }
 .hint { color: var(--text-3); font-size: 12px; }
 .hint.pad { padding: 16px; }
 

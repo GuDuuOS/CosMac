@@ -1,15 +1,10 @@
 import { createApp } from 'vue'
-// 当前部署的是"真实可用版"LiveView（真登录/真频道/真消息/真 AI/富卡）。
-// 演示稿完整 UI（App.vue + components + styles/tokens）保留在仓库，下一阶段逐块接真后切换回来。
-import App from './views/LiveView.vue'
-// 真实可用版只挂载 LiveView（演示稿的 App.vue + 各布局组件并未挂载）。
-// 因此这里只加载「暖色 tokens + reset」两份全局样式，
-// 不再 import 整个 styles/index.css —— 否则演示组件 CSS（.topbar / .composer-toolbar .send 等，
-// 含旧蓝色 #154dc4）会与 LiveView 自带的同名 scoped 类名撞车、把暖色皮肤污染掉。
+// 应用根改为 App.vue（承载 <router-view>）：/login 独立登录页，其余进主应用 LiveView。
+// 之前是 main.ts 直接挂 LiveView（登录也塞在里面）；抽出独立 AuthView 后统一走路由出口。
+import App from './App.vue'
+// 全局样式：暖色 tokens + reset（沿用原有；不引入演示组件的全量 CSS，以免撞色污染皮肤）。
 import './styles/tokens.css'
 import './styles/reset.css'
-// LiveView 复刻了 DEMO 的弹窗功能，其中 DepartmentCreateModal 用了 useRouter()，
-// 故装上 router（LiveView 仍是根组件、不走 <router-view>，对用户无影响，只为让 useRouter 可用）。
 import { router } from './router'
 
 createApp(App).use(router).mount('#app')
