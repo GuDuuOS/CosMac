@@ -2816,8 +2816,9 @@ onBeforeUnmount(() => {
 .ws-toggle:disabled { opacity: .6; cursor: default; }
 .ws-toggle-dot { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .15s; }
 .ws-toggle.on .ws-toggle-dot { left: 21px; }
-.ws-join-link { display: flex; gap: 8px; margin-top: 10px; }
-.ws-join-link .nw-input { font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+.ws-join-link { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.ws-join-link .nw-input { flex: 1; min-width: 0; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+.ws-join-link .nw-btn { flex-shrink: 0; white-space: nowrap; }
 .nw-note { margin-top: 14px; background: var(--accent-soft); border: 1px solid #f4e0bd; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
 .nw-mem-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
 .nw-mem { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); }
