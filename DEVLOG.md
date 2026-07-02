@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-07-02 — 修登录页两个 QA bug（报错友好化 + 切页清空表单）
+- QA 报了 5 个 bug。分诊：bug1(验证码限频)、bug2(一邮一号)= 之前已修并上线；bug3/bug4 本次修；
+  bug5(会员开通失败)= 交易模块未实现真实支付、非代码 bug（见下）。
+- **bug3 登录报错不友好**：AuthView 加 `friendlyLoginError()`，把账号登录直连 Synapse 的原始
+  errcode/网络错误映射成中文（M_FORBIDDEN→用户名或密码错误；M_LIMIT_EXCEEDED→尝试过于频繁；
+  网络错→网络异常）。邮箱登录走后端本就中文，不受影响。
+- **bug4 用户名跨页残留**：`switchAuthMode` 原来只清 password2/emailCode，改为清空**全部**字段
+  （user/password/email/…），避免登录页填的用户名被带进注册页。
+- **bug5 会员开通失败**：不是可 patch 的 bug——"升级会员"只接了 `manual`(模拟)支付通道，而该通道按
+  安全红线生产必关（`COSMAC_PAY_ALLOW_MANUAL`，防自助白嫖）；真实支付(Stripe/PayPal/…)从未接通。
+  要让自助开通生效=实现真实支付(模块4，大工程)；当前可由管理员在后台手动授予会员等级。待负责人拍板。
+- 纯前端；build 通过。部署只需前端 dist（无需重启 bot）。
+
 ## 2026-07-02 — 管理后台用户列表显示邮箱地址
 - 需求：管理后台用户列表要能看到每个账号的注册邮箱。
 - 数据链路：邮箱只在 cosmac DB 的 `RegisteredEmail`（Synapse 不存），而管理后台是浏览器、够不到

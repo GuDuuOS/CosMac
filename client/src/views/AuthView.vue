@@ -74,6 +74,18 @@ async function sendCode() {
   }
 }
 
+/** 把登录的原始报错(Synapse errcode / 网络错误)映射成友好中文(bug3)。
+ *  邮箱登录走后端、报错本就是中文;这里主要救账号登录直连 Synapse 的原始英文码。 */
+function friendlyLoginError(e: any): string {
+  const code = e?.errcode || e?.data?.errcode || ''
+  const msg = String(e?.message || '')
+  if (code === 'M_USER_DEACTIVATED') return '该账号已被停用，请联系管理员'
+  if (code === 'M_LIMIT_EXCEEDED' || /429|too many|limit/i.test(msg)) return '尝试过于频繁，请稍后再试'
+  if (code === 'M_FORBIDDEN' || /invalid|forbidden|password|unknown|not found|403/i.test(msg)) return '用户名或密码错误'
+  if (/network|fetch|timeout|failed to fetch/i.test(msg)) return '网络异常，请检查网络后重试'
+  return msg || '登录失败，请重试'
+}
+
 /** 登录：账号走 Synapse，邮箱走 cosmac 后端；都用「只认证不启动」，成功后路由进主应用。 */
 async function doLogin() {
   error.value = ''; loading.value = true
@@ -82,7 +94,7 @@ async function doLogin() {
     else await loginNoStart(HS, user.value.trim(), password.value)
     proceed()
   } catch (e: any) {
-    error.value = e?.message || String(e)
+    error.value = friendlyLoginError(e)
   } finally {
     loading.value = false
   }
@@ -131,12 +143,16 @@ async function doResetPassword() {
   }
 }
 
-/** 切换登录/注册/找回密码，清掉上次的错误和相关字段。 */
+/** 切换登录/注册/找回密码。清空**所有**表单字段——避免"登录页填的用户名/邮箱被带进注册页"
+ *  这类跨页面残留（bug4）。每种模式都从干净表单开始。 */
 function switchAuthMode(m: 'login' | 'register' | 'reset') {
   authMode.value = m
   error.value = ''
   info.value = ''
+  user.value = ''
+  password.value = ''
   password2.value = ''
+  email.value = ''
   emailCode.value = ''
 }
 </script>
