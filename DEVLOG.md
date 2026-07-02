@@ -7,6 +7,17 @@
 
 ---
 
+## 2026-07-02 — bug14 平台管理员可管理所有频道 + 顺带修好后台邮箱显示
+- bug14 根因: 频道配置是 state event,写它需房间 power>=50;服务器管理员≠房间管理员,在别人建的频道
+  power=0 → 写被拒。且 bot 自己也只是被邀请(power=0),不能代写。
+- 修法: 用 Synapse 管理 API make_room_admin(借频道内已有房间管理员把请求者提成 power=100),复用
+  COSMAC_ADMIN_TOKEN。registration.make_room_admin + bot handle_channel_claim_admin + POST /cosmac/channel/claim-admin(仅平台管理员)。
+  前端 claimChannelAdmin;useChannelAdmin 保存被拒时自动接管+重试一次(非管理员 claim 返回false、退回错误提示)。
+- **顺带修好管理后台邮箱不显示**: CORS 预检白名单缺 /cosmac/admin/(GET 带 Authorization 也要预检)
+  → 之前 /cosmac/admin/emails 被浏览器拦、前端拿不到数据。本次把 /cosmac/admin/ 和 /cosmac/channel/ 加进白名单。
+- 全栈: registration.py/appservice_bot.py(后端)+ client.ts/useChannelAdmin.ts(前端)。329测试+ruff+build 过。
+- **部署两步: 前端 dist + 重启 guduu-bot。**
+
 ## 2026-07-02 — 修 bug12 任务派发不通知被指派者
 - 根因: _tool_create_tasks 只把任务写看板+回文字给AI,从不通知被指派的真人 → 任务躺看板、当事人不知道。
 - 修法: 拆完任务后按人聚合,给每个真人被指派者(id以@开头)在群里发一条 @提及消息;Matrix 默认推送规则

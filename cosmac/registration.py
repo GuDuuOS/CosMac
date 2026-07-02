@@ -531,6 +531,38 @@ def _admin_reset_password(hs_url: str, user_id: str, new_password: str) -> Tuple
         return 502, {"error": "重置服务暂不可用，请稍后重试"}
 
 
+def make_room_admin(hs_url: str, room_id: str, user_id: str) -> Tuple[int, Dict[str, Any]]:
+    """用服务器管理员令牌把 user_id 提成某房间的管理员(power=100)。
+
+    /_synapse/admin/v1/rooms/<room_id>/make_room_admin —— Synapse 管理 API,借房间内已有的
+    本地房间管理员(通常是频道创建者)把目标用户提权并拉进房。给"平台管理员接管任意频道去改
+    配置/技能"用(bug14:服务器管理员≠房间管理员,默认在别人建的频道里 power=0、写不了 state)。
+    需 COSMAC_ADMIN_TOKEN(同 _admin_reset_password)。
+    """
+    token = _env("ADMIN_TOKEN")
+    if not token:
+        return 503, {"error": "服务器未配置管理员令牌"}
+    from urllib.parse import quote
+    base = hs_url.rstrip("/")
+    url = f"{base}/_synapse/admin/v1/rooms/{quote(room_id, safe='')}/make_room_admin"
+    try:
+        rr = requests.post(
+            url,
+            json={"user_id": user_id},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=_HS_TIMEOUT,
+        )
+        if rr.status_code == 200:
+            return 200, {"ok": True}
+        logger.warning("make_room_admin 失败 %s: %s", rr.status_code, rr.text[:200])
+        return (rr.status_code if rr.status_code >= 400 else 502), {
+            "error": "接管频道失败（该频道可能没有本地管理员）"
+        }
+    except requests.RequestException:
+        logger.exception("调用 make_room_admin 失败")
+        return 502, {"error": "接管频道服务暂不可用，请稍后重试"}
+
+
 def reset_request_code(email: str, *, client_ip: str = "") -> Tuple[int, Dict[str, Any]]:
     """找回密码：发验证码到邮箱。
 

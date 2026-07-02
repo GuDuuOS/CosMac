@@ -1825,6 +1825,25 @@ class CosmacBot:
             logger.debug("读取邮箱映射失败", exc_info=True)
         return 200, {"emails": emails}
 
+    def handle_channel_claim_admin(
+        self, access_token: str, body: Dict[str, Any]
+    ) -> Tuple[int, Dict[str, Any]]:
+        """平台管理员「接管」某频道:用 Synapse make_room_admin 给自己在该频道授 power=100,
+        以便修改频道配置/技能(bug14:服务器管理员≠房间管理员,默认在别人建的频道里没权限、
+        写不了 cosmac.channel_config state event)。仅平台管理员可调;非管理员一律 403。"""
+        user_id = self.client.whoami(access_token)
+        if not user_id:
+            return 401, {"error": "登录已失效，请重新登录"}
+        if not self._is_platform_admin(user_id):
+            return 403, {"error": "仅平台管理员可接管频道"}
+        room_id = str((body or {}).get("room_id") or "").strip()
+        if not room_id.startswith("!"):
+            return 400, {"error": "无效的频道 id"}
+        from cosmac import registration
+        return registration.make_room_admin(
+            self.config.homeserver_url, room_id, user_id
+        )
+
     def _can_access_task(self, user_id: str, task: Any) -> bool:
         """判断 user_id 是否有权读/改这条任务。
 
@@ -3014,7 +3033,9 @@ class _Handler(BaseHTTPRequestHandler):
                 or p.startswith("/cosmac/kb/")
                 or p.startswith("/cosmac/people/")
                 or p.startswith("/cosmac/profile/")
-                or p.startswith("/cosmac/usage/")):  # 都走浏览器，需预检
+                or p.startswith("/cosmac/usage/")
+                or p.startswith("/cosmac/admin/")      # 后台用户列表拉邮箱（GET 带 Authorization 也要预检）
+                or p.startswith("/cosmac/channel/")):  # 平台管理员接管频道（bug14）；都走浏览器，需预检
             origin = os.environ.get("COSMAC_APP_ORIGIN", "") or "*"
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", origin)
@@ -3369,6 +3390,18 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "请求无效"}, cors=True)
                 return
             code, payload = self.bot.handle_people_add(token, body)
+            self._send_json(code, payload, cors=True)
+            return
+
+        # 平台管理员「接管」频道:给自己在该频道授 power=100,以便改频道配置/技能(bug14)。
+        if path == "/cosmac/channel/claim-admin":
+            auth = self.headers.get("Authorization", "")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            body = self._read_json_body(_MAX_CALLBACK_BODY)
+            if body is None:
+                self._send_json(400, {"error": "请求无效"}, cors=True)
+                return
+            code, payload = self.bot.handle_channel_claim_admin(token, body)
             self._send_json(code, payload, cors=True)
             return
 

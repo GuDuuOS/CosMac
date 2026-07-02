@@ -631,6 +631,24 @@ export async function setChannelConfig(roomId: string, patch: Record<string, any
   await (mx as any).sendStateEvent(roomId, CHANNEL_CONFIG_EVENT, next, '')
 }
 
+/**
+ * 平台管理员「接管」某频道:请求后端用 Synapse make_room_admin 给**我自己**在该频道授 power=100,
+ * 之后就能直接写频道配置了。用于"服务器管理员管理别人建的频道"(bug14:admin≠房间管理员,默认没权限)。
+ * 后端仅对平台管理员放行(非管理员回 403 → 这里返回 false)。成功返回 true。
+ */
+export async function claimChannelAdmin(roomId: string): Promise<boolean> {
+  const token = (mx as any)?.getAccessToken?.() || ''
+  if (!token || !roomId) return false
+  try {
+    const r = await fetch(`${payBase()}/cosmac/channel/claim-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ room_id: roomId }),
+    })
+    return r.ok
+  } catch { return false }
+}
+
 /* ===== 看板数据源（数据看板 / 任务看板的数据源配置）=====
  * 按工作区(Space)存一条 state event `cosmac.board_sources`，内容 { dashboard: [...], tasks: [...] }。
  * 数据源目前是配置占位（名称/类型/备注），真实取数以后接。Space 本身也是 Matrix 房间，复用 state event。

@@ -16,6 +16,7 @@ import {
   normalizeUserId,
   getChannelConfig,
   setChannelConfig,
+  claimChannelAdmin,
   type ChannelMember
 } from '@/matrix/client'
 
@@ -213,7 +214,16 @@ function persist(patch: Record<string, any>) {
       await setChannelConfig(rid, patch)
       saveState.value = 'saved'
     } catch {
-      saveState.value = 'error'  // 多半是当前用户在本群没有改配置的权限
+      // 保存被拒(多半 power 不够)。若本人是平台管理员,后端用 make_room_admin 给我在本频道授权,
+      // 然后重试一次;非管理员 claim 返回 false,退回错误提示(bug14)。
+      let ok = false
+      try {
+        if (await claimChannelAdmin(rid)) {
+          await setChannelConfig(rid, patch)
+          ok = true
+        }
+      } catch { /* 重试仍失败 */ }
+      saveState.value = ok ? 'saved' : 'error'
     }
   }, 700)
 }
