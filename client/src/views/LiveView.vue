@@ -71,6 +71,7 @@ import {
   normalizeUserId,
   isServerAdmin,
   ensureControlRoomMembership,
+  acceptPendingInvites,
   isProjectArchived,
   botId,
   type LiveRoom,
@@ -946,6 +947,9 @@ async function afterLogin(uid: string) {
     // （否则光被邀请发不了 state event，权限会比所有者差一点）。幂等、失败静默。
     if (ok) ensureControlRoomMembership()
   }).catch(() => { isAdmin.value = false })
+  // 自动接受待接受的频道邀请(join):CosMac 邀请即入群的工作台模型(修 bug 9/10/11)。
+  // best-effort;有新加入的房就刷新列表让它出现。
+  acceptPendingInvites().then((n) => { if (n > 0) refresh() }).catch(() => {})
   loadStats() // 数据看板真实指标（best-effort）
   refresh()
   // 若是从"社区服务器邀请链接"进来的，登录后执行加入

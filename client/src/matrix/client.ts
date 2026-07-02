@@ -400,6 +400,24 @@ export function listRooms(): LiveRoom[] {
     .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 }
 
+/**
+ * 登录后自动接受所有「待接受」的频道邀请(把 invite 态 join 掉)。返回本次实际 join 的房间数。
+ * 为什么:CosMac 是"AI/管理员把你拉进项目频道"的工作台模型——邀请就应入群(像 Slack 拉你进频道)。
+ * 否则邀请永远挂在 invite 态,被邀请方看不到、也没真加入,成员数还里外对不上(修 QA bug 9/10/11)。
+ * best-effort:单个房进不去不影响其它;全程兜异常,绝不阻断登录。
+ */
+export async function acceptPendingInvites(): Promise<number> {
+  if (!mx) return 0
+  let joined = 0
+  const invited = mx.getRooms().filter((r: any) => {
+    try { return r.getMyMembership?.() === 'invite' } catch { return false }
+  })
+  for (const r of invited) {
+    try { await mx.joinRoom(r.roomId); joined++ } catch { /* 单个进不去,跳过 */ }
+  }
+  return joined
+}
+
 /** 给 UI 用的工作区（Matrix Space）结构 */
 export interface LiveSpace {
   id: string
