@@ -747,6 +747,7 @@ class Toolbox:
         items = args.get("tasks") or []
         if not isinstance(items, list) or not items:
             return "没有可登记的子任务。"
+        by_person: Dict[str, list] = {}  # 真人被指派者 id → 其任务标题(用于群内 @ 通知,bug12)
         try:
             from cosmac.db import session_scope
             from cosmac.db.task_repo import create_tasks
@@ -769,11 +770,26 @@ class Toolbox:
                     elif t.assignee:
                         seg += f" —— {t.assignee}"
                     lines.append(seg)
+                    # 收集真人被指派者(id 以 @ 开头才能 @提及触发通知;AI/工作流执行者不 @)
+                    who = (t.executor_ref if t.executor_kind == "human" else "") or t.assignee or ""
+                    if who.startswith("@"):
+                        by_person.setdefault(who, []).append(t.title)
         except Exception:
             logger.exception("登记任务到看板失败")
             return "登记任务到看板失败（数据库不可用？）。"
         if not n:
             return "没有有效的子任务可登记。"
+        # 通知被指派的真人:群里 @ 他们(Matrix 默认推送规则:正文含对方用户名即触发通知),
+        # 别让任务只躺看板、当事人不知道(bug12)。一人一条、best-effort,发失败不影响任务已登记。
+        for _who, _titles in by_person.items():
+            try:
+                self.client.send_text(
+                    ctx.room_id,
+                    f"{_who} 你被指派了 {len(_titles)} 个任务："
+                    f"{'、'.join(_titles)}。详情见「任务看板」。",
+                )
+            except Exception:
+                logger.debug("通知任务被指派者失败 who=%s", _who, exc_info=True)
         return f"已把目标拆成 {n} 个任务、登记到「任务看板」：\n" + "\n".join(lines)
 
     def _tool_list_capabilities(self, args: Dict[str, Any], ctx: ToolContext) -> str:
