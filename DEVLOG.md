@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-07-02 — auth 安全增强阶段0:登录收口 + 认证审计日志
+- roadmap 阶段0(异地检测/二次验证/防多号的地基)。纯技术、不涉及付费策略。
+- **登录收口**: 账号登录原来前端直连 Synapse /_matrix/client/v3/login,后端看不到→IP限频/审计/异地
+  检测全插不进。新增 registration.login_account(限频+代理Synapse登录+记审计)+ bot handle_login_account
+  + POST /cosmac/login/account;前端 loginNoStart 改走后端(镜像 loginWithEmailNoStart)。账号登录现
+  与邮箱登录同一道防线。**权衡**: 账号登录now依赖bot在线(bot挂则登录不可用),这是收口的固有代价、
+  符合"认证统一经我们这层"的设计。
+- **认证审计日志**: 新表 cosmac_auth_event(kind=login/register/reset, subject, ip, ok, detail;绝不存
+  密码/码/token)+ auth_event_repo(record/recent_by_subject/recent_success_ips)。登录/注册/找回各处
+  记一条(成功+失败+限频)。create_all 自动建表,重启bot即生效。recent_success_ips 已为阶段2异地检测
+  预留("本次IP不在历史成功IP里=可疑")。
+- 测试: 新增 LoginAccountTest(成功/凭据错/空输入 + 审计断言);全量 334 过 + ruff + build 过。
+- **部署两步: 前端 dist + 重启 guduu-bot**(新表自动建)。
+
 ## 2026-07-02 — 全仓代码审查:修复 12 项(3 代理并行扫 + 逐条人工核实)
 - 负责人要求全面查还有什么 bug。3 个审查代理分区扫(认证HTTP/前端重构区/AI工具业务层),16 项发现、
   逐条核实后修 12 项,2 项按"够用即止"口径不修(配额竞态/事务重放),1 项待线上核实(nginx X-Real-IP),

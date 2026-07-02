@@ -418,6 +418,8 @@ def verify_and_register(
         return 503, {"error": "注册服务暂不可用，请稍后重试"}
 
     status, payload = _synapse_register(hs_url, username, password)
+    _audit("register", subject=username, ip=client_ip, ok=(status == 200),
+           detail="ok" if status == 200 else f"hs_{status}")
     if status != 200 and claim == "claimed" and 400 <= status < 500:
         # 只在「本次新占位 + 确定性失败(4xx,如用户名已占用/参数错)」时回滚占位。
         # ⚠️ 5xx/网络超时是**结果未知**——账号可能已在 Synapse 建成,此时删映射=该账号永远
@@ -484,6 +486,61 @@ def _lookup_username(email: str) -> Optional[str]:
         return None
 
 
+def _audit(kind: str, *, subject: str = "", ip: str = "", ok: bool = False, detail: str = "") -> None:
+    """记一条认证审计事件（登录/注册/找回）。best-effort——记日志失败绝不影响认证主流程。
+
+    收口后所有认证都经后端，故这里能拿到可信 IP、成败、主体，为异地检测/风控攒数据。
+    绝不记密码/验证码/token（只记 kind/subject/ip/ok/detail）。
+    """
+    try:
+        from cosmac.db import session_scope
+        from cosmac.db.auth_event_repo import record
+        with session_scope() as s:
+            record(s, kind=kind, subject=subject, ip=ip, ok=ok, detail=detail)
+    except Exception:
+        logger.debug("写认证审计失败（忽略）：kind=%s", kind, exc_info=True)
+
+
+def login_account(
+    username: str, password: str, *, hs_url: str, client_ip: str = ""
+) -> Tuple[int, Dict[str, Any]]:
+    """账号（用户名+密码）登录**收口到后端**：限频 + 代理 Synapse 登录 + 记审计。
+
+    为什么收口：原来前端直连 Synapse `/_matrix/client/v3/login`，后端看不到登录事件——
+    IP 限频、异地检测、审计全都插不进。收口后账号登录也经这里，与邮箱登录同一道防线。
+    成功原样返回 Synapse 登录响应（access_token/user_id/device_id），前端据此存会话。
+    失败回通用「用户名或密码错误」，不泄露账号是否存在。
+    """
+    username = (username or "").strip().lower()
+    if not username or not password:
+        return 403, {"error": "用户名或密码错误"}
+    # 在线撞库限频（收口的直接收益：账号登录现在也受这层保护）。
+    if not _ip_rate_ok("attempt", client_ip, _IP_ATTEMPT_MAX, _IP_ATTEMPT_WINDOW):
+        _audit("login", subject=username, ip=client_ip, ok=False, detail="rate_limited")
+        return 429, {"error": "尝试过于频繁，请稍后再试"}
+    base = hs_url.rstrip("/")
+    try:
+        resp = requests.post(
+            f"{base}/_matrix/client/v3/login",
+            json={
+                "type": "m.login.password",
+                "identifier": {"type": "m.id.user", "user": username},
+                "password": password,
+                "initial_device_display_name": "CosMac Web",
+            },
+            timeout=_HS_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            _audit("login", subject=username, ip=client_ip, ok=True, detail="ok")
+            return 200, resp.json()
+        _audit("login", subject=username, ip=client_ip, ok=False, detail="bad_credentials")
+        return 403, {"error": "用户名或密码错误"}
+    except requests.RequestException:
+        logger.exception("账号登录调用 Synapse 失败")
+        _audit("login", subject=username, ip=client_ip, ok=False, detail="hs_unreachable")
+        return 502, {"error": "登录服务暂不可用，请稍后重试"}
+
+
 def login_email(
     email: str, password: str, *, hs_url: str, client_ip: str = ""
 ) -> Tuple[int, Dict[str, Any]]:
@@ -498,9 +555,11 @@ def login_email(
         return 403, {"error": "邮箱或密码错误"}
     # 限在线撞库（请求经 bot 转发，Synapse 看到的是同一源 IP，这层得自己挡）。
     if not _ip_rate_ok("attempt", client_ip, _IP_ATTEMPT_MAX, _IP_ATTEMPT_WINDOW):
+        _audit("login", subject=email, ip=client_ip, ok=False, detail="rate_limited")
         return 429, {"error": "尝试过于频繁，请稍后再试"}
     username = _lookup_username(email)
     if not username:
+        _audit("login", subject=email, ip=client_ip, ok=False, detail="unknown_email")
         return 403, {"error": "邮箱或密码错误"}
     base = hs_url.rstrip("/")
     try:
@@ -515,10 +574,13 @@ def login_email(
             timeout=_HS_TIMEOUT,
         )
         if r.status_code == 200:
+            _audit("login", subject=username, ip=client_ip, ok=True, detail="ok_email")
             return 200, r.json()
+        _audit("login", subject=email, ip=client_ip, ok=False, detail="bad_credentials")
         return 403, {"error": "邮箱或密码错误"}
     except requests.RequestException:
         logger.exception("邮箱登录调用 Synapse 失败")
+        _audit("login", subject=email, ip=client_ip, ok=False, detail="hs_unreachable")
         return 502, {"error": "登录服务暂不可用，请稍后重试"}
 
 
@@ -626,4 +688,7 @@ def reset_verify(
     if not username:
         return 400, {"error": "该邮箱未注册"}
     user_id = f"@{username}:{server_name}"
-    return _admin_reset_password(hs_url, user_id, new_password)
+    st, payload = _admin_reset_password(hs_url, user_id, new_password)
+    _audit("reset", subject=email, ip=client_ip, ok=(st == 200),
+           detail="ok" if st == 200 else f"hs_{st}")
+    return st, payload

@@ -204,5 +204,46 @@ class PasswordResetTest(unittest.TestCase):
         self.assertEqual(st, 400)  # reset 桶里没这个码
 
 
+class LoginAccountTest(unittest.TestCase):
+    """账号登录收口(login_account)：限频 + 代理 Synapse + 记审计。全程打桩,不连真库/真 HS。"""
+
+    def setUp(self) -> None:
+        reg._ip_store.clear()
+        self._audits: list = []
+        reg._audit = (  # type: ignore
+            lambda kind, **kw: self._audits.append((kind, kw.get("ok"), kw.get("detail"))))
+
+    def test_success_returns_synapse_resp_and_audits_ok(self) -> None:
+        import cosmac.registration as _r
+
+        class _Resp:
+            status_code = 200
+            @staticmethod
+            def json():
+                return {"access_token": "tok", "user_id": "@a:h", "device_id": "d"}
+        _r.requests.post = lambda *a, **k: _Resp()  # type: ignore
+        st, payload = reg.login_account("alice", "pw", hs_url="http://hs", client_ip="1.2.3.4")
+        self.assertEqual(st, 200)
+        self.assertEqual(payload["access_token"], "tok")
+        self.assertIn(("login", True, "ok"), self._audits)
+
+    def test_bad_credentials_audits_fail(self) -> None:
+        import cosmac.registration as _r
+
+        class _Resp:
+            status_code = 403
+            @staticmethod
+            def json():
+                return {}
+        _r.requests.post = lambda *a, **k: _Resp()  # type: ignore
+        st, _ = reg.login_account("alice", "wrong", hs_url="http://hs", client_ip="1.2.3.4")
+        self.assertEqual(st, 403)
+        self.assertIn(("login", False, "bad_credentials"), self._audits)
+
+    def test_empty_input_rejected(self) -> None:
+        st, _ = reg.login_account("", "", hs_url="http://hs")
+        self.assertEqual(st, 403)
+
+
 if __name__ == "__main__":
     unittest.main()

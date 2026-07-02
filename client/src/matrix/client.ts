@@ -248,13 +248,18 @@ export async function loginNoStart(
   user: string,
   password: string,
 ): Promise<void> {
-  const tmp = createClient({ baseUrl })
-  const res: any = await tmp.login('m.login.password', {
-    identifier: { type: 'm.id.user', user },
-    password,
-    initial_device_display_name: 'CosMac Web',
+  // 账号登录**收口到后端**(安全阶段0)：不再前端直连 Synapse，改走 cosmac 后端
+  // /cosmac/login/account —— 让后端能对账号登录做 IP 限频、记审计（异地检测的地基）。
+  // 后端代理 Synapse 登录后原样返回 access_token/user_id/device_id，前端据此存会话。
+  const base = baseUrl.replace(/\/$/, '')
+  const r = await fetch(`${base}/cosmac/login/account`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: user, password }),
   })
-  saveSession(baseUrl, res)
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok || !j?.access_token) throw new Error(j?.error || '登录失败')
+  saveSession(baseUrl, j)
 }
 
 /** 邮箱+密码「只认证不启动」（走 cosmac 后端反查账号,同 loginNoStart 的语义）。 */

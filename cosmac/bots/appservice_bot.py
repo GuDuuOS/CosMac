@@ -2284,6 +2284,18 @@ class CosmacBot:
             hs_url=self.config.homeserver_url, client_ip=client_ip,
         )
 
+    def handle_login_account(
+        self, body: Dict[str, Any], client_ip: str = ""
+    ) -> Tuple[int, Dict[str, Any]]:
+        """账号（用户名+密码）登录**收口**：经后端代理 Synapse 登录 + IP 限频 + 记审计（公开端点）。
+        原来前端直连 Synapse，后端看不到登录；收口后账号登录与邮箱登录同一道防线。"""
+        from cosmac import registration
+        b = body or {}
+        return registration.login_account(
+            b.get("username", ""), b.get("password", ""),
+            hs_url=self.config.homeserver_url, client_ip=client_ip,
+        )
+
     def handle_kb_list_mine(self, access_token: str) -> Tuple[int, Dict[str, Any]]:
         """列出本人**个人知识库**文档（标题）。给 AI 侧栏「项目文件」展示真实知识库用。需登录。"""
         user_id = self.client.whoami(access_token)
@@ -3388,6 +3400,16 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "请求无效"}, cors=True)
                 return
             code, payload = self.bot.handle_login_email(body, self._client_ip())
+            self._send_json(code, payload, cors=True)
+            return
+
+        # 账号登录收口（用户名+密码 → 后端代理 Synapse + 限频 + 审计）。CORS 走 /cosmac/login/ 白名单。
+        if path == "/cosmac/login/account":
+            body = self._read_json_body(_MAX_CALLBACK_BODY)
+            if body is None:
+                self._send_json(400, {"error": "请求无效"}, cors=True)
+                return
+            code, payload = self.bot.handle_login_account(body, self._client_ip())
             self._send_json(code, payload, cors=True)
             return
 

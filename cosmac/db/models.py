@@ -416,6 +416,33 @@ class RegisteredEmail(Base, TimestampMixin):
         return f"<RegisteredEmail {self.email} -> {self.username}>"
 
 
+class AuthEvent(Base, TimestampMixin):
+    """认证审计事件（登录/注册/找回密码的每次尝试）——安全增强阶段0 的地基。
+
+    为什么要它：登录一旦收口到后端，我们就能记下"谁 / 何时 / 什么 IP / 成功还是失败"，
+    这是后续"异地登录检测 / 可疑登录二次验证 / 防批量注册"的数据来源。派生审计数据、
+    与 Synapse 原始账号数据分开存（符合 CLAUDE.md 存储分层：AI/安全层自己的结构化数据进 cosmac DB）。
+    只存**判定所需**的最小字段，绝不存密码/验证码/token。
+    """
+
+    __tablename__ = "cosmac_auth_event"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 事件类型：login（登录）/ register（注册）/ reset（找回密码）。
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    # 主体：登录/注册用 username localpart；邮箱相关用邮箱（小写）。仅用于按主体聚合，不含敏感。
+    subject: Mapped[str] = mapped_column(String(320), nullable=False, default="", index=True)
+    # 客户端 IP（经收口后由后端可信取得；异地检测的关键维度）。
+    ip: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # 是否成功。失败也要记——爆破/异常尝试正是要看的。
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 简短事由（如 "bad_password" / "rate_limited" / "ok"）——排查用，不含明文凭据。
+    detail: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+
+    def __repr__(self) -> str:
+        return f"<AuthEvent {self.kind} {self.subject} ok={self.ok}>"
+
+
 class DocPage(Base, TimestampMixin):
     """文档教学频道（类云文档）的一个**页面**。
 
